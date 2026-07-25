@@ -2,6 +2,73 @@ import Rhino
 import System.Drawing
 
 
+class ObjectHighlightConduit(Rhino.Display.DisplayConduit):
+    def __init__(self, object_id):
+        super(ObjectHighlightConduit, self).__init__()
+        self.object_id = object_id
+
+    def DrawForeground(self, event):
+        doc = Rhino.RhinoDoc.ActiveDoc
+        obj = doc.Objects.Find(self.object_id) if doc is not None else None
+        if obj is None:
+            return
+        geometry = obj.Geometry
+        if isinstance(geometry, Rhino.Geometry.Mesh):
+            event.Display.DrawMeshWires(
+                geometry,
+                System.Drawing.Color.LightPink,
+                3,
+            )
+            return
+        if not isinstance(geometry, Rhino.Geometry.Brep):
+            try:
+                geometry = geometry.ToBrep(True)
+            except Exception:
+                return
+        if geometry is not None:
+            event.Display.DrawBrepWires(
+                geometry,
+                System.Drawing.Color.LightPink,
+                3,
+            )
+
+
+class PlanePreviewConduit(Rhino.Display.DisplayConduit):
+    def __init__(self, obj):
+        super(PlanePreviewConduit, self).__init__()
+        self.plane = None
+        self.points = []
+        bbox = obj.Geometry.GetBoundingBox(True)
+        self.axis_length = max(bbox.Diagonal.Length * 0.2, 1.0)
+
+    def update(self, plane, points=()):
+        self.plane = plane
+        self.points = list(points)
+
+    def DrawForeground(self, event):
+        if self.plane is None:
+            return
+        origin = self.plane.Origin
+        for axis, color in (
+            (self.plane.XAxis, System.Drawing.Color.Red),
+            (self.plane.YAxis, System.Drawing.Color.LimeGreen),
+            (self.plane.ZAxis, System.Drawing.Color.DodgerBlue),
+        ):
+            event.Display.DrawLine(
+                origin,
+                origin + axis * self.axis_length,
+                color,
+                3,
+            )
+        for point in self.points:
+            event.Display.DrawPoint(
+                point,
+                Rhino.Display.PointStyle.X,
+                14,
+                System.Drawing.Color.Orange,
+            )
+
+
 class GlueConduit(Rhino.Display.DisplayConduit):
     def __init__(self, state):
         super(GlueConduit, self).__init__()

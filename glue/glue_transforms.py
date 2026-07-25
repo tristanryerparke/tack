@@ -2,7 +2,7 @@ import Rhino
 import System
 
 from glue_debug import log
-from glue_display import GlueConduit
+from glue_display import GlueConduit, PlanePreviewConduit
 
 
 def _world_spec(reference, vertex_type="", vertex_index=-1):
@@ -123,56 +123,69 @@ def _choose_edge(obj, object_id, vertex_type, vertex_index, label, excluded=None
 
 
 def _choose_orientation(obj, object_id, spec, label):
-    options = Rhino.Input.Custom.GetOption()
-    options.SetCommandPrompt("Plane orientation for the {}".format(label))
-    options.AcceptNothing(False)
-    world_option = options.AddOption("World")
-    cplane_option = options.AddOption("CPlane")
-    edges_option = None
-    if spec["reference"] == "vertex":
-        edges_option = options.AddOption("Edges")
+    preview = PlanePreviewConduit(obj)
+    preview.Enabled = True
+    try:
+        point = GlueConduit.reference_point(obj, spec)
+        plane = GlueConduit.reference_plane(obj, spec)
+        preview.update(plane, (point,) if point is not None else ())
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
 
-    result = options.Get()
-    if result != Rhino.Input.GetResult.Option:
-        return None
+        options = Rhino.Input.Custom.GetOption()
+        options.SetCommandPrompt("Plane orientation for the {}".format(label))
+        options.AcceptNothing(False)
+        world_option = options.AddOption("World")
+        cplane_option = options.AddOption("CPlane")
+        edges_option = None
+        if spec["reference"] == "vertex":
+            edges_option = options.AddOption("Edges")
 
-    option_index = options.OptionIndex()
-    if option_index == world_option:
-        spec["orientation"] = "world"
-    elif option_index == cplane_option:
-        spec["orientation"] = "cplane"
-        spec["x_axis"], spec["y_axis"] = _cplane_axes()
-    elif option_index == edges_option:
-        first = _choose_edge(
-            obj,
-            object_id,
-            spec["vertex_type"],
-            spec["vertex_index"],
-            "first X-axis",
-        )
-        if first is None:
+        result = options.Get()
+        if result != Rhino.Input.GetResult.Option:
             return None
-        second = _choose_edge(
-            obj,
-            object_id,
-            spec["vertex_type"],
-            spec["vertex_index"],
-            "second Y-axis",
-            excluded=first,
-        )
-        if second is None:
-            return None
-        spec["orientation"] = "edges"
-        spec["edge_1"] = first
-        spec["edge_2"] = second
-    else:
-        return None
 
-    plane = GlueConduit.reference_plane(obj, spec)
-    if plane is None:
-        print("Could not create the {} reference plane.".format(label))
-        return None
-    return spec, plane
+        option_index = options.OptionIndex()
+        if option_index == world_option:
+            spec["orientation"] = "world"
+        elif option_index == cplane_option:
+            spec["orientation"] = "cplane"
+            spec["x_axis"], spec["y_axis"] = _cplane_axes()
+        elif option_index == edges_option:
+            first = _choose_edge(
+                obj,
+                object_id,
+                spec["vertex_type"],
+                spec["vertex_index"],
+                "first X-axis",
+            )
+            if first is None:
+                return None
+            spec["orientation"] = "edges"
+            spec["edge_1"] = first
+            second = _choose_edge(
+                obj,
+                object_id,
+                spec["vertex_type"],
+                spec["vertex_index"],
+                "second Y-axis",
+                excluded=first,
+            )
+            if second is None:
+                return None
+            spec["edge_2"] = second
+        else:
+            return None
+
+        plane = GlueConduit.reference_plane(obj, spec)
+        if plane is None:
+            print("Could not create the {} reference plane.".format(label))
+            return None
+        preview.update(plane, (point,) if point is not None else ())
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+        return spec, plane
+    finally:
+        preview.Enabled = False
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
 
 
 def choose_reference_plane(object_id, label):

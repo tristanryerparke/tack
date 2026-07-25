@@ -1,7 +1,25 @@
+import importlib
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "glue"))
+
+import glue_constants
+import glue_debug
+import glue_display
+import glue_metadata
+import glue_state
+import glue_transforms
+
+importlib.reload(glue_constants)
+importlib.reload(glue_debug)
+importlib.reload(glue_metadata)
+importlib.reload(glue_display)
+importlib.reload(glue_transforms)
+importlib.reload(glue_state)
+
+import glue_events
+importlib.reload(glue_events)
 
 import Rhino
 import rhinoscriptsyntax as rs
@@ -9,48 +27,52 @@ import scriptcontext as sc
 from Rhino.Commands import Result
 from System import Guid
 
-from glue_constants import AFTER_HANDLER_KEY, CONDUIT_KEY, HANDLER_KEY, REPLACE_HANDLER_KEY
+from glue_constants import (
+    AFTER_HANDLER_KEY,
+    CONDUIT_KEY,
+    HANDLER_KEY,
+    REPLACE_HANDLER_KEY,
+)
 from glue_debug import log
-from glue_display import GlueConduit
-from glue_events import after_transform, before_transform, replace_rhino_object, reset_runtime_objects
+from glue_display import GlueConduit, ObjectHighlightConduit
+from glue_events import (
+    after_transform,
+    before_transform,
+    replace_rhino_object,
+    reset_runtime_objects,
+)
 from glue_metadata import write_metadata
 from glue_state import get_state
 from glue_transforms import choose_reference_plane
 
 
-def RunCommand(is_interactive):
-    reset_runtime_objects()
-    state = get_state()
-    doc = Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return Result.Cancel
-
-    parent_id = rs.GetObject(
-        "Select Parent object",
-        preselect=False,
-        select=False,
-    )
-    if not parent_id:
-        return Result.Cancel
-
+def _create_relationships(doc, state, parent_id):
     parent_result = choose_reference_plane(parent_id, "Parent")
     if parent_result is None:
-        return Result.Cancel
+        return False
     parent_spec, parent_plane = parent_result
 
-    child_ids = rs.GetObjects(
-        "Select Child object(s)",
-        preselect=False,
-        select=False,
-    )
+    was_locked = rs.IsObjectLocked(parent_id)
+    if not was_locked:
+        rs.LockObject(parent_id)
+    try:
+        child_ids = rs.GetObjects(
+            "Select Child object(s)",
+            preselect=False,
+            select=False,
+        )
+    finally:
+        if not was_locked:
+            rs.UnlockObject(parent_id)
+
     if not child_ids or parent_id in child_ids:
         print("Select one Parent object that is not a Child.")
-        return Result.Cancel
+        return False
 
     for child_id in child_ids:
         child_result = choose_reference_plane(child_id, "Child")
         if child_result is None:
-            return Result.Cancel
+            return False
         child_spec, child_plane = child_result
         relationship_id = str(Guid.NewGuid())
         parent_to_child = Rhino.Geometry.Transform.PlaneToPlane(
@@ -101,6 +123,32 @@ def RunCommand(is_interactive):
                 GlueConduit.transform_data(parent_to_child),
             )
         )
+    return True
+
+
+def RunCommand(is_interactive):
+    reset_runtime_objects()
+    state = get_state()
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return Result.Cancel
+
+    parent_id = rs.GetObject(
+        "Select Parent object",
+        preselect=False,
+        select=False,
+    )
+    if not parent_id:
+        return Result.Cancel
+
+    highlight = ObjectHighlightConduit(parent_id)
+    highlight.Enabled = True
+    try:
+        if not _create_relationships(doc, state, parent_id):
+            return Result.Cancel
+    finally:
+        highlight.Enabled = False
+        doc.Views.Redraw()
 
     sc.sticky[HANDLER_KEY] = before_transform
     Rhino.RhinoDoc.BeforeTransformObjects += before_transform
