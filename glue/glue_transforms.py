@@ -1,147 +1,204 @@
 import Rhino
 import System
 
-from glue_constants import (
-    ALLOW_ROTATION,
-    ALLOW_SCALE,
-    ALLOW_TRANSLATION,
-    EPS,
-)
 from glue_debug import log
-
-# Keep the last command's choices as the next command's defaults.
-_allow_translation = ALLOW_TRANSLATION
-_allow_rotation = ALLOW_ROTATION
-_allow_scale = ALLOW_SCALE
+from glue_display import GlueConduit
 
 
-def transform_flags(xform):
-    """Classify a Rhino transform using RhinoCommon's native rigid test."""
-    linear = (
-        (xform.M00, xform.M01, xform.M02),
-        (xform.M10, xform.M11, xform.M12),
-        (xform.M20, xform.M21, xform.M22),
-    )
-    identity = all(
-        abs(linear[row][column] - (1.0 if row == column else 0.0)) <= EPS
-        for row in range(3)
-        for column in range(3)
-    )
-    has_translation = any(
-        abs(value) > EPS
-        for value in (xform.M03, xform.M13, xform.M23)
-    )
-    rigid = bool(xform.IsRigid)
-    return has_translation, rigid and not identity, not rigid
+def _world_spec(reference, vertex_type="", vertex_index=-1):
+    return {
+        "reference": reference,
+        "vertex_type": vertex_type,
+        "vertex_index": vertex_index,
+        "orientation": "world",
+        "x_axis": [1.0, 0.0, 0.0],
+        "y_axis": [0.0, 1.0, 0.0],
+    }
 
 
-def transform_allowed(xform, relationship):
-    has_translation, has_rotation, has_scale = transform_flags(xform)
-    return (
-        (not has_translation or relationship["translation"])
-        and (not has_rotation or relationship["rotation"])
-        and (not has_scale or relationship["scale"])
-    )
-
-
-def choose_transform_types(parent_id):
-    global _allow_translation, _allow_rotation, _allow_scale
-
-    options = Rhino.Input.Custom.GetOption()
-    options.SetCommandPrompt("Choose glue transform types, then press Enter")
-    options.AcceptNothing(True)
-
-    translation = Rhino.Input.Custom.OptionToggle(
-        _allow_translation, "Off", "On"
-    )
-    rotation = Rhino.Input.Custom.OptionToggle(
-        _allow_rotation, "Off", "On"
-    )
-    scale = Rhino.Input.Custom.OptionToggle(
-        _allow_scale, "Off", "On"
-    )
-    options.AddOptionToggle("Translation", translation)
-    options.AddOptionToggle("Rotation", rotation)
-    options.AddOptionToggle("Scale", scale)
-    reference_option = options.AddOption("ParentVertex")
-
-    reference = "centroid"
-    vertex_index = -1
-    vertex_type = ""
-
-    while True:
-        result = options.Get()
-        if result == Rhino.Input.GetResult.Option:
-            if options.OptionIndex() != reference_option:
-                continue
-            selected_vertex = choose_parent_vertex(parent_id)
-            if selected_vertex is None:
-                return None
-            vertex_type, vertex_index = selected_vertex
-            reference = "vertex"
-            continue
-        if result != Rhino.Input.GetResult.Nothing:
-            return None
-        _allow_translation = translation.CurrentValue
-        _allow_rotation = rotation.CurrentValue
-        _allow_scale = scale.CurrentValue
+def _cplane_axes():
+    try:
+        view = Rhino.RhinoDoc.ActiveDoc.Views.ActiveView
+        plane = view.ActiveViewport.ConstructionPlane()
         return (
-            _allow_translation,
-            _allow_rotation,
-            _allow_scale,
-            reference,
-            vertex_index,
-            vertex_type,
+            [plane.XAxis.X, plane.XAxis.Y, plane.XAxis.Z],
+            [plane.YAxis.X, plane.YAxis.Y, plane.YAxis.Z],
         )
+    except Exception:
+        return [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]
 
 
-def choose_parent_vertex(parent_id):
+def _choose_vertex(object_id, label):
     getter = Rhino.Input.Custom.GetObject()
-    getter.SetCommandPrompt("Select a vertex on the Parent")
+    getter.SetCommandPrompt("Select a vertex on the {}".format(label))
     getter.SubObjectSelect = True
     getter.GeometryFilter = (
         Rhino.DocObjects.ObjectType.BrepVertex
         | Rhino.DocObjects.ObjectType.MeshVertex
     )
     getter.EnablePreSelect(False, True)
-    log("vertex picker started for Parent {}".format(parent_id))
-
-    vertex_types = (
-        Rhino.Geometry.ComponentIndexType.BrepVertex,
-        Rhino.Geometry.ComponentIndexType.MeshVertex,
-    )
+    log("{} vertex picker started for {}".format(label, object_id))
 
     result = getter.Get()
-    log("vertex picker result: {}".format(result))
     if result != Rhino.Input.GetResult.Object:
-        log("vertex picker did not return an object")
         return None
 
     obj_ref = getter.Object(0)
-    component_index = obj_ref.GeometryComponentIndex
-    component_type = component_index.ComponentIndexType
+    component = obj_ref.GeometryComponentIndex
+    if obj_ref.ObjectId != object_id:
+        print("Select a vertex on the {}.".format(label))
+        return None
+
+    supported = (
+        Rhino.Geometry.ComponentIndexType.BrepVertex,
+        Rhino.Geometry.ComponentIndexType.MeshVertex,
+    )
+    if component.ComponentIndexType not in supported:
+        print("Select a vertex on the {}.".format(label))
+        return None
+
+    name = System.Enum.GetName(
+        Rhino.Geometry.ComponentIndexType,
+        component.ComponentIndexType,
+    )
     log(
-        "picked object={}, parent={}, component_type={}, index={}".format(
-            obj_ref.ObjectId,
-            parent_id,
-            component_type,
-            component_index.Index,
+        "{} vertex: type={}, index={}".format(
+            label,
+            name,
+            component.Index,
         )
     )
-    if obj_ref.ObjectId != parent_id:
-        log("picked object is not the selected Parent")
-        print("Select a vertex on the Parent.")
+    return name, int(component.Index)
+
+
+def _edge_touches_vertex(obj, vertex_type, edge_index, vertex_index):
+    geometry = obj.Geometry
+    if vertex_type == "BrepVertex":
+        if not hasattr(geometry, "Edges"):
+            geometry = geometry.ToBrep(True)
+        edge = geometry.Edges[int(edge_index)]
+        return (
+            edge.StartVertex.VertexIndex == vertex_index
+            or edge.EndVertex.VertexIndex == vertex_index
+        )
+    if vertex_type == "MeshVertex":
+        pair = geometry.TopologyEdges.GetTopologyVertices(int(edge_index))
+        topology_index = geometry.TopologyVertices.TopologyVertexIndex(vertex_index)
+        return pair.I == topology_index or pair.J == topology_index
+    return False
+
+
+def _choose_edge(obj, object_id, vertex_type, vertex_index, label, excluded=None):
+    while True:
+        getter = Rhino.Input.Custom.GetObject()
+        getter.SetCommandPrompt("Select the {} edge".format(label))
+        getter.SubObjectSelect = True
+        getter.GeometryFilter = Rhino.DocObjects.ObjectType.EdgeFilter
+        getter.EnablePreSelect(False, True)
+        result = getter.Get()
+        if result != Rhino.Input.GetResult.Object:
+            return None
+
+        obj_ref = getter.Object(0)
+        component = obj_ref.GeometryComponentIndex
+        if obj_ref.ObjectId != object_id:
+            print("Select an edge on the selected vertex's object.")
+            continue
+        expected_type = (
+            Rhino.Geometry.ComponentIndexType.BrepEdge
+            if vertex_type == "BrepVertex"
+            else Rhino.Geometry.ComponentIndexType.MeshEdge
+        )
+        if component.ComponentIndexType != expected_type:
+            print("Select an adjoining edge on the selected object.")
+            continue
+        edge_index = int(component.Index)
+        if excluded is not None and edge_index == excluded:
+            print("Choose a different edge.")
+            continue
+        if not _edge_touches_vertex(obj, vertex_type, edge_index, vertex_index):
+            print("Choose an edge adjoining the selected vertex.")
+            continue
+        return edge_index
+
+
+def _choose_orientation(obj, object_id, spec, label):
+    options = Rhino.Input.Custom.GetOption()
+    options.SetCommandPrompt("Plane orientation for the {}".format(label))
+    options.AcceptNothing(False)
+    world_option = options.AddOption("World")
+    cplane_option = options.AddOption("CPlane")
+    edges_option = None
+    if spec["reference"] == "vertex":
+        edges_option = options.AddOption("Edges")
+
+    result = options.Get()
+    if result != Rhino.Input.GetResult.Option:
         return None
 
-    if component_type not in vertex_types:
-        log("picked component is not a supported vertex")
-        print("Select a vertex on the Parent.")
+    option_index = options.OptionIndex()
+    if option_index == world_option:
+        spec["orientation"] = "world"
+    elif option_index == cplane_option:
+        spec["orientation"] = "cplane"
+        spec["x_axis"], spec["y_axis"] = _cplane_axes()
+    elif option_index == edges_option:
+        first = _choose_edge(
+            obj,
+            object_id,
+            spec["vertex_type"],
+            spec["vertex_index"],
+            "first X-axis",
+        )
+        if first is None:
+            return None
+        second = _choose_edge(
+            obj,
+            object_id,
+            spec["vertex_type"],
+            spec["vertex_index"],
+            "second Y-axis",
+            excluded=first,
+        )
+        if second is None:
+            return None
+        spec["orientation"] = "edges"
+        spec["edge_1"] = first
+        spec["edge_2"] = second
+    else:
         return None
 
-    component_name = System.Enum.GetName(
-        Rhino.Geometry.ComponentIndexType,
-        component_type,
-    )
-    selected = component_name or str(component_type), int(component_index.Index)
-    log("stored vertex reference: type={}, index={}".format(*selected))
-    return selected
+    plane = GlueConduit.reference_plane(obj, spec)
+    if plane is None:
+        print("Could not create the {} reference plane.".format(label))
+        return None
+    return spec, plane
+
+
+def choose_reference_plane(object_id, label):
+    doc = Rhino.RhinoDoc.ActiveDoc
+    obj = doc.Objects.Find(object_id)
+    if obj is None:
+        return None
+
+    options = Rhino.Input.Custom.GetOption()
+    options.SetCommandPrompt("Define the {} reference plane".format(label))
+    centroid_option = options.AddOption("Centroid")
+    vertex_option = options.AddOption("Vertex")
+
+    result = options.Get()
+    if result != Rhino.Input.GetResult.Option:
+        return None
+
+    option_index = options.OptionIndex()
+    if option_index == centroid_option:
+        spec = _world_spec("centroid")
+    elif option_index == vertex_option:
+        selected = _choose_vertex(object_id, label)
+        if selected is None:
+            return None
+        spec = _world_spec("vertex", selected[0], selected[1])
+    else:
+        return None
+
+    return _choose_orientation(obj, object_id, spec, label)

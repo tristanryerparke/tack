@@ -31,88 +31,101 @@ class GlueConduit(Rhino.Display.DisplayConduit):
             return geometry.Vertices[int(index)].Location
         if vertex_type == "MeshVertex":
             return Rhino.Geometry.Point3d(geometry.Vertices[int(index)])
-        if vertex_type == "SubDVertex":
-            return geometry.Vertices[int(index)].SurfacePoint()
         return None
 
     @classmethod
-    def reference_point(cls, obj, relationship, fallback=True):
-        if relationship.get("reference") != "vertex":
+    def reference_point(cls, obj, spec):
+        if spec["reference"] == "centroid":
             return cls.centroid(obj)
-
-        try:
-            point = cls.vertex_point(
-                obj,
-                relationship["vertex_type"],
-                relationship["vertex_index"],
-            )
-            if point is not None:
-                return point
-        except Exception:
-            pass
-        return cls.centroid(obj) if fallback else None
+        return cls.vertex_point(obj, spec["vertex_type"], spec["vertex_index"])
 
     @classmethod
-    def frame_vertex_indices(cls, obj, relationship):
-        vertex_type = relationship.get("vertex_type")
-        index = int(relationship.get("vertex_index", -1))
-        if vertex_type == "BrepVertex":
-            geometry = obj.Geometry
-            if not hasattr(geometry, "Vertices"):
+    def edge_vector(cls, obj, spec, edge_index):
+        geometry = obj.Geometry
+        origin = cls.reference_point(obj, spec)
+        if origin is None:
+            return None
+        if spec["vertex_type"] == "BrepVertex":
+            if not hasattr(geometry, "Edges"):
                 geometry = geometry.ToBrep(True)
-            vertex = geometry.Vertices[index]
-            neighbors = []
-            edge_indices = vertex.EdgeIndices
-            if callable(edge_indices):
-                edge_indices = edge_indices()
-            for edge_index in edge_indices:
-                edge = geometry.Edges[edge_index]
-                start_index = edge.StartVertex.VertexIndex
-                end_index = edge.EndVertex.VertexIndex
-                neighbor = end_index if start_index == index else start_index
-                if neighbor not in neighbors:
-                    neighbors.append(neighbor)
-            return tuple(neighbors[:2]) if len(neighbors) >= 2 else None
-        if vertex_type == "MeshVertex":
-            neighbors = []
-            faces = obj.Geometry.Faces
-            for face_index in range(faces.Count):
-                face = faces[face_index]
-                indices = [face.A, face.B, face.C]
-                if face.IsQuad:
-                    indices.append(face.D)
-                if index not in indices:
-                    continue
-                for neighbor in indices:
-                    if neighbor != index and neighbor not in neighbors:
-                        neighbors.append(neighbor)
-            return tuple(neighbors[:2]) if len(neighbors) >= 2 else None
+            edge = geometry.Edges[int(edge_index)]
+            origin_index = int(spec["vertex_index"])
+            start = edge.StartVertex
+            end = edge.EndVertex
+            if start.VertexIndex == origin_index:
+                return end.Location - origin
+            if end.VertexIndex == origin_index:
+                return start.Location - origin
+            return None
+        if spec["vertex_type"] == "MeshVertex":
+            pair = geometry.TopologyEdges.GetTopologyVertices(int(edge_index))
+            topology_index = geometry.TopologyVertices.TopologyVertexIndex(
+                int(spec["vertex_index"])
+            )
+            other = pair.J if pair.I == topology_index else pair.I
+            return geometry.TopologyVertices[other] - origin
         return None
 
+    @staticmethod
+    def plane_at_point(spec, point):
+        return Rhino.Geometry.Plane(
+            point,
+            Rhino.Geometry.Vector3d(*spec["x_axis"]),
+            Rhino.Geometry.Vector3d(*spec["y_axis"]),
+        )
+
     @classmethod
-    def reference_frame(cls, obj, relationship):
-        indices = (
-            relationship.get("frame_index_1"),
-            relationship.get("frame_index_2"),
+    def reference_plane(cls, obj, spec):
+        point = cls.reference_point(obj, spec)
+        if point is None:
+            return None
+
+        if spec["orientation"] != "edges":
+            return cls.plane_at_point(spec, point)
+
+        x_axis = cls.edge_vector(obj, spec, spec["edge_1"])
+        y_axis = cls.edge_vector(obj, spec, spec["edge_2"])
+        if x_axis is None or y_axis is None:
+            return None
+        if not x_axis.Unitize():
+            return None
+        y_axis = y_axis - x_axis * (x_axis * y_axis)
+        if not y_axis.Unitize():
+            return None
+        return Rhino.Geometry.Plane(point, x_axis, y_axis)
+
+    @staticmethod
+    def plane_data(plane):
+        return {
+            "origin": [plane.Origin.X, plane.Origin.Y, plane.Origin.Z],
+            "x_axis": [plane.XAxis.X, plane.XAxis.Y, plane.XAxis.Z],
+            "y_axis": [plane.YAxis.X, plane.YAxis.Y, plane.YAxis.Z],
+        }
+
+    @staticmethod
+    def plane_from_data(data):
+        return Rhino.Geometry.Plane(
+            Rhino.Geometry.Point3d(*data["origin"]),
+            Rhino.Geometry.Vector3d(*data["x_axis"]),
+            Rhino.Geometry.Vector3d(*data["y_axis"]),
         )
-        if None in indices or -1 in indices:
-            return None
-        origin = cls.vertex_point(
-            obj,
-            relationship["vertex_type"],
-            relationship["vertex_index"],
-        )
-        point_1 = cls.vertex_point(obj, relationship["vertex_type"], indices[0])
-        point_2 = cls.vertex_point(obj, relationship["vertex_type"], indices[1])
-        if origin is None or point_1 is None or point_2 is None:
-            return None
-        axis_1 = point_1 - origin
-        axis_2 = point_2 - origin
-        if axis_1.Length <= 1e-9 or axis_2.Length <= 1e-9:
-            return None
-        if Rhino.Geometry.Vector3d.CrossProduct(axis_1, axis_2).Length <= 1e-9:
-            return None
-        return Rhino.Geometry.Plane(origin, axis_1, axis_2)
+
+    @staticmethod
+    def transform_data(xform):
+        return [
+            xform.M00, xform.M01, xform.M02, xform.M03,
+            xform.M10, xform.M11, xform.M12, xform.M13,
+            xform.M20, xform.M21, xform.M22, xform.M23,
+            xform.M30, xform.M31, xform.M32, xform.M33,
+        ]
+
+    @staticmethod
+    def transform_from_data(values):
+        xform = Rhino.Geometry.Transform.Identity
+        for row in range(4):
+            for column in range(4):
+                setattr(xform, "M{}{}".format(row, column), values[row * 4 + column])
+        return xform
 
     def DrawForeground(self, event):
         doc = Rhino.RhinoDoc.ActiveDoc
@@ -123,27 +136,29 @@ class GlueConduit(Rhino.Display.DisplayConduit):
             if relationship["document_serial"] != doc.RuntimeSerialNumber:
                 continue
 
-            follower = doc.Objects.Find(relationship["follower_id"])
-            driver = doc.Objects.Find(relationship["driver_id"])
-            if follower is None or driver is None:
+            child = doc.Objects.Find(relationship["follower_id"])
+            parent = doc.Objects.Find(relationship["driver_id"])
+            if child is None or parent is None:
                 continue
 
-            child_centroid = self.centroid(follower)
-            parent_reference = self.reference_point(driver, relationship)
+            child_point = self.reference_point(child, relationship["child_spec"])
+            parent_point = self.reference_point(parent, relationship["parent_spec"])
+            if child_point is None or parent_point is None:
+                continue
             event.Display.DrawPoint(
-                child_centroid,
+                child_point,
                 Rhino.Display.PointStyle.X,
                 10,
                 System.Drawing.Color.DodgerBlue,
             )
             event.Display.DrawPoint(
-                parent_reference,
+                parent_point,
                 Rhino.Display.PointStyle.X,
                 10,
                 System.Drawing.Color.OrangeRed,
             )
             event.Display.DrawDottedLine(
-                child_centroid,
-                parent_reference,
+                child_point,
+                parent_point,
                 System.Drawing.Color.Gold,
             )

@@ -1,13 +1,15 @@
 import scriptcontext as sc
 
 from glue_constants import STATE_KEY
-from glue_metadata import clear_metadata, META_RELATION, user_value
+from glue_metadata import clear_metadata
 
 
 def new_state():
     return {
         "relationships": {},
         "busy": False,
+        "handled_parent_ids": set(),
+        "pending_replacement_parent_ids": set(),
     }
 
 
@@ -34,14 +36,6 @@ def remove_relationships_for_object(state, doc, object_id):
         for relation_id, relationship in state["relationships"].items()
         if object_id in (relationship["follower_id"], relationship["driver_id"])
     ]
-
-    obj = doc.Objects.Find(object_id)
-    if obj is not None:
-        metadata_id = user_value(obj, META_RELATION)
-        if metadata_id is not None:
-            metadata_id = str(metadata_id)
-            if metadata_id not in relationship_ids:
-                relationship_ids.append(metadata_id)
 
     for relation_id in relationship_ids:
         remove_relationship(state, doc, relation_id)
