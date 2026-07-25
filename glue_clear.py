@@ -1,31 +1,44 @@
+import importlib
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "glue"))
 
-import glue_events
-import glue_metadata
-
 import Rhino
-import scriptcontext as sc
 from Rhino.Commands import Result
 
-from glue_constants import STATE_KEY
-from glue_events import reset_runtime_objects
-from glue_metadata import clear_metadata
+import glue_link
+
+importlib.reload(glue_link)
+
+
+def _clear_object_metadata(doc, object_id):
+    obj = doc.Objects.Find(object_id)
+    if obj is None:
+        return
+
+    attrs = obj.Attributes.Duplicate()
+    changed = False
+    for key in (glue_link.LINK_KEY, glue_link.CHILD_KEY):
+        try:
+            if attrs.UserDictionary.ContainsKey(key):
+                attrs.UserDictionary.Remove(key)
+                changed = True
+        except Exception:
+            pass
+    if changed:
+        doc.Objects.ModifyAttributes(object_id, attrs, True)
 
 
 def RunCommand(is_interactive):
-    reset_runtime_objects()
-    sc.sticky.pop(STATE_KEY, None)
-
     doc = Rhino.RhinoDoc.ActiveDoc
     if doc is None:
         return Result.Cancel
 
+    glue_link.stop_runtime()
     for obj in doc.Objects:
         if obj is not None:
-            clear_metadata(doc, obj.Id)
+            _clear_object_metadata(doc, obj.Id)
 
     doc.Views.Redraw()
     print("Glue cleared. Save the file to keep the cleanup.")
