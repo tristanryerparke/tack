@@ -8,16 +8,30 @@ class FrameSelectionConduit(Rhino.Display.DisplayConduit):
     def __init__(self):
         super(FrameSelectionConduit, self).__init__()
         self.vertex = None
+        self.incident_edges = []
         self.edges = {}
 
     def set_vertex(self, point):
         self.vertex = Rhino.Geometry.Point3d(point)
 
+    def set_incident_edges(self, edges):
+        self.incident_edges = [
+            (Rhino.Geometry.Point3d(endpoints[0]), Rhino.Geometry.Point3d(endpoints[1]))
+            for endpoints in edges
+        ]
+
     def set_edge(self, number, endpoints):
-        self.edges[number] = (
+        endpoints = (
             Rhino.Geometry.Point3d(endpoints[0]),
             Rhino.Geometry.Point3d(endpoints[1]),
         )
+        if number == 1:
+            self.incident_edges = [
+                candidate
+                for candidate in self.incident_edges
+                if not _same_segment(candidate, endpoints)
+            ]
+        self.edges[number] = endpoints
 
     def DrawForeground(self, event):
         if self.vertex is not None:
@@ -28,6 +42,14 @@ class FrameSelectionConduit(Rhino.Display.DisplayConduit):
                 System.Drawing.Color.Orange,
             )
 
+        for endpoints in self.incident_edges:
+            event.Display.DrawLine(
+                endpoints[0],
+                endpoints[1],
+                System.Drawing.Color.FromArgb(110, 0, 220, 255),
+                6,
+            )
+
         for number, color in (
             (1, System.Drawing.Color.Red),
             (2, System.Drawing.Color.LimeGreen),
@@ -35,6 +57,16 @@ class FrameSelectionConduit(Rhino.Display.DisplayConduit):
             endpoints = self.edges.get(number)
             if endpoints is not None:
                 event.Display.DrawLine(endpoints[0], endpoints[1], color, 4)
+
+
+def _same_segment(left, right, tolerance=1e-7):
+    return (
+        left[0].DistanceTo(right[0]) <= tolerance
+        and left[1].DistanceTo(right[1]) <= tolerance
+    ) or (
+        left[0].DistanceTo(right[1]) <= tolerance
+        and left[1].DistanceTo(right[0]) <= tolerance
+    )
 
 
 def _same_id(left, right):
@@ -132,6 +164,29 @@ def _select_vertex(obj, label):
         )
     )
     return vertex_type, int(nearest_index)
+
+
+def _incident_edge_endpoints(obj, vertex_type, vertex_index):
+    geometry = _geometry(obj)
+    if vertex_type == "BrepVertex":
+        return [
+            edge_endpoints(obj, "BrepEdge", index)
+            for index in range(geometry.Edges.Count)
+            if geometry.Edges[index].StartVertex.VertexIndex == vertex_index
+            or geometry.Edges[index].EndVertex.VertexIndex == vertex_index
+        ]
+
+    vertex = vertex_point(obj, vertex_type, vertex_index)
+    if vertex is None or not hasattr(geometry, "TopologyEdges"):
+        return []
+    return [
+        edge_endpoints(obj, "MeshTopologyEdge", index)
+        for index in range(geometry.TopologyEdges.Count)
+        if any(
+            vertex.DistanceTo(point) <= 1e-7
+            for point in edge_endpoints(obj, "MeshTopologyEdge", index)
+        )
+    ]
 
 
 def _edge_component(obj, component):
@@ -250,6 +305,9 @@ def pick_frame(object_id, label):
             return None
         vertex_type, vertex_index = selected
         conduit.set_vertex(vertex_point(obj, vertex_type, vertex_index))
+        conduit.set_incident_edges(
+            _incident_edge_endpoints(obj, vertex_type, vertex_index)
+        )
         doc.Views.Redraw()
 
         first = _select_edge(
