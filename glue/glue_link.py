@@ -12,9 +12,14 @@ LINK_KEY = "Tack.PlaneLink.v1"
 CHILD_KEY = "Tack.ChildId.v1"
 RUNTIME_KEY = "Tack.PlaneLink.Runtime"
 HANDLER_KEY = "Tack.PlaneLink.Handler"
-REPLACE_HANDLER_KEY = "Tack.PlaneLink.ReplaceHandler"
+OBJECT_HANDLER_KEY = "Tack.PlaneLink.ObjectHandler"
+DOCUMENT_HANDLER_KEY = "Tack.PlaneLink.DocumentHandler"
+REPLACE_HANDLER_KEY = "Tack.PlaneLink.ReplaceHandler"  # legacy runtime key
 IDLE_HANDLER_KEY = "Tack.PlaneLink.IdleHandler"
 CONDUIT_KEY = "Tack.PlaneLink.Conduit"
+
+# Set True when silent undo/redo recovery is more important than zero polling.
+ENABLE_IDLE_WATCHER = False
 
 
 def plane_data(plane):
@@ -189,14 +194,22 @@ def inspect_link(doc, parent_id):
     }
 
 
+def _undo_or_redo(doc):
+    return doc is not None and (
+        bool(getattr(doc, "UndoActive", False))
+        or bool(getattr(doc, "RedoActive", False))
+    )
+
+
 def reconcile(doc, parent_id, quiet=False):
     state = sc.sticky.get(RUNTIME_KEY)
-    if state is None or state.get("busy"):
+    if state is None or state.get("busy") or _undo_or_redo(doc):
         return None
 
     result = inspect_link(doc, parent_id)
     if result is None or result["correction"] is None:
-        print("Plane link could not be resolved.")
+        if not quiet:
+            print("Plane link could not be resolved.")
         return None
 
     correction = result["correction"]
@@ -226,12 +239,66 @@ def reconcile(doc, parent_id, quiet=False):
     return result
 
 
+def _event_object_ids(event):
+    ids = []
+
+    def add(value):
+        if value is None:
+            return
+        try:
+            value = value.Id
+        except Exception:
+            pass
+        try:
+            value = System.Guid.Parse(str(value))
+        except Exception:
+            return
+        if value not in ids:
+            ids.append(value)
+
+    for name in ("ObjectId", "NewObjectId", "TheObject", "Object", "NewObject"):
+        try:
+            add(getattr(event, name))
+        except Exception:
+            pass
+    for name in ("ObjectIds", "NewObjectIds"):
+        try:
+            for value in getattr(event, name):
+                add(value)
+        except Exception:
+            pass
+    return ids
+
+
+def _event_matches_link(event, state):
+    ids = _event_object_ids(event)
+    return not ids or state["parent_id"] in ids or state["child_id"] in ids
+
+
 def after_transform(sender, event):
+    state = sc.sticky.get(RUNTIME_KEY)
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if (
+        state is None
+        or doc is None
+        or state.get("busy")
+        or _undo_or_redo(doc)
+        or not _event_matches_link(event, state)
+    ):
+        return
+    reconcile(doc, state["parent_id"])
+    doc.Views.Redraw()
+
+
+def object_changed(sender, event):
     state = sc.sticky.get(RUNTIME_KEY)
     if state is None or state.get("busy"):
         return
-    reconcile(Rhino.RhinoDoc.ActiveDoc, state["parent_id"])
-    Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
+    if doc is None or _undo_or_redo(doc) or not _event_matches_link(event, state):
+        return
+    reconcile(doc, state["parent_id"], quiet=True)
+    doc.Views.Redraw()
 
 
 def idle_reconcile(sender, event):
@@ -241,26 +308,31 @@ def idle_reconcile(sender, event):
     reconcile(Rhino.RhinoDoc.ActiveDoc, state["parent_id"], quiet=True)
 
 
-def replace_rhino_object(sender, event):
-    state = sc.sticky.get(RUNTIME_KEY)
-    if state is None or state.get("busy"):
-        return
-    if event.ObjectId != state["parent_id"]:
-        return
-    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return
-    reconcile(doc, state["parent_id"])
-    doc.Views.Redraw()
-
-
 def stop_runtime():
     handler = sc.sticky.pop(HANDLER_KEY, None)
     if handler is not None:
         Rhino.RhinoDoc.AfterTransformObjects -= handler
+
+    handler = sc.sticky.pop(OBJECT_HANDLER_KEY, None)
+    if handler is not None:
+        Rhino.RhinoDoc.AddRhinoObject -= handler
+        Rhino.RhinoDoc.DeleteRhinoObject -= handler
+        Rhino.RhinoDoc.UndeleteRhinoObject -= handler
+        Rhino.RhinoDoc.PurgeRhinoObject -= handler
+        Rhino.RhinoDoc.ReplaceRhinoObject -= handler
+        Rhino.RhinoDoc.ModifyObjectAttributes -= handler
+        Rhino.RhinoDoc.UserStringChanged -= handler
+
+    handler = sc.sticky.pop(DOCUMENT_HANDLER_KEY, None)
+    if handler is not None:
+        Rhino.RhinoDoc.DocumentPropertiesChanged -= handler
+        Rhino.RhinoDoc.UnitsChangedWithScaling -= handler
+
+    # Remove runtimes created by the previous implementation.
     handler = sc.sticky.pop(REPLACE_HANDLER_KEY, None)
     if handler is not None:
         Rhino.RhinoDoc.ReplaceRhinoObject -= handler
+
     handler = sc.sticky.pop(IDLE_HANDLER_KEY, None)
     if handler is not None:
         Rhino.RhinoApp.Idle -= handler
@@ -278,12 +350,27 @@ def start_runtime(parent_id, child_id):
         "busy": False,
     }
     sc.sticky[RUNTIME_KEY] = state
+
     sc.sticky[HANDLER_KEY] = after_transform
     Rhino.RhinoDoc.AfterTransformObjects += after_transform
-    sc.sticky[REPLACE_HANDLER_KEY] = replace_rhino_object
-    Rhino.RhinoDoc.ReplaceRhinoObject += replace_rhino_object
-    sc.sticky[IDLE_HANDLER_KEY] = idle_reconcile
-    Rhino.RhinoApp.Idle += idle_reconcile
+
+    sc.sticky[OBJECT_HANDLER_KEY] = object_changed
+    Rhino.RhinoDoc.AddRhinoObject += object_changed
+    Rhino.RhinoDoc.DeleteRhinoObject += object_changed
+    Rhino.RhinoDoc.UndeleteRhinoObject += object_changed
+    Rhino.RhinoDoc.PurgeRhinoObject += object_changed
+    Rhino.RhinoDoc.ReplaceRhinoObject += object_changed
+    Rhino.RhinoDoc.ModifyObjectAttributes += object_changed
+    Rhino.RhinoDoc.UserStringChanged += object_changed
+
+    sc.sticky[DOCUMENT_HANDLER_KEY] = object_changed
+    Rhino.RhinoDoc.DocumentPropertiesChanged += object_changed
+    Rhino.RhinoDoc.UnitsChangedWithScaling += object_changed
+
+    if ENABLE_IDLE_WATCHER:
+        sc.sticky[IDLE_HANDLER_KEY] = idle_reconcile
+        Rhino.RhinoApp.Idle += idle_reconcile
+
     conduit = PlaneLinkConduit(parent_id, child_id)
     conduit.Enabled = True
     sc.sticky[CONDUIT_KEY] = conduit
