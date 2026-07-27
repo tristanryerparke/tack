@@ -8,11 +8,20 @@ class FrameSelectionConduit(Rhino.Display.DisplayConduit):
     def __init__(self):
         super(FrameSelectionConduit, self).__init__()
         self.vertex = None
+        self.vertex_color = System.Drawing.Color.Orange
+        self.vertex_size = 14
         self.incident_edges = []
         self.edges = {}
 
     def set_vertex(self, point):
         self.vertex = Rhino.Geometry.Point3d(point)
+        self.vertex_color = System.Drawing.Color.Orange
+        self.vertex_size = 14
+
+    def set_highlighted_vertex(self, point):
+        self.vertex = Rhino.Geometry.Point3d(point)
+        self.vertex_color = System.Drawing.Color.Cyan
+        self.vertex_size = 18
 
     def set_incident_edges(self, edges):
         self.incident_edges = [
@@ -38,8 +47,8 @@ class FrameSelectionConduit(Rhino.Display.DisplayConduit):
             event.Display.DrawPoint(
                 self.vertex,
                 Rhino.Display.PointStyle.X,
-                14,
-                System.Drawing.Color.Orange,
+                self.vertex_size,
+                self.vertex_color,
             )
 
         for endpoints in self.incident_edges:
@@ -91,6 +100,38 @@ def vertex_point(obj, vertex_type, vertex_index):
     if vertex_type == "MeshVertex":
         return _point(geometry.Vertices[int(vertex_index)])
     return None
+
+
+def coincident_vertices(first_obj, second_obj, tolerance):
+    first_geometry = _geometry(first_obj)
+    second_geometry = _geometry(second_obj)
+    first_type = (
+        "MeshVertex"
+        if isinstance(first_geometry, Rhino.Geometry.Mesh)
+        else "BrepVertex"
+    )
+    second_type = (
+        "MeshVertex"
+        if isinstance(second_geometry, Rhino.Geometry.Mesh)
+        else "BrepVertex"
+    )
+    matches = []
+    for first_index in range(first_geometry.Vertices.Count):
+        first_point = vertex_point(first_obj, first_type, first_index)
+        for second_index in range(second_geometry.Vertices.Count):
+            second_point = vertex_point(second_obj, second_type, second_index)
+            if first_point.DistanceTo(second_point) <= tolerance:
+                matches.append(
+                    (
+                        first_type,
+                        first_index,
+                        second_type,
+                        second_index,
+                        first_point,
+                        second_point,
+                    )
+                )
+    return matches
 
 
 def edge_endpoints(obj, edge_type, edge_index):
@@ -241,15 +282,20 @@ def _select_edge(obj, object_id, prompt, excluded=None):
         return edge_type, edge_index
 
 
-def _lock_other_objects(doc, target_id):
+def _lock_objects_except(doc, allowed_ids):
+    allowed_ids = {str(object_id).lower() for object_id in allowed_ids}
     changed = []
     for obj in doc.Objects:
-        if obj is None or _same_id(obj.Id, target_id):
+        if obj is None or str(obj.Id).lower() in allowed_ids:
             continue
         if not rs.IsObjectLocked(obj.Id):
             if rs.LockObject(obj.Id):
                 changed.append(obj.Id)
     return changed
+
+
+def _lock_other_objects(doc, target_id):
+    return _lock_objects_except(doc, [target_id])
 
 
 def _unlock_changed(ids):
