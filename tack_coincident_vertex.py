@@ -2,19 +2,27 @@ import importlib
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "glue"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tack"))
 
 import Rhino
 import rhinoscriptsyntax as rs
 from Rhino.Commands import Result
 
-import glue_frame_picker
-import glue_link
+import analysis
+import conduit
+import metadata
+import runtime
+import handlers
+import tack_frame_picker
+import utils
 
-importlib.reload(glue_frame_picker)
-importlib.reload(glue_link)
-
-from glue_frame_picker import coincident_vertices
+importlib.reload(tack_frame_picker)
+importlib.reload(utils)
+importlib.reload(metadata)
+importlib.reload(analysis)
+importlib.reload(conduit)
+importlib.reload(runtime)
+importlib.reload(handlers)
 
 
 def RunCommand(is_interactive):
@@ -22,8 +30,8 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    glue_link.stop_runtime()
-    glue_link.stop_coincident_runtime()
+    handlers.unsubscribe()
+    runtime.stop_runtime()
 
     parent_id = rs.GetObject(
         "Select parent object",
@@ -57,7 +65,7 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    matches = coincident_vertices(parent, child, tolerance)
+    matches = tack_frame_picker.coincident_vertices(parent, child, tolerance)
     if not matches:
         print("Parent and child do not share a coincident vertex.")
         return Result.Cancel
@@ -77,7 +85,7 @@ def RunCommand(is_interactive):
         parent_point,
         child_point,
     ) = matches[0]
-    if not glue_link.write_coincident_link(
+    if not metadata.write_link(
         doc,
         parent_id,
         child_id,
@@ -89,9 +97,10 @@ def RunCommand(is_interactive):
         print("Could not write coincident vertex relationship metadata.")
         return Result.Failure
 
-    if not glue_link.start_coincident_runtime(parent_id, child_id):
+    if not runtime.start_runtime(parent_id, child_id):
         print("Could not start coincident vertex relationship.")
         return Result.Failure
+    handlers.subscribe()
     print("Coincident vertex relationship active.")
     print("Parent GUID: {}".format(parent_id))
     print("Child GUID: {}".format(child_id))
