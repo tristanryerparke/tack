@@ -28,7 +28,8 @@ COINCIDENT_RUNTIME_KEY = "Tack.CoincidentLink.Runtime"
 COINCIDENT_HANDLER_KEY = "Tack.CoincidentLink.ReplaceHandler"
 COINCIDENT_OBJECT_HANDLER_KEY = "Tack.CoincidentLink.ObjectHandler"
 COINCIDENT_CONDUIT_KEY = "Tack.CoincidentLink.Conduit"
-COINCIDENT_DEBUG = True
+# Set True to restore callback and geometry diagnostics.
+COINCIDENT_DEBUG = False
 
 
 def _unsubscribe(event, handler):
@@ -556,6 +557,12 @@ def coincident_reconcile(
         if not result["child"].CommitChanges():
             print("Child changes could not be committed.")
             return result
+        print(
+            "[Tack coincident] child updated parent={} child={}".format(
+                result["parent"].Id,
+                result["child"].Id,
+            )
+        )
     finally:
         state["busy"] = False
     return result
