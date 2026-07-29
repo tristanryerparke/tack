@@ -2,14 +2,26 @@ import importlib
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "glue"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tack"))
 
 import Rhino
 from Rhino.Commands import Result
 
-import glue_link
+import analysis
+import conduit
+import metadata
+import runtime
+import handlers
+import tack_frame_picker
+import utils
 
-importlib.reload(glue_link)
+importlib.reload(tack_frame_picker)
+importlib.reload(utils)
+importlib.reload(metadata)
+importlib.reload(analysis)
+importlib.reload(conduit)
+importlib.reload(runtime)
+importlib.reload(handlers)
 
 
 def _clear_object_metadata(doc, object_id):
@@ -19,7 +31,10 @@ def _clear_object_metadata(doc, object_id):
 
     attrs = obj.Attributes.Duplicate()
     changed = False
-    for key in (glue_link.LINK_KEY, glue_link.CHILD_KEY):
+    for key in (
+        metadata.LINK_KEY,
+        metadata.CHILD_KEY,
+    ):
         try:
             if attrs.UserDictionary.ContainsKey(key):
                 attrs.UserDictionary.Remove(key)
@@ -35,13 +50,14 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    glue_link.stop_runtime()
+    handlers.unsubscribe()
+    runtime.stop_runtime()
     for obj in doc.Objects:
         if obj is not None:
             _clear_object_metadata(doc, obj.Id)
 
     doc.Views.Redraw()
-    print("Glue cleared. Save the file to keep the cleanup.")
+    print("Tack coincident links cleared. Save the file to keep the cleanup.")
     return Result.Success
 
 
