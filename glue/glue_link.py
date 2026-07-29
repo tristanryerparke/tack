@@ -209,6 +209,10 @@ def _debug_object(label, obj, vertex_type=None, vertex_index=None):
 
 
 def _break_coincident_link(state, reason):
+    if _undo_or_redo(Rhino.RhinoDoc.ActiveDoc):
+        if COINCIDENT_DEBUG:
+            print("[Tack coincident] suppressing break during undo/redo")
+        return
     if state.get("broken"):
         return
     state["broken"] = True
@@ -687,6 +691,12 @@ def coincident_replace_object(sender, event):
         return
     if COINCIDENT_DEBUG:
         print("[Tack coincident] replacement role={}".format(role))
+    # Rhino may emit Delete/Add for the old object after this replacement.
+    # Keep that transient delete from looking like permanent removal.
+    state["replacement_pending_ids"] = [
+        str(old_obj.Id),
+        str(new_obj.Id),
+    ]
 
     doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
     if doc is None:
@@ -762,9 +772,19 @@ def _coincident_object_event(label, event):
 
 def coincident_add_object(sender, event):
     _coincident_object_event("AddRhinoObject", event)
+    state = sc.sticky.get(COINCIDENT_RUNTIME_KEY)
+    if state is not None:
+        pending = state.get("replacement_pending_ids", [])
+        if any(str(object_id) in pending for object_id in _event_object_ids(event)):
+            state.pop("replacement_pending_ids", None)
 
 
 def coincident_delete_object(sender, event):
+    state = sc.sticky.get(COINCIDENT_RUNTIME_KEY)
+    pending = state.get("replacement_pending_ids", []) if state else []
+    if pending and any(str(object_id) in pending for object_id in _event_object_ids(event)):
+        _debug_event("DeleteRhinoObject (replacement; ignored)", event, state)
+        return
     _coincident_object_event("DeleteRhinoObject", event)
 
 
@@ -816,6 +836,7 @@ def start_coincident_runtime(parent_id, child_id):
         "child_id": child_id,
         "busy": False,
         "broken": False,
+        "replacement_pending_ids": [],
     }
     link = read_coincident_link(child)
     if link is None:
