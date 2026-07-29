@@ -102,24 +102,41 @@ def vertex_point(obj, vertex_type, vertex_index):
     return None
 
 
+def vertex_locations(obj):
+    geometry = _geometry(obj)
+    vertex_type = (
+        "MeshVertex"
+        if isinstance(geometry, Rhino.Geometry.Mesh)
+        else "BrepVertex"
+    )
+    return vertex_type, [
+        vertex_point(obj, vertex_type, index)
+        for index in range(geometry.Vertices.Count)
+    ]
+
+
+def vertex_index_map(old_points, new_points, tolerance):
+    # ponytail: O(n²) scan; use a spatial index if very large Breps need this.
+    remaining = set(range(len(new_points)))
+    mapping = {}
+    for old_index, old_point in enumerate(old_points):
+        candidates = [
+            new_index
+            for new_index in remaining
+            if old_point.DistanceTo(new_points[new_index]) <= tolerance
+        ]
+        if len(candidates) == 1:
+            mapping[old_index] = candidates[0]
+            remaining.remove(candidates[0])
+    return mapping
+
+
 def coincident_vertices(first_obj, second_obj, tolerance):
-    first_geometry = _geometry(first_obj)
-    second_geometry = _geometry(second_obj)
-    first_type = (
-        "MeshVertex"
-        if isinstance(first_geometry, Rhino.Geometry.Mesh)
-        else "BrepVertex"
-    )
-    second_type = (
-        "MeshVertex"
-        if isinstance(second_geometry, Rhino.Geometry.Mesh)
-        else "BrepVertex"
-    )
+    first_type, first_points = vertex_locations(first_obj)
+    second_type, second_points = vertex_locations(second_obj)
     matches = []
-    for first_index in range(first_geometry.Vertices.Count):
-        first_point = vertex_point(first_obj, first_type, first_index)
-        for second_index in range(second_geometry.Vertices.Count):
-            second_point = vertex_point(second_obj, second_type, second_index)
+    for first_index, first_point in enumerate(first_points):
+        for second_index, second_point in enumerate(second_points):
             if first_point.DistanceTo(second_point) <= tolerance:
                 matches.append(
                     (

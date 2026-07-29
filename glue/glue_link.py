@@ -3,9 +3,15 @@ import json
 import Rhino
 import System
 import System.Drawing
+import System.Windows.Forms
 import scriptcontext as sc
 
-from glue_frame_picker import frame_from_spec
+from glue_frame_picker import (
+    frame_from_spec,
+    vertex_index_map,
+    vertex_locations,
+    vertex_point,
+)
 
 
 LINK_KEY = "Tack.PlaneLink.v1"
@@ -15,11 +21,21 @@ HANDLER_KEY = "Tack.PlaneLink.Handler"
 OBJECT_HANDLER_KEY = "Tack.PlaneLink.ObjectHandler"
 DOCUMENT_HANDLER_KEY = "Tack.PlaneLink.DocumentHandler"
 REPLACE_HANDLER_KEY = "Tack.PlaneLink.ReplaceHandler"  # legacy runtime key
-IDLE_HANDLER_KEY = "Tack.PlaneLink.IdleHandler"
 CONDUIT_KEY = "Tack.PlaneLink.Conduit"
+COINCIDENT_LINK_KEY = "Tack.CoincidentLink.v1"
+COINCIDENT_CHILD_KEY = "Tack.CoincidentChildId.v1"
+COINCIDENT_RUNTIME_KEY = "Tack.CoincidentLink.Runtime"
+COINCIDENT_HANDLER_KEY = "Tack.CoincidentLink.ReplaceHandler"
+COINCIDENT_OBJECT_HANDLER_KEY = "Tack.CoincidentLink.ObjectHandler"
+COINCIDENT_CONDUIT_KEY = "Tack.CoincidentLink.Conduit"
+COINCIDENT_DEBUG = True
 
-# Set True when silent undo/redo recovery is more important than zero polling.
-ENABLE_IDLE_WATCHER = False
+
+def _unsubscribe(event, handler):
+    try:
+        event -= handler
+    except Exception:
+        pass
 
 
 def plane_data(plane):
@@ -117,6 +133,720 @@ def read_link(obj):
         return json.loads(str(value))
     except Exception:
         return None
+
+
+class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
+    def DrawForeground(self, event):
+        doc = Rhino.RhinoDoc.ActiveDoc
+        state = sc.sticky.get(COINCIDENT_RUNTIME_KEY)
+        if doc is None or state is None:
+            return
+        result = inspect_coincident_link(doc, state)
+        if result is None:
+            return
+        parent_point = result["parent_point"]
+        child_point = result["child_point"]
+        event.Display.DrawPoint(
+            parent_point,
+            Rhino.Display.PointStyle.RoundSimple,
+            10,
+            System.Drawing.Color.OrangeRed,
+        )
+        event.Display.DrawPoint(
+            child_point,
+            Rhino.Display.PointStyle.RoundSimple,
+            10,
+            System.Drawing.Color.DodgerBlue,
+        )
+        if parent_point.DistanceTo(child_point) > 1e-7:
+            event.Display.DrawDottedLine(
+                parent_point,
+                child_point,
+                System.Drawing.Color.Gold,
+            )
+
+
+def _debug_point(point):
+    if point is None:
+        return "None"
+    return "({:.6f}, {:.6f}, {:.6f})".format(point.X, point.Y, point.Z)
+
+
+def _debug_event(label, event, state):
+    if not COINCIDENT_DEBUG:
+        return
+    print(
+        "[Tack coincident] {} event={} ids={} parent={} child={} busy={}".format(
+            label,
+            type(event).__name__,
+            [str(value) for value in _event_object_ids(event)],
+            state.get("parent_id"),
+            state.get("child_id"),
+            state.get("busy"),
+        )
+    )
+
+
+def _debug_object(label, obj, vertex_type=None, vertex_index=None):
+    if not COINCIDENT_DEBUG:
+        return
+    try:
+        actual_type, points = vertex_locations(obj)
+        index = vertex_index if vertex_index is not None else -1
+        point = points[index] if 0 <= index < len(points) else None
+        print(
+            "[Tack coincident] {} id={} type={} vertices={} selected={} point={}".format(
+                label,
+                obj.Id,
+                vertex_type or actual_type,
+                len(points),
+                index,
+                _debug_point(point),
+            )
+        )
+    except Exception as error:
+        print("[Tack coincident] {} geometry error: {}".format(label, error))
+
+
+def _break_coincident_link(state, reason):
+    if state.get("broken"):
+        return
+    state["broken"] = True
+    conduit = sc.sticky.get(COINCIDENT_CONDUIT_KEY)
+    if conduit is not None:
+        conduit.Enabled = False
+    message = (
+        "The coincident link between objects\n"
+        "{} (parent) --> {} (child)\n"
+        "was broken.\n\n{}"
+    ).format(state.get("parent_id"), state.get("child_id"), reason)
+    System.Windows.Forms.MessageBox.Show(
+        message,
+        "Tack: coincident link broken",
+        System.Windows.Forms.MessageBoxButtons.OK,
+        System.Windows.Forms.MessageBoxIcon.Warning,
+    )
+
+
+def _restore_coincident_link(state):
+    state["broken"] = False
+    conduit = sc.sticky.get(COINCIDENT_CONDUIT_KEY)
+    if conduit is not None:
+        conduit.Enabled = True
+
+
+def _point_data(point):
+    return [point.X, point.Y, point.Z]
+
+
+def write_coincident_link(doc, parent_id, child_id, parent_vertex,
+                          child_vertex, parent_point, child_point):
+    data = {
+        "version": 1,
+        "parent_id": str(parent_id),
+        "child_id": str(child_id),
+        "parent_vertex": {
+            "type": parent_vertex[0],
+            "index": int(parent_vertex[1]),
+            "point": _point_data(parent_point),
+        },
+        "child_vertex": {
+            "type": child_vertex[0],
+            "index": int(child_vertex[1]),
+            "point": _point_data(child_point),
+        },
+    }
+    if not _set_user_value(doc, child_id, COINCIDENT_LINK_KEY, json.dumps(data)):
+        return False
+    return _set_user_value(doc, parent_id, COINCIDENT_CHILD_KEY, str(child_id))
+
+
+def read_coincident_link(obj):
+    try:
+        value = obj.Attributes.UserDictionary[COINCIDENT_LINK_KEY]
+        return json.loads(str(value))
+    except Exception:
+        return None
+
+
+def _coincident_objects(doc, state, parent_obj=None, child_obj=None):
+    parent = parent_obj or doc.Objects.Find(state["parent_id"])
+    child = child_obj or doc.Objects.Find(state["child_id"])
+    if parent is None or child is None:
+        return None, None, None
+    return parent, child, read_coincident_link(child) or state.get("link")
+
+
+def inspect_coincident_link(doc, state, parent_obj=None, child_obj=None):
+    parent, child, link = _coincident_objects(
+        doc, state, parent_obj=parent_obj, child_obj=child_obj
+    )
+    if parent is None or child is None or link is None:
+        return None
+    parent_vertex = link["parent_vertex"]
+    child_vertex = link["child_vertex"]
+    try:
+        parent_point = vertex_point(
+            parent, parent_vertex["type"], parent_vertex["index"]
+        )
+        child_point = vertex_point(
+            child, child_vertex["type"], child_vertex["index"]
+        )
+    except Exception:
+        return None
+    if parent_point is None or child_point is None:
+        return None
+    return {
+        "parent": parent,
+        "child": child,
+        "link": link,
+        "parent_point": parent_point,
+        "child_point": child_point,
+        "correction": Rhino.Geometry.Transform.Translation(
+            parent_point - child_point
+        ),
+    }
+
+
+def _same_id(left, right):
+    return str(left).lower() == str(right).lower()
+
+
+def _usable_object_id(object_id):
+    return str(object_id).lower() != str(System.Guid.Empty).lower()
+
+
+def _replace_event_objects(event):
+    old_obj = getattr(event, "OldRhinoObject", None)
+    new_obj = getattr(event, "NewRhinoObject", None)
+    if old_obj is None or new_obj is None:
+        return None, None
+    return old_obj, new_obj
+
+
+def _event_object(doc, event):
+    if event is None:
+        return None
+    for name in ("TheObject", "Object", "NewObject"):
+        candidate = getattr(event, name, None)
+        if candidate is not None and hasattr(candidate, "Geometry"):
+            return candidate
+    for object_id in _event_object_ids(event):
+        candidate = doc.Objects.Find(object_id)
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _candidate_role(state, candidate):
+    try:
+        child_id = candidate.Attributes.UserDictionary[COINCIDENT_CHILD_KEY]
+        if _same_id(child_id, state["child_id"]):
+            return "parent"
+    except Exception:
+        pass
+    link = read_coincident_link(candidate)
+    if link is not None and _same_id(link.get("parent_id"), state["parent_id"]):
+        return "child"
+    return None
+
+
+def _metadata_candidates(doc, state):
+    for candidate in doc.Objects:
+        if candidate is not None and _candidate_role(state, candidate) is not None:
+            yield candidate
+
+
+def _matching_vertex_index(points, point_data, tolerance):
+    point = Rhino.Geometry.Point3d(*point_data)
+    matches = [
+        index
+        for index, candidate in enumerate(points)
+        if point.DistanceTo(candidate) <= tolerance
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _try_adopt_replacement(doc, state, role, candidate):
+    if candidate is None:
+        return False
+    child = doc.Objects.Find(state["child_id"])
+    link = read_coincident_link(child) if child is not None else None
+    link = link or state.get("link")
+    old_state = state.get(role + "_vertices")
+    if link is None or old_state is None:
+        return False
+    old_points = old_state[1]
+    new_type, new_points = vertex_locations(candidate)
+    old_index = int(link[role + "_vertex"]["index"])
+    new_index = _matching_vertex_index(
+        new_points,
+        link[role + "_vertex"]["point"],
+        max(doc.ModelAbsoluteTolerance, 1e-7),
+    )
+    # A replacement/split must retain the linked point itself. Matching some
+    # other vertex is not enough to adopt that result.
+    if new_index is None:
+        if COINCIDENT_DEBUG:
+            print(
+                "[Tack coincident] replacement candidate rejected role={} id={} old_index={} old_count={} new_count={}".format(
+                    role,
+                    candidate.Id,
+                    old_index,
+                    len(old_points),
+                    len(new_points),
+                )
+            )
+        return False
+    was_busy = state.get("busy", False)
+    state["busy"] = True
+    try:
+        if role == "parent":
+            state["parent_id"] = candidate.Id
+        else:
+            state["child_id"] = candidate.Id
+        _update_coincident_link(
+            doc,
+            state,
+            link,
+            role,
+            new_type,
+            new_index,
+            new_points[new_index],
+        )
+        state[role + "_vertices"] = (new_type, new_points)
+        _restore_coincident_link(state)
+    finally:
+        state["busy"] = was_busy
+    if COINCIDENT_DEBUG:
+        print(
+            "[Tack coincident] adopted replacement role={} id={}".format(
+                role, candidate.Id
+            )
+        )
+    return True
+
+
+def _update_coincident_link(doc, state, link, role,
+                            vertex_type, vertex_index, point):
+    link["parent_id"] = str(state["parent_id"])
+    link["child_id"] = str(state["child_id"])
+    vertex = link[role + "_vertex"]
+    vertex["type"] = vertex_type
+    vertex["index"] = int(vertex_index)
+    vertex["point"] = _point_data(point)
+    state["link"] = link
+    # ReplaceRhinoObject can fire before the new object is queryable. Keep the
+    # live relationship in state and persist it whenever Rhino exposes both objects.
+    child_saved = _set_user_value(
+        doc,
+        state["child_id"],
+        COINCIDENT_LINK_KEY,
+        json.dumps(link),
+    )
+    parent_saved = _set_user_value(
+        doc,
+        state["parent_id"],
+        COINCIDENT_CHILD_KEY,
+        str(state["child_id"]),
+    )
+    if COINCIDENT_DEBUG:
+        print(
+            "[Tack coincident] metadata update role={} index={} point={} child_saved={} parent_saved={}".format(
+                role,
+                vertex_index,
+                _debug_point(point),
+                child_saved,
+                parent_saved,
+            )
+        )
+    return True
+
+
+def _remap_coincident_vertex(doc, state, link, role, old_points,
+                             new_obj, tolerance):
+    new_type, new_points = vertex_locations(new_obj)
+    old_vertex = link[role + "_vertex"]
+    old_index = int(old_vertex["index"])
+    topology_changed = len(old_points) != len(new_points)
+    if not topology_changed:
+        # A moved vertex keeps its index; only topology changes need remapping.
+        new_index = old_index if old_index < len(new_points) else None
+    else:
+        mapping = vertex_index_map(old_points, new_points, tolerance)
+        new_index = mapping.get(old_index)
+        if new_index is None:
+            new_index = _matching_vertex_index(
+                new_points, old_vertex["point"], tolerance
+            )
+    if COINCIDENT_DEBUG:
+        print(
+            "[Tack coincident] remap role={} topology_changed={} old_count={} new_count={} old_index={} new_index={} old_point={} new_point={}".format(
+                role,
+                topology_changed,
+                len(old_points),
+                len(new_points),
+                old_index,
+                new_index,
+                _debug_point(old_points[old_index]) if old_index < len(old_points) else "None",
+                _debug_point(new_points[new_index]) if new_index is not None else "None",
+            )
+        )
+    if new_index is None:
+        _break_coincident_link(
+            state,
+            "The {} vertex could not be matched after the topology change.".format(
+                role
+            ),
+        )
+        return False
+    updated = _update_coincident_link(
+        doc,
+        state,
+        link,
+        role,
+        new_type,
+        new_index,
+        new_points[new_index],
+    )
+    _restore_coincident_link(state)
+    return updated
+
+
+def coincident_reconcile(
+    doc, state, quiet=False, parent_obj=None, child_obj=None
+):
+    if state is None or state.get("busy"):
+        return None
+    result = inspect_coincident_link(
+        doc, state, parent_obj=parent_obj, child_obj=child_obj
+    )
+    if COINCIDENT_DEBUG:
+        print("[Tack coincident] reconcile quiet={} resolved={}".format(quiet, result is not None))
+    if result is None:
+        if not quiet:
+            print("Coincident vertex link could not be resolved.")
+        return None
+    if COINCIDENT_DEBUG:
+        print(
+            "[Tack coincident] reconcile parent={} child={}".format(
+                _debug_point(result["parent_point"]),
+                _debug_point(result["child_point"]),
+            )
+        )
+    if result["parent_point"].DistanceTo(result["child_point"]) <= max(
+        doc.ModelAbsoluteTolerance, 1e-7
+    ):
+        return result
+
+    # Keep callback metadata current during undo, but never mutate/commit a
+    # child while Rhino is replaying the undo record.
+    if _undo_or_redo(doc):
+        return result
+
+    state["busy"] = True
+    try:
+        if not result["child"].Geometry.Transform(result["correction"]):
+            print("Child geometry translation failed.")
+            return result
+        if not result["child"].CommitChanges():
+            print("Child changes could not be committed.")
+            return result
+    finally:
+        state["busy"] = False
+    return result
+
+
+def coincident_check_update(
+    doc,
+    state,
+    object_ids=None,
+    event=None,
+    quiet=True,
+    parent_obj=None,
+    child_obj=None,
+):
+    """Resolve the saved pair from callback IDs or metadata, then align it."""
+    if doc is None or state is None or state.get("busy"):
+        return None
+
+    object_ids = list(object_ids or [])
+    candidate = _event_object(doc, event)
+    if candidate is None:
+        for object_id in object_ids:
+            candidate = doc.Objects.Find(object_id)
+            if candidate is not None:
+                break
+    role = _candidate_role(state, candidate) if candidate is not None else None
+    if role is not None and (
+        state.get("broken")
+        or not _same_id(candidate.Id, state[role + "_id"])
+    ):
+        _try_adopt_replacement(doc, state, role, candidate)
+    elif candidate is None:
+        for saved_candidate in _metadata_candidates(doc, state):
+            saved_role = _candidate_role(state, saved_candidate)
+            if saved_role is not None and (
+                state.get("broken")
+                or not _same_id(
+                    saved_candidate.Id, state[saved_role + "_id"]
+                )
+            ):
+                if _try_adopt_replacement(
+                    doc, state, saved_role, saved_candidate
+                ):
+                    break
+
+    parent = doc.Objects.Find(state["parent_id"])
+    child = doc.Objects.Find(state["child_id"])
+    if parent is None or child is None:
+        missing_role = "parent" if parent is None else "child"
+        if (
+            candidate is not None
+            and role in (None, missing_role)
+            and (
+                state.get("broken")
+                or not _same_id(
+                    candidate.Id, state[missing_role + "_id"]
+                )
+            )
+        ):
+            _try_adopt_replacement(doc, state, missing_role, candidate)
+        parent = doc.Objects.Find(state["parent_id"])
+        child = doc.Objects.Find(state["child_id"])
+
+    if parent is None or child is None:
+        for candidate in _metadata_candidates(doc, state):
+            candidate_role = _candidate_role(state, candidate)
+            if candidate_role is not None and (
+                state.get("broken")
+                or not _same_id(
+                    candidate.Id, state[candidate_role + "_id"]
+                )
+            ):
+                _try_adopt_replacement(
+                    doc, state, candidate_role, candidate
+                )
+            parent = doc.Objects.Find(state["parent_id"])
+            child = doc.Objects.Find(state["child_id"])
+            if parent is not None and child is not None:
+                break
+
+    if parent is None or child is None:
+        if (
+            not _undo_or_redo(doc)
+            and any(
+                _same_id(object_id, state["parent_id"])
+                or _same_id(object_id, state["child_id"])
+                for object_id in object_ids
+            )
+        ):
+            _break_coincident_link(
+                state, "A linked object could not be recovered from callback data or saved metadata."
+            )
+        return None
+
+    result = coincident_reconcile(
+        doc,
+        state,
+        quiet=quiet,
+        parent_obj=parent_obj,
+        child_obj=child_obj,
+    )
+    if result is not None:
+        _restore_coincident_link(state)
+    elif role is not None:
+        _break_coincident_link(
+            state, "The linked objects no longer expose usable vertex data."
+        )
+    return result
+
+
+def coincident_replace_object(sender, event):
+    state = sc.sticky.get(COINCIDENT_RUNTIME_KEY)
+    if state is None or state.get("busy"):
+        return
+    _debug_event("ReplaceRhinoObject", event, state)
+    old_obj, new_obj = _replace_event_objects(event)
+    if old_obj is None or new_obj is None:
+        _break_coincident_link(
+            state, "ReplaceRhinoObject did not expose complete old/new objects."
+        )
+        return
+    _debug_object("replace old", old_obj)
+    _debug_object("replace new", new_obj)
+
+    role = None
+    if _same_id(old_obj.Id, state["parent_id"]):
+        role = "parent"
+    elif _same_id(old_obj.Id, state["child_id"]):
+        role = "child"
+    if role is None:
+        if COINCIDENT_DEBUG:
+            print("[Tack coincident] replacement is not the linked parent or child")
+        return
+    if COINCIDENT_DEBUG:
+        print("[Tack coincident] replacement role={}".format(role))
+
+    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return
+    state["busy"] = True
+    try:
+        old_child = doc.Objects.Find(state["child_id"])
+        link = read_coincident_link(old_child) if old_child is not None else None
+        if role == "child":
+            link = read_coincident_link(old_obj) or link
+        link = link or state.get("link")
+        if link is None:
+            _break_coincident_link(
+                state, "ReplaceRhinoObject did not preserve Tack metadata."
+            )
+            return
+        old_type, old_points = vertex_locations(old_obj)
+        state[role + "_vertices"] = (old_type, old_points)
+        replacement_id = (
+            new_obj.Id if _usable_object_id(new_obj.Id) else old_obj.Id
+        )
+        if not _usable_object_id(new_obj.Id) and COINCIDENT_DEBUG:
+            print(
+                "[Tack coincident] replacement NewRhinoObject has Guid.Empty; keeping {}".format(
+                    replacement_id
+                )
+            )
+        if role == "parent":
+            state["parent_id"] = replacement_id
+        else:
+            state["child_id"] = replacement_id
+        if not _remap_coincident_vertex(
+            doc,
+            state,
+            link,
+            role,
+            old_points,
+            new_obj,
+            max(doc.ModelAbsoluteTolerance, 1e-7),
+        ):
+            return
+        new_type, new_points = vertex_locations(new_obj)
+        state[role + "_vertices"] = (new_type, new_points)
+    finally:
+        state["busy"] = False
+    coincident_check_update(
+        doc,
+        state,
+        object_ids=_event_object_ids(event),
+        quiet=True,
+        parent_obj=new_obj if role == "parent" else None,
+    )
+    doc.Views.Redraw()
+
+
+def _coincident_object_event(label, event):
+    state = sc.sticky.get(COINCIDENT_RUNTIME_KEY)
+    if state is None or state.get("busy"):
+        return
+    _debug_event(label, event, state)
+    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return
+    coincident_check_update(
+        doc,
+        state,
+        object_ids=_event_object_ids(event),
+        event=event,
+        quiet=True,
+    )
+    doc.Views.Redraw()
+
+
+def coincident_add_object(sender, event):
+    _coincident_object_event("AddRhinoObject", event)
+
+
+def coincident_delete_object(sender, event):
+    _coincident_object_event("DeleteRhinoObject", event)
+
+
+def coincident_undelete_object(sender, event):
+    _coincident_object_event("UndeleteRhinoObject", event)
+
+
+def stop_coincident_runtime():
+    # Remove callbacks left by the previous polling implementation.
+    handler = sc.sticky.pop("Tack.CoincidentLink.IdleHandler", None)
+    if handler is not None:
+        _unsubscribe(Rhino.RhinoApp.Idle, handler)
+    handler = sc.sticky.pop(COINCIDENT_HANDLER_KEY, None)
+    if handler is not None:
+        _unsubscribe(Rhino.RhinoDoc.ReplaceRhinoObject, handler)
+    handlers = sc.sticky.pop(COINCIDENT_OBJECT_HANDLER_KEY, None)
+    if handlers is not None:
+        if callable(handlers):
+            handlers = (handlers,)
+        elif isinstance(handlers, dict):
+            handlers = tuple(handlers.values())
+        for handler in handlers:
+            for rhino_event in (
+                Rhino.RhinoDoc.AddRhinoObject,
+                Rhino.RhinoDoc.DeleteRhinoObject,
+                Rhino.RhinoDoc.UndeleteRhinoObject,
+                Rhino.RhinoDoc.PurgeRhinoObject,
+                Rhino.RhinoDoc.ModifyObjectAttributes,
+                Rhino.RhinoDoc.UserStringChanged,
+                Rhino.RhinoDoc.AfterTransformObjects,
+            ):
+                _unsubscribe(rhino_event, handler)
+    conduit = sc.sticky.pop(COINCIDENT_CONDUIT_KEY, None)
+    if conduit is not None:
+        conduit.Enabled = False
+    sc.sticky.pop(COINCIDENT_RUNTIME_KEY, None)
+
+
+def start_coincident_runtime(parent_id, child_id):
+    stop_runtime()
+    stop_coincident_runtime()
+    doc = Rhino.RhinoDoc.ActiveDoc
+    parent = doc.Objects.Find(parent_id)
+    child = doc.Objects.Find(child_id)
+    if parent is None or child is None:
+        return False
+    state = {
+        "parent_id": parent_id,
+        "child_id": child_id,
+        "busy": False,
+        "broken": False,
+    }
+    link = read_coincident_link(child)
+    if link is None:
+        return False
+    state["link"] = link
+    for role, obj in (("parent", parent), ("child", child)):
+        state[role + "_vertices"] = vertex_locations(obj)
+    sc.sticky[COINCIDENT_RUNTIME_KEY] = state
+
+    sc.sticky[COINCIDENT_HANDLER_KEY] = coincident_replace_object
+    Rhino.RhinoDoc.ReplaceRhinoObject += coincident_replace_object
+    object_handlers = (
+        coincident_add_object,
+        coincident_delete_object,
+        coincident_undelete_object,
+    )
+    sc.sticky[COINCIDENT_OBJECT_HANDLER_KEY] = object_handlers
+    Rhino.RhinoDoc.AddRhinoObject += coincident_add_object
+    Rhino.RhinoDoc.DeleteRhinoObject += coincident_delete_object
+    Rhino.RhinoDoc.UndeleteRhinoObject += coincident_undelete_object
+    if COINCIDENT_DEBUG:
+        print(
+            "[Tack coincident] runtime started parent={} child={} debug={}".format(
+                parent_id, child_id, COINCIDENT_DEBUG
+            )
+        )
+    conduit = CoincidentLinkConduit()
+    conduit.Enabled = True
+    sc.sticky[COINCIDENT_CONDUIT_KEY] = conduit
+    doc.Views.Redraw()
+    return True
 
 
 def _transform_plane(plane, xform):
@@ -301,13 +1031,6 @@ def object_changed(sender, event):
     doc.Views.Redraw()
 
 
-def idle_reconcile(sender, event):
-    state = sc.sticky.get(RUNTIME_KEY)
-    if state is None or state.get("busy"):
-        return
-    reconcile(Rhino.RhinoDoc.ActiveDoc, state["parent_id"], quiet=True)
-
-
 def stop_runtime():
     handler = sc.sticky.pop(HANDLER_KEY, None)
     if handler is not None:
@@ -328,22 +1051,26 @@ def stop_runtime():
         Rhino.RhinoDoc.DocumentPropertiesChanged -= handler
         Rhino.RhinoDoc.UnitsChangedWithScaling -= handler
 
-    # Remove runtimes created by the previous implementation.
+    # Remove runtimes created by previous implementations.
     handler = sc.sticky.pop(REPLACE_HANDLER_KEY, None)
     if handler is not None:
         Rhino.RhinoDoc.ReplaceRhinoObject -= handler
-
-    handler = sc.sticky.pop(IDLE_HANDLER_KEY, None)
+    handler = sc.sticky.pop("Tack.PlaneLink.IdleHandler", None)
     if handler is not None:
         Rhino.RhinoApp.Idle -= handler
+
     conduit = sc.sticky.pop(CONDUIT_KEY, None)
     if conduit is not None:
         conduit.Enabled = False
+    coincident_conduit = sc.sticky.pop(COINCIDENT_CONDUIT_KEY, None)
+    if coincident_conduit is not None:
+        coincident_conduit.Enabled = False
     sc.sticky.pop(RUNTIME_KEY, None)
 
 
 def start_runtime(parent_id, child_id):
     stop_runtime()
+    stop_coincident_runtime()
     state = {
         "parent_id": parent_id,
         "child_id": child_id,
@@ -366,10 +1093,6 @@ def start_runtime(parent_id, child_id):
     sc.sticky[DOCUMENT_HANDLER_KEY] = object_changed
     Rhino.RhinoDoc.DocumentPropertiesChanged += object_changed
     Rhino.RhinoDoc.UnitsChangedWithScaling += object_changed
-
-    if ENABLE_IDLE_WATCHER:
-        sc.sticky[IDLE_HANDLER_KEY] = idle_reconcile
-        Rhino.RhinoApp.Idle += idle_reconcile
 
     conduit = PlaneLinkConduit(parent_id, child_id)
     conduit.Enabled = True

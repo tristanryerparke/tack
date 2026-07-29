@@ -19,7 +19,12 @@ def _clear_object_metadata(doc, object_id):
 
     attrs = obj.Attributes.Duplicate()
     changed = False
-    for key in (glue_link.LINK_KEY, glue_link.CHILD_KEY):
+    for key in (
+        glue_link.LINK_KEY,
+        glue_link.CHILD_KEY,
+        glue_link.COINCIDENT_LINK_KEY,
+        glue_link.COINCIDENT_CHILD_KEY,
+    ):
         try:
             if attrs.UserDictionary.ContainsKey(key):
                 attrs.UserDictionary.Remove(key)
@@ -36,6 +41,7 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     glue_link.stop_runtime()
+    glue_link.stop_coincident_runtime()
     for obj in doc.Objects:
         if obj is not None:
             _clear_object_metadata(doc, obj.Id)

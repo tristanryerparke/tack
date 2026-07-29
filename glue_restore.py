@@ -25,9 +25,29 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     glue_link.stop_runtime()
+    glue_link.stop_coincident_runtime()
     for child in doc.Objects:
         if child is None:
             continue
+        coincident_link = glue_link.read_coincident_link(child)
+        if coincident_link is not None:
+            try:
+                parent_id = System.Guid.Parse(str(coincident_link["parent_id"]))
+            except Exception:
+                parent_id = None
+            parent = doc.Objects.Find(parent_id) if parent_id is not None else None
+            if parent is not None:
+                try:
+                    stored_child_id = parent.Attributes.UserDictionary[
+                        glue_link.COINCIDENT_CHILD_KEY
+                    ]
+                except Exception:
+                    stored_child_id = None
+                if _same_id(stored_child_id, child.Id):
+                    if glue_link.start_coincident_runtime(parent.Id, child.Id):
+                        print("Coincident vertex relationship restored.")
+                        return Result.Success
+
         link = glue_link.read_link(child)
         if link is None:
             continue
@@ -56,7 +76,7 @@ def RunCommand(is_interactive):
         print("Child GUID: {}".format(child.Id))
         return Result.Success
 
-    print("No saved Tack plane relationship found.")
+    print("No saved Tack relationship found.")
     return Result.Cancel
 
 
