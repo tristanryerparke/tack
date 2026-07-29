@@ -10,6 +10,7 @@ from Rhino.Commands import Result
 import analysis
 import conduit
 import metadata
+import link
 import runtime
 import handlers
 import tack_frame_picker
@@ -19,6 +20,7 @@ importlib.reload(tack_frame_picker)
 importlib.reload(utils)
 importlib.reload(metadata)
 importlib.reload(analysis)
+importlib.reload(link)
 importlib.reload(conduit)
 importlib.reload(runtime)
 importlib.reload(handlers)

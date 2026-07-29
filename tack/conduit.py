@@ -2,7 +2,7 @@ import Rhino
 import System.Drawing
 import scriptcontext as sc
 
-import analysis
+import link
 import utils
 
 
@@ -12,7 +12,7 @@ class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
         state = sc.sticky.get(utils.RUNTIME_KEY)
         if doc is None or state is None:
             return
-        result = analysis.inspect_link(doc, state)
+        result = link.inspect_link(doc, state)
         if result is None:
             return
 

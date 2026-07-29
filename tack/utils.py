@@ -52,6 +52,20 @@ def event_object_ids(event):
     return ids
 
 
+def event_object(doc, event, object_ids=None):
+    if event is None:
+        return None
+    for name in ("TheObject", "Object", "NewObject"):
+        candidate = getattr(event, name, None)
+        if candidate is not None and hasattr(candidate, "Geometry"):
+            return candidate
+    for object_id in object_ids or event_object_ids(event):
+        candidate = doc.Objects.Find(object_id)
+        if candidate is not None:
+            return candidate
+    return None
+
+
 def debug_point(point):
     if point is None:
         return "None"
