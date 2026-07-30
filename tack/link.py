@@ -309,7 +309,13 @@ def maintain_link(
                     break
 
         if parent is None or child is None:
-            if related and not utils.undo_or_redo(doc):
+            # AddRhinoObject fires while a document is still being populated;
+            # the other linked object may arrive in a later callback.
+            if (
+                related
+                and event_name != "AddRhinoObject"
+                and not utils.undo_or_redo(doc)
+            ):
                 break_link(
                     state,
                     "A linked {} object could not be recovered from callback data or saved metadata.".format(
@@ -327,7 +333,7 @@ def maintain_link(
     if result is None:
         if not quiet:
             print("Coincident vertex link could not be resolved.")
-        if related:
+        if related and event_name != "AddRhinoObject" and not utils.undo_or_redo(doc):
             break_link(
                 state,
                 "The linked objects no longer expose usable vertex data.",

@@ -1,7 +1,7 @@
 import System
 
 
-DEBUG = False
+DEBUG = True
 RUNTIME_KEY = "Tack.CoincidentLink.Runtime"
 CONDUIT_KEY = "Tack.CoincidentLink.Conduit"
 
