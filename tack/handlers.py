@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import Rhino
 import scriptcontext as sc
 
@@ -27,29 +29,38 @@ def _debug_object(label, obj):
         print("[Tack coincident] {} geometry error: {}".format(label, error))
 
 
+def _websocket_output():
+    try:
+        from rhino_watcher import websocket_output_sync
+    except ImportError:
+        return nullcontext()
+    return websocket_output_sync()
+
+
 def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
-    object_ids = utils.event_object_ids(event)
-    state = sc.sticky.get(utils.RUNTIME_KEY)
-    if state is None or state.get("busy"):
+    with _websocket_output():
+        object_ids = utils.event_object_ids(event)
+        state = sc.sticky.get(utils.RUNTIME_KEY)
+        if state is None or state.get("busy"):
+            return object_ids
+        utils.debug_event(label, event, state)
+        _debug_object("replace old", old_obj)
+        _debug_object("replace new", new_obj)
+        doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
+        if doc is None:
+            return object_ids
+        link.maintain_link(
+            doc,
+            state,
+            event=event,
+            event_name=label,
+            old_obj=old_obj,
+            new_obj=new_obj,
+            object_ids=object_ids,
+            quiet=True,
+        )
+        doc.Views.Redraw()
         return object_ids
-    utils.debug_event(label, event, state)
-    _debug_object("replace old", old_obj)
-    _debug_object("replace new", new_obj)
-    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return object_ids
-    link.maintain_link(
-        doc,
-        state,
-        event=event,
-        event_name=label,
-        old_obj=old_obj,
-        new_obj=new_obj,
-        object_ids=object_ids,
-        quiet=True,
-    )
-    doc.Views.Redraw()
-    return object_ids
 
 
 def ReplaceRhinoObjectHandler(sender, event):

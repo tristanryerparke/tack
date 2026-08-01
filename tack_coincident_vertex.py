@@ -110,4 +110,8 @@ def RunCommand(is_interactive):
 
 
 if __name__ == "__main__":
-    RunCommand(True)
+    from rhino_watcher import websocket_output_sync
+
+    with websocket_output_sync():
+        RunCommand(True)
+    # send_done_sync()
