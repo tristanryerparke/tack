@@ -1,30 +1,17 @@
 import importlib
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tack"))
 
 import Rhino
 import System
 from Rhino.Commands import Result
 
-import analysis
-import conduit
-import metadata
-import link
-import runtime
-import handlers
-import tack_frame_picker
-import utils
+import tack
 
-importlib.reload(tack_frame_picker)
-importlib.reload(utils)
-importlib.reload(metadata)
-importlib.reload(analysis)
-importlib.reload(link)
-importlib.reload(conduit)
-importlib.reload(runtime)
-importlib.reload(handlers)
+importlib.reload(tack).reload()
+
+from tack import handlers
+from tack import metadata
+from tack import runtime
+from tack import utils
 
 
 def RunCommand(is_interactive):
@@ -71,4 +58,21 @@ def RunCommand(is_interactive):
 
 
 if __name__ == "__main__":
-    RunCommand(True)
+    import traceback
+
+    from rhino_watcher import try_send_end_sync
+    from rhino_watcher import try_send_quit_sync
+    from rhino_watcher import websocket_output_if_available_sync
+
+    try:
+        with websocket_output_if_available_sync():
+            result = RunCommand(True)
+    except Exception:
+        with websocket_output_if_available_sync():
+            traceback.print_exc()
+        try_send_quit_sync()
+    else:
+        if result == Result.Success:
+            try_send_end_sync()
+        else:
+            try_send_quit_sync()

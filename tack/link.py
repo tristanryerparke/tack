@@ -2,10 +2,9 @@ import Rhino
 import System.Windows.Forms
 import scriptcontext as sc
 
-import analysis
-import metadata
-import utils
-from tack_frame_picker import vertex_locations, vertex_point
+from tack import analysis
+from tack import metadata
+from tack import utils
 
 
 def break_link(state, reason):
@@ -50,12 +49,9 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     parent_vertex = link["parent_vertex"]
     child_vertex = link["child_vertex"]
     try:
-        parent_point = vertex_point(
-            parent, parent_vertex["type"], parent_vertex["index"]
-        )
-        child_point = vertex_point(
-            child, child_vertex["type"], child_vertex["index"]
-        )
+        parent_point = utils.get_vertex_from_brep(parent, parent_vertex["index"])
+        child_point = utils.get_vertex_from_brep(child, child_vertex["index"])
+        offset = Rhino.Geometry.Vector3d(*(link.get("offset") or (0, 0, 0)))
     except Exception:
         return None
     if parent_point is None or child_point is None:
@@ -66,8 +62,9 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
         "link": link,
         "parent_point": parent_point,
         "child_point": child_point,
+        "target_child_point": parent_point + offset,
         "correction": Rhino.Geometry.Transform.Translation(
-            parent_point - child_point
+            parent_point + offset - child_point
         ),
     }
 
@@ -97,7 +94,7 @@ def _adopt_candidate(
         old_state = state.get(role + "_vertices")
         if old_state is None:
             return False
-        old_points = old_state[1]
+        old_points = old_state
         new_type, new_points, new_index = analysis.replacement_vertex(
             candidate,
             link,
@@ -105,8 +102,8 @@ def _adopt_candidate(
             tolerance,
         )
     else:
-        old_type, old_points = vertex_locations(old_obj)
-        state[role + "_vertices"] = (old_type, old_points)
+        old_points = utils.vertices_as_points(old_obj)
+        state[role + "_vertices"] = old_points
         new_type, new_points, new_index = analysis.remap_vertex(
             old_obj,
             candidate,
@@ -191,6 +188,49 @@ def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
     return role, parent_obj, child_obj
 
 
+def ignore_replacement_followup(state, event_name, object_ids):
+    if event_name not in ("AddRhinoObject", "DeleteRhinoObject"):
+        return False
+    pending = state.get("replacement_pending_ids", [])
+    if not any(str(object_id) in pending for object_id in object_ids):
+        return False
+    # The Add event is the first point at which Rhino has installed the
+    # replacement in the document. Use it to correct the real child object.
+    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
+        return False
+    if event_name == "AddRhinoObject":
+        state.pop("replacement_pending_ids", None)
+    return True
+
+
+def event_may_affect_link(
+    doc,
+    state,
+    event,
+    event_name,
+    object_ids,
+    old_obj=None,
+    new_obj=None,
+):
+    if old_obj is not None and new_obj is not None:
+        return any(
+            utils.same_id(old_obj.Id, state[role + "_id"])
+            for role in ("parent", "child")
+        )
+
+    pending = state.get("replacement_pending_ids", [])
+    if any(
+        utils.same_id(object_id, state[role + "_id"])
+        or str(object_id) in pending
+        for object_id in object_ids
+        for role in ("parent", "child")
+    ):
+        return True
+
+    candidate = _candidate(doc, event, event_name, object_ids)
+    return metadata.candidate_role(state, candidate) is not None
+
+
 def maintain_link(
     doc,
     state,
@@ -207,12 +247,12 @@ def maintain_link(
         return None
 
     object_ids = list(object_ids or utils.event_object_ids(event))
-    pending = state.get("replacement_pending_ids", [])
-    if event_name == "DeleteRhinoObject" and any(
-        str(object_id) in pending for object_id in object_ids
-    ):
-        utils.debug_event("DeleteRhinoObject (replacement; ignored)", event, state)
+    if ignore_replacement_followup(state, event_name, object_ids):
         return None
+
+    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
+        state.pop("replacement_pending_ids", None)
+        state.pop("replacement_reconcile_roles", None)
 
     related = any(
         utils.same_id(object_id, state[role + "_id"])
@@ -260,6 +300,9 @@ def maintain_link(
                 ),
             )
             return None
+        pending_roles = state.setdefault("replacement_reconcile_roles", [])
+        if role not in pending_roles:
+            pending_roles.append(role)
         if role == "parent":
             parent_obj = new_obj
         else:
@@ -275,6 +318,11 @@ def maintain_link(
         )
         role = role or candidate_role
         related = related or candidate_role is not None
+        if event_name == "AddRhinoObject" and candidate_role is not None:
+            state.pop("replacement_pending_ids", None)
+
+    if not related:
+        return None
 
     parent = parent_obj or doc.Objects.Find(state["parent_id"])
     child = child_obj or doc.Objects.Find(state["child_id"])
@@ -348,7 +396,15 @@ def maintain_link(
             )
         )
 
-    if result["parent_point"].DistanceTo(result["child_point"]) <= max(
+    if event_name == "ReplaceRhinoObject" and role in state.get(
+        "replacement_reconcile_roles", ()
+    ):
+        # ReplaceRhinoObject fires before Rhino installs the replacement. Defer
+        # the correction until AddRhinoObject can modify the document's final
+        # object instead of this transient replacement.
+        return result
+
+    if result["target_child_point"].DistanceTo(result["child_point"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
         _restore_link(state)
@@ -365,12 +421,20 @@ def maintain_link(
         if not result["child"].CommitChanges():
             print("Child changes could not be committed.")
             return result
-        print(
-            "[Tack coincident] child updated parent={} child={}".format(
-                result["parent"].Id,
-                result["child"].Id,
-            )
+        print("Child position updated by tack")
+        metadata.update_child_anchor(
+            doc,
+            state,
+            result["link"],
+            result["target_child_point"],
         )
+        if utils.DEBUG:
+            print(
+                "[Tack coincident] child updated parent={} child={}".format(
+                    result["parent"].Id,
+                    result["child"].Id,
+                )
+            )
     finally:
         state["busy"] = False
     _restore_link(state)

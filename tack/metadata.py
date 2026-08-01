@@ -1,6 +1,6 @@
 import json
 
-import utils
+from tack import utils
 
 
 LINK_KEY = "Tack.CoincidentLink.v1"
@@ -36,6 +36,7 @@ def write_link(doc, parent_id, child_id, parent_vertex,
             "index": int(child_vertex[1]),
             "point": _point_data(child_point),
         },
+        "offset": _point_data(child_point - parent_point),
     }
     if not _set_user_value(doc, child_id, LINK_KEY, json.dumps(link)):
         return False
@@ -81,6 +82,17 @@ def update_link(doc, state, link, role, vertex_type, vertex_index, point):
             )
         )
     return True
+
+
+def update_child_anchor(doc, state, link, point):
+    link["child_vertex"]["point"] = _point_data(point)
+    state["link"] = link
+    return _set_user_value(
+        doc,
+        state["child_id"],
+        LINK_KEY,
+        json.dumps(link),
+    )
 
 
 def candidate_role(state, candidate):

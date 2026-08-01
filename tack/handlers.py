@@ -1,9 +1,11 @@
+from contextlib import nullcontext
+import traceback
+
 import Rhino
 import scriptcontext as sc
 
-import link
-import utils
-from tack_frame_picker import vertex_locations
+from tack import link
+from tack import utils
 
 
 REPLACE_HANDLER_KEY = "Tack.CoincidentLink.ReplaceHandler"
@@ -11,44 +13,82 @@ OBJECT_HANDLER_KEY = "Tack.CoincidentLink.ObjectHandler"
 
 
 def _debug_object(label, obj):
-    if not utils.DEBUG:
+    if not utils.DEBUG or obj is None:
         return
-    try:
-        geometry_type, points = vertex_locations(obj)
-        print(
-            "[Tack coincident] {} id={} type={} vertices={}".format(
-                label,
-                obj.Id,
-                geometry_type,
-                len(points),
-            )
+    points = utils.vertices_as_points(obj)
+    print(
+        "[Tack coincident] {} id={} vertices={}".format(
+            label,
+            obj.Id,
+            len(points),
         )
-    except Exception as error:
-        print("[Tack coincident] {} geometry error: {}".format(label, error))
+    )
+
+
+def _websocket_output():
+    try:
+        from rhino_watcher import websocket_output_if_available_sync
+    except ImportError:
+        return nullcontext()
+    return websocket_output_if_available_sync()
+
+
+def _quit_watcher():
+    try:
+        from rhino_watcher import try_send_quit_sync
+    except ImportError:
+        return
+    try_send_quit_sync()
+
+
+def _report_handler_error():
+    try:
+        with _websocket_output():
+            traceback.print_exc()
+    finally:
+        _quit_watcher()
 
 
 def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
-    object_ids = utils.event_object_ids(event)
-    state = sc.sticky.get(utils.RUNTIME_KEY)
-    if state is None or state.get("busy"):
-        return object_ids
-    utils.debug_event(label, event, state)
-    _debug_object("replace old", old_obj)
-    _debug_object("replace new", new_obj)
-    doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return object_ids
-    link.maintain_link(
-        doc,
-        state,
-        event=event,
-        event_name=label,
-        old_obj=old_obj,
-        new_obj=new_obj,
-        object_ids=object_ids,
-        quiet=True,
-    )
-    doc.Views.Redraw()
+    object_ids = []
+    try:
+        object_ids = utils.event_object_ids(event)
+        state = sc.sticky.get(utils.RUNTIME_KEY)
+        if state is None or state.get("busy"):
+            return object_ids
+        if link.ignore_replacement_followup(state, label, object_ids):
+            return object_ids
+        doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
+        if doc is None or not link.event_may_affect_link(
+            doc,
+            state,
+            event,
+            label,
+            object_ids,
+            old_obj=old_obj,
+            new_obj=new_obj,
+        ):
+            return object_ids
+
+        was_broken = state.get("broken")
+        with _websocket_output():
+            utils.debug_event(label, event, state)
+            _debug_object("replace old", old_obj)
+            _debug_object("replace new", new_obj)
+            result = link.maintain_link(
+                doc,
+                state,
+                event=event,
+                event_name=label,
+                old_obj=old_obj,
+                new_obj=new_obj,
+                object_ids=object_ids,
+                quiet=True,
+            )
+            if result is not None or state.get("broken") != was_broken:
+                doc.Views.Redraw()
+    except Exception:
+        _report_handler_error()
     return object_ids
 
 
@@ -64,15 +104,7 @@ def ReplaceRhinoObjectHandler(sender, event):
 
 
 def AddRhinoObjectHandler(sender, event):
-    object_ids = _HandleRhinoObjectEvent("AddRhinoObject", event)
-    state = sc.sticky.get(utils.RUNTIME_KEY)
-    if state is not None:
-        pending = state.get("replacement_pending_ids", [])
-        if any(
-            str(object_id) in pending
-            for object_id in object_ids
-        ):
-            state.pop("replacement_pending_ids", None)
+    _HandleRhinoObjectEvent("AddRhinoObject", event)
 
 
 def DeleteRhinoObjectHandler(sender, event):
@@ -87,7 +119,7 @@ def _unsubscribe(event, handler):
     try:
         event -= handler
     except Exception:
-        pass
+        _report_handler_error()
 
 
 def subscribe():
