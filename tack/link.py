@@ -2,10 +2,9 @@ import Rhino
 import System.Windows.Forms
 import scriptcontext as sc
 
-import analysis
-import metadata
-import utils
-from tack_frame_picker import vertex_locations, vertex_point
+from tack import analysis
+from tack import metadata
+from tack import utils
 
 
 def break_link(state, reason):
@@ -50,12 +49,8 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     parent_vertex = link["parent_vertex"]
     child_vertex = link["child_vertex"]
     try:
-        parent_point = vertex_point(
-            parent, parent_vertex["type"], parent_vertex["index"]
-        )
-        child_point = vertex_point(
-            child, child_vertex["type"], child_vertex["index"]
-        )
+        parent_point = utils.get_vertex_from_brep(parent, parent_vertex["index"])
+        child_point = utils.get_vertex_from_brep(child, child_vertex["index"])
     except Exception:
         return None
     if parent_point is None or child_point is None:
@@ -97,7 +92,7 @@ def _adopt_candidate(
         old_state = state.get(role + "_vertices")
         if old_state is None:
             return False
-        old_points = old_state[1]
+        old_points = old_state
         new_type, new_points, new_index = analysis.replacement_vertex(
             candidate,
             link,
@@ -105,8 +100,8 @@ def _adopt_candidate(
             tolerance,
         )
     else:
-        old_type, old_points = vertex_locations(old_obj)
-        state[role + "_vertices"] = (old_type, old_points)
+        old_points = utils.vertices_as_points(old_obj)
+        state[role + "_vertices"] = old_points
         new_type, new_points, new_index = analysis.remap_vertex(
             old_obj,
             candidate,

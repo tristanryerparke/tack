@@ -1,3 +1,4 @@
+import Rhino
 import System
 
 
@@ -19,6 +20,54 @@ def undo_or_redo(doc):
         bool(getattr(doc, "UndoActive", False))
         or bool(getattr(doc, "RedoActive", False))
     )
+
+
+def vertices_as_points(obj):
+    """Return the Brep vertices as Point3d values."""
+    return [Rhino.Geometry.Point3d(vertex.Location) for vertex in obj.Geometry.Vertices]
+
+
+def get_vertex_from_brep(obj, vertex_index):
+    """Return one Brep vertex as a Point3d."""
+    return Rhino.Geometry.Point3d(obj.Geometry.Vertices[int(vertex_index)].Location)
+
+
+def coincident_vertices(first_obj, second_obj, tolerance):
+    """Return vertex pairs within tolerance on two breps"""
+    first_points = vertices_as_points(first_obj)
+    second_points = vertices_as_points(second_obj)
+    matches = []
+    for first_index, first_point in enumerate(first_points):
+        for second_index, second_point in enumerate(second_points):
+            if first_point.DistanceTo(second_point) <= tolerance:
+                matches.append(
+                    (
+                        "BrepVertex",
+                        first_index,
+                        "BrepVertex",
+                        second_index,
+                        first_point,
+                        second_point,
+                    )
+                )
+    return matches
+
+
+def vertex_index_map(old_points, new_points, tolerance):
+    """Map uniquely matching old vertex indexes to new indexes."""
+    # ponytail: O(n²) scan; use a spatial index if very large Breps need this.
+    remaining = set(range(len(new_points)))
+    mapping = {}
+    for old_index, old_point in enumerate(old_points):
+        candidates = [
+            new_index
+            for new_index in remaining
+            if old_point.DistanceTo(new_points[new_index]) <= tolerance
+        ]
+        if len(candidates) == 1:
+            mapping[old_index] = candidates[0]
+            remaining.remove(candidates[0])
+    return mapping
 
 
 def event_object_ids(event):

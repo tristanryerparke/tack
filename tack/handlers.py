@@ -3,9 +3,8 @@ from contextlib import nullcontext
 import Rhino
 import scriptcontext as sc
 
-import link
-import utils
-from tack_frame_picker import vertex_locations
+from tack import link
+from tack import utils
 
 
 REPLACE_HANDLER_KEY = "Tack.CoincidentLink.ReplaceHandler"
@@ -16,12 +15,11 @@ def _debug_object(label, obj):
     if not utils.DEBUG:
         return
     try:
-        geometry_type, points = vertex_locations(obj)
+        points = utils.vertices_as_points(obj)
         print(
-            "[Tack coincident] {} id={} type={} vertices={}".format(
+            "[Tack coincident] {} id={} vertices={}".format(
                 label,
                 obj.Id,
-                geometry_type,
                 len(points),
             )
         )

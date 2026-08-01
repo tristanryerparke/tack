@@ -9,6 +9,13 @@ dependencies = [
     "run-in-rhino",
 ]
 
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tack"]
+
 [tool.uv.sources]
 rhino-python-renderer = { path = "../rhino-python-renderer", editable = true }
 run-in-rhino = { path = "../run-in-rhino", editable = true }

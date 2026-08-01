@@ -20,7 +20,7 @@ MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
 
 
 def test_parent_move():
-    _, _, _, tack_frame_picker, utils = tack_modules()
+    _, _, _, _, utils = tack_modules()
     doc = sc.doc
     state = sc.sticky.get(STATE_KEY)
     assert state is not None, "Missing fixture; run setup_coincident_pair first"
@@ -34,7 +34,7 @@ def test_parent_move():
     tack_state = sc.sticky[utils.RUNTIME_KEY]
     child = doc.Objects.Find(tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
-    child_after = tack_frame_picker.vertex_locations(child)[1]
+    child_after = utils.vertices_as_points(child)
     assert len(child_after) == len(state["child_before"]), "Child topology changed unexpectedly"
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
     for index, (before, after) in enumerate(zip(state["child_before"], child_after)):
@@ -45,8 +45,8 @@ def test_parent_move():
             "child vertex {}".format(index),
         )
 
-    vertex_type, vertex_index, child_point = state["child_vertex"]
-    linked_child = tack_frame_picker.vertex_point(child, vertex_type, vertex_index)
+    _, vertex_index, child_point = state["child_vertex"]
+    linked_child = utils.get_vertex_from_brep(child, vertex_index)
     assert_close(
         linked_child,
         translated(point_from_data(child_point), MOVE),

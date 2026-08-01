@@ -12,7 +12,7 @@ from common import tack_modules
 
 
 def setup():
-    handlers, metadata, runtime, tack_frame_picker, _ = tack_modules()
+    handlers, metadata, runtime, _, utils = tack_modules()
     doc = sc.doc
     assert doc is not None, "Open a Rhino document before running this test"
 
@@ -26,7 +26,7 @@ def setup():
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
     parent = doc.Objects.Find(parent_id)
     child = doc.Objects.Find(child_id)
-    matches = tack_frame_picker.coincident_vertices(parent, child, tolerance)
+    matches = utils.coincident_vertices(parent, child, tolerance)
     assert len(matches) == 1, "Expected one shared vertex, got {}".format(len(matches))
 
     (
@@ -53,7 +53,7 @@ def setup():
         "parent_id": parent_id,
         "child_id": child_id,
         "child_before": [
-            point_data(point) for point in tack_frame_picker.vertex_locations(child)[1]
+            point_data(point) for point in utils.vertices_as_points(child)
         ],
         "child_vertex": (child_vertex_type, child_vertex_index, point_data(child_point)),
     }

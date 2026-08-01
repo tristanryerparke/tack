@@ -1,30 +1,12 @@
-import importlib
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tack"))
-
 import Rhino
 import rhinoscriptsyntax as rs
 from Rhino.Commands import Result
 
-import analysis
-import conduit
-import metadata
-import link
-import runtime
-import handlers
-import tack_frame_picker
-import utils
-
-importlib.reload(tack_frame_picker)
-importlib.reload(utils)
-importlib.reload(metadata)
-importlib.reload(analysis)
-importlib.reload(link)
-importlib.reload(conduit)
-importlib.reload(runtime)
-importlib.reload(handlers)
+from tack import handlers
+from tack import metadata
+from tack import runtime
+from tack import tack_frame_picker
+from tack import utils
 
 
 def RunCommand(is_interactive):
@@ -35,8 +17,16 @@ def RunCommand(is_interactive):
     handlers.unsubscribe()
     runtime.stop_runtime()
 
+    mode = tack_frame_picker.pick_link_mode()
+    if mode is None:
+        return Result.Cancel
+    if mode == "PickVertices":
+        print("Pick Vertices is not implemented yet.")
+        return Result.Cancel
+
     parent_id = rs.GetObject(
-        "Select parent object",
+        "Select parent polysurface",
+        filter=Rhino.DocObjects.ObjectType.Brep,
         preselect=False,
         select=False,
     )
@@ -51,7 +41,8 @@ def RunCommand(is_interactive):
         rs.LockObject(parent_id)
     try:
         child_id = rs.GetObject(
-            "Select child object",
+            "Select child polysurface",
+            filter=Rhino.DocObjects.ObjectType.Brep,
             preselect=False,
             select=False,
         )
@@ -67,7 +58,7 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    matches = tack_frame_picker.coincident_vertices(parent, child, tolerance)
+    matches = utils.coincident_vertices(parent, child, tolerance)
     if not matches:
         print("Parent and child do not share a coincident vertex.")
         return Result.Cancel

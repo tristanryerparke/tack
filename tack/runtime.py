@@ -1,10 +1,9 @@
 import Rhino
 import scriptcontext as sc
 
-import conduit
-import metadata
-import utils
-from tack_frame_picker import vertex_locations
+from tack import conduit
+from tack import metadata
+from tack import utils
 
 
 def stop_runtime():
@@ -34,7 +33,7 @@ def start_runtime(parent_id, child_id):
         "link": link,
     }
     for role, obj in (("parent", parent), ("child", child)):
-        state[role + "_vertices"] = vertex_locations(obj)
+        state[role + "_vertices"] = utils.vertices_as_points(obj)
     sc.sticky[utils.RUNTIME_KEY] = state
 
     active_conduit = conduit.CoincidentLinkConduit()

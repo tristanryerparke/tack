@@ -1,6 +1,6 @@
 import json
 
-import utils
+from tack import utils
 
 
 LINK_KEY = "Tack.CoincidentLink.v1"

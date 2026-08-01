@@ -1,29 +1,9 @@
-import importlib
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tack"))
-
 import Rhino
 from Rhino.Commands import Result
 
-import analysis
-import conduit
-import metadata
-import link
-import runtime
-import handlers
-import tack_frame_picker
-import utils
-
-importlib.reload(tack_frame_picker)
-importlib.reload(utils)
-importlib.reload(metadata)
-importlib.reload(analysis)
-importlib.reload(link)
-importlib.reload(conduit)
-importlib.reload(runtime)
-importlib.reload(handlers)
+from tack import handlers
+from tack import metadata
+from tack import runtime
 
 
 def _clear_object_metadata(doc, object_id):

@@ -282,7 +282,7 @@ wheels = [
 [[package]]
 name = "tack"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "rhino-python-renderer" },
     { name = "run-in-rhino" },

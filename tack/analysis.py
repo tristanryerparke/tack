@@ -1,6 +1,6 @@
 import Rhino
 
-from tack_frame_picker import vertex_index_map, vertex_locations
+from tack.utils import vertex_index_map, vertices_as_points
 
 
 def matching_vertex_index(points, point_data, tolerance):
@@ -14,18 +14,18 @@ def matching_vertex_index(points, point_data, tolerance):
 
 
 def replacement_vertex(candidate, link, role, tolerance):
-    vertex_type, points = vertex_locations(candidate)
+    points = vertices_as_points(candidate)
     index = matching_vertex_index(
         points,
         link[role + "_vertex"]["point"],
         tolerance,
     )
-    return vertex_type, points, index
+    return "BrepVertex", points, index
 
 
 def remap_vertex(old_obj, new_obj, old_vertex, tolerance):
-    _, old_points = vertex_locations(old_obj)
-    new_type, new_points = vertex_locations(new_obj)
+    old_points = vertices_as_points(old_obj)
+    new_points = vertices_as_points(new_obj)
     old_index = int(old_vertex["index"])
     if len(old_points) == len(new_points):
         new_index = old_index if old_index < len(new_points) else None
@@ -37,4 +37,4 @@ def remap_vertex(old_obj, new_obj, old_vertex, tolerance):
                 old_vertex["point"],
                 tolerance,
             )
-    return new_type, new_points, new_index
+    return "BrepVertex", new_points, new_index

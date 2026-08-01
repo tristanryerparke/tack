@@ -2,8 +2,8 @@ import Rhino
 import System.Drawing
 import scriptcontext as sc
 
-import link
-import utils
+from tack import link
+from tack import utils
 
 
 class CoincidentLinkConduit(Rhino.Display.DisplayConduit):

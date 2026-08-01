@@ -11,20 +11,19 @@ from rhino_watcher import websocket_output_sync
 
 
 # Set to 0 for fast runs; leave positive to watch each step in Rhino.
-SLOW_SECONDS = 1.0
+SLOW_SECONDS = 0
 STATE_KEY = "Tack.IntegrationTest.ParentMove"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TACK_DIR = os.path.join(PROJECT_ROOT, "tack")
-if TACK_DIR not in sys.path:
-    sys.path.insert(0, TACK_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 
 def tack_modules():
-    import handlers
-    import metadata
-    import runtime
-    import tack_frame_picker
-    import utils
+    from tack import handlers
+    from tack import metadata
+    from tack import runtime
+    from tack import tack_frame_picker
+    from tack import utils
 
     return handlers, metadata, runtime, tack_frame_picker, utils
 
