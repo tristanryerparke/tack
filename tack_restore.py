@@ -24,11 +24,11 @@ def RunCommand(is_interactive):
     for child in doc.Objects:
         if child is None:
             continue
-        coincident_link = metadata.read_link(child)
-        if coincident_link is None:
+        anchor_link = metadata.read_link(child)
+        if anchor_link is None:
             continue
         try:
-            parent_id = System.Guid.Parse(str(coincident_link["parent_id"]))
+            parent_id = System.Guid.Parse(str(anchor_link["parent_id"]))
         except Exception:
             continue
 
@@ -37,11 +37,8 @@ def RunCommand(is_interactive):
             print("Saved parent {} no longer exists.".format(parent_id))
             continue
 
-        try:
-            stored_child_id = parent.Attributes.UserDictionary[
-                metadata.CHILD_KEY
-            ]
-        except Exception:
+        stored_child_id = metadata.read_child_id(parent)
+        if stored_child_id is None:
             print("Parent {} has no saved child GUID.".format(parent.Id))
             continue
         if not utils.same_id(stored_child_id, child.Id):
@@ -50,7 +47,7 @@ def RunCommand(is_interactive):
 
         if runtime.start_runtime(parent.Id, child.Id):
             handlers.subscribe()
-            print("Coincident vertex relationship restored.")
+            print("Tack anchor relationship restored.")
             return Result.Success
 
     print("No saved Tack relationship found.")

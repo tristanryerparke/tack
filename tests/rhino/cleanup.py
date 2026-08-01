@@ -17,11 +17,16 @@ def cleanup():
 
     doc = sc.doc
     state = sc.sticky.pop(STATE_KEY, {})
-    for object_id in (state.get("parent_id"), state.get("child_id")):
+    object_ids = (state.get("parent_id"), state.get("child_id"))
+    for object_id in object_ids:
         if object_id is not None and doc.Objects.Find(object_id) is not None:
-            rs.DeleteObject(object_id)
+            assert rs.DeleteObject(object_id), "Could not delete test object {}".format(
+                object_id
+            )
+    for object_id in object_ids:
+        assert object_id is None or doc.Objects.Find(object_id) is None
     doc.Views.Redraw()
     pause("fixture removed")
 
 
-run_step("cleanup_coincident_pair", cleanup)
+run_step("cleanup_anchor_pair", cleanup)

@@ -2,15 +2,22 @@ import Rhino
 import System.Windows.Forms
 import scriptcontext as sc
 
-from tack import analysis
+import tack.analysis.bbox as bbox_analysis
+import tack.analysis.vertex as vertex_analysis
 from tack import metadata
 from tack import utils
+
+
+_ANCHOR_ANALYZERS = {
+    bbox_analysis.ANCHOR_TYPE: bbox_analysis,
+    vertex_analysis.ANCHOR_TYPE: vertex_analysis,
+}
 
 
 def break_link(state, reason):
     if utils.undo_or_redo(Rhino.RhinoDoc.ActiveDoc):
         if utils.DEBUG:
-            print("[Tack coincident] suppressing break during undo/redo")
+            print("[Tack anchor] suppressing break during undo/redo")
         return
     if state.get("broken"):
         return
@@ -19,13 +26,13 @@ def break_link(state, reason):
     if active_conduit is not None:
         active_conduit.Enabled = False
     message = (
-        "The coincident link between objects\n"
+        "The Tack link between objects\n"
         "{} (parent) --> {} (child)\n"
         "was broken.\n\n{}"
     ).format(state.get("parent_id"), state.get("child_id"), reason)
     System.Windows.Forms.MessageBox.Show(
         message,
-        "Tack: coincident link broken",
+        "Tack: anchor link broken",
         System.Windows.Forms.MessageBoxButtons.OK,
         System.Windows.Forms.MessageBoxIcon.Warning,
     )
@@ -46,25 +53,33 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     if parent is None or child is None or link is None:
         return None
 
-    parent_vertex = link["parent_vertex"]
-    child_vertex = link["child_vertex"]
+    parent_anchor_data = link["parent_anchor"]
+    child_anchor_data = link["child_anchor"]
+    parent_analyzer = _ANCHOR_ANALYZERS.get(
+        parent_anchor_data["anchor_type"]
+    )
+    child_analyzer = _ANCHOR_ANALYZERS.get(
+        child_anchor_data["anchor_type"]
+    )
+    if parent_analyzer is None or child_analyzer is None:
+        return None
     try:
-        parent_point = utils.get_vertex_from_brep(parent, parent_vertex["index"])
-        child_point = utils.get_vertex_from_brep(child, child_vertex["index"])
+        parent_anchor = parent_analyzer.resolve(parent, parent_anchor_data)
+        child_anchor = child_analyzer.resolve(child, child_anchor_data)
         offset = Rhino.Geometry.Vector3d(*(link.get("offset") or (0, 0, 0)))
     except Exception:
         return None
-    if parent_point is None or child_point is None:
+    if parent_anchor is None or child_anchor is None:
         return None
     return {
         "parent": parent,
         "child": child,
         "link": link,
-        "parent_point": parent_point,
-        "child_point": child_point,
-        "target_child_point": parent_point + offset,
+        "parent_anchor": parent_anchor,
+        "child_anchor": child_anchor,
+        "target_child_anchor": parent_anchor + offset,
         "correction": Rhino.Geometry.Transform.Translation(
-            parent_point + offset - child_point
+            parent_anchor + offset - child_anchor
         ),
     }
 
@@ -90,39 +105,45 @@ def _adopt_candidate(
         return False
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    anchor = link[role + "_anchor"]
+    analyzer = _ANCHOR_ANALYZERS.get(anchor["anchor_type"])
+    if analyzer is None:
+        return False
+
     if old_obj is None:
-        old_state = state.get(role + "_vertices")
-        if old_state is None:
+        old_anchors = state.get(role + "_anchors")
+        if old_anchors is None:
             return False
-        old_points = old_state
-        new_type, new_points, new_index = analysis.replacement_vertex(
+        new_anchors, new_index = analyzer.replacement_anchor(
             candidate,
-            link,
-            role,
+            anchor,
             tolerance,
         )
     else:
-        old_points = utils.vertices_as_points(old_obj)
-        state[role + "_vertices"] = old_points
-        new_type, new_points, new_index = analysis.remap_vertex(
+        old_anchors = analyzer.anchors(old_obj)
+        state[role + "_anchors"] = old_anchors
+        new_anchors, new_index = analyzer.remap_anchor(
             old_obj,
             candidate,
-            link[role + "_vertex"],
+            anchor,
             tolerance,
         )
 
     if utils.DEBUG:
-        old_index = int(link[role + "_vertex"]["index"])
+        old_index = int(anchor["index"])
+        old_points = dict(old_anchors)
+        new_points = dict(new_anchors)
         print(
-            "[Tack coincident] remap role={} topology_changed={} old_count={} new_count={} old_index={} new_index={} old_point={} new_point={}".format(
+            "[Tack anchor] remap role={} anchor_type={} analysis_changed={} old_count={} new_count={} old_index={} new_index={} old_anchor={} new_anchor={}".format(
                 role,
-                len(old_points) != len(new_points),
-                len(old_points),
-                len(new_points),
+                anchor["anchor_type"],
+                len(old_anchors) != len(new_anchors),
+                len(old_anchors),
+                len(new_anchors),
                 old_index,
                 new_index,
-                utils.debug_point(old_points[old_index]) if 0 <= old_index < len(old_points) else "None",
-                utils.debug_point(new_points[new_index]) if new_index is not None else "None",
+                utils.debug_point(old_points.get(old_index)),
+                utils.debug_point(new_points.get(new_index)),
             )
         )
 
@@ -133,22 +154,23 @@ def _adopt_candidate(
     state["busy"] = True
     try:
         state[role + "_id"] = replacement_id or candidate.Id
-        metadata.update_link(
+        new_anchor = dict(new_anchors)[new_index]
+        metadata.update_anchor(
             doc,
             state,
             link,
             role,
-            new_type,
+            anchor["anchor_type"],
             new_index,
-            new_points[new_index],
+            new_anchor,
         )
-        state[role + "_vertices"] = (new_type, new_points)
+        state[role + "_anchors"] = new_anchors
         _restore_link(state)
     finally:
         state["busy"] = was_busy
     if utils.DEBUG:
         print(
-            "[Tack coincident] adopted replacement role={} id={}".format(
+            "[Tack anchor] adopted replacement role={} id={}".format(
                 role, state[role + "_id"]
             )
         )
@@ -295,7 +317,7 @@ def maintain_link(
         ):
             break_link(
                 state,
-                "The {} vertex could not be matched after the topology change.".format(
+                "The {} anchor could not be matched after the geometry change.".format(
                     role
                 ),
             )
@@ -380,19 +402,19 @@ def maintain_link(
     )
     if result is None:
         if not quiet:
-            print("Coincident vertex link could not be resolved.")
+            print("Tack anchors could not be resolved.")
         if related and event_name != "AddRhinoObject" and not utils.undo_or_redo(doc):
             break_link(
                 state,
-                "The linked objects no longer expose usable vertex data.",
+                "The linked objects no longer expose usable anchor data.",
             )
         return None
 
     if utils.DEBUG:
         print(
-            "[Tack coincident] maintain parent={} child={}".format(
-                utils.debug_point(result["parent_point"]),
-                utils.debug_point(result["child_point"]),
+            "[Tack anchor] maintain parent={} child={}".format(
+                utils.debug_point(result["parent_anchor"]),
+                utils.debug_point(result["child_anchor"]),
             )
         )
 
@@ -404,7 +426,7 @@ def maintain_link(
         # object instead of this transient replacement.
         return result
 
-    if result["target_child_point"].DistanceTo(result["child_point"]) <= max(
+    if result["target_child_anchor"].DistanceTo(result["child_anchor"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
         _restore_link(state)
@@ -426,11 +448,11 @@ def maintain_link(
             doc,
             state,
             result["link"],
-            result["target_child_point"],
+            result["target_child_anchor"],
         )
         if utils.DEBUG:
             print(
-                "[Tack coincident] child updated parent={} child={}".format(
+                "[Tack anchor] child updated parent={} child={}".format(
                     result["parent"].Id,
                     result["child"].Id,
                 )

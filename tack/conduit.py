@@ -6,7 +6,10 @@ from tack import link
 from tack import utils
 
 
-class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
+DISPLAY_TYPE_TOLERANCE = 0.1
+
+
+class TackLinkConduit(Rhino.Display.DisplayConduit):
     def DrawForeground(self, event):
         doc = Rhino.RhinoDoc.ActiveDoc
         state = sc.sticky.get(utils.RUNTIME_KEY)
@@ -16,11 +19,12 @@ class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
         if result is None:
             return
 
-        parent_point = result["parent_point"]
-        child_point = result["child_point"]
-        if parent_point.DistanceTo(child_point) <= 1e-7:
+        parent_anchor = result["parent_anchor"]
+        child_anchor = result["child_anchor"]
+        setup_offset = Rhino.Geometry.Vector3d(*result["link"]["offset"])
+        if setup_offset.Length <= DISPLAY_TYPE_TOLERANCE:
             event.Display.DrawPoint(
-                parent_point,
+                parent_anchor,
                 Rhino.Display.PointStyle.RoundControlPoint,
                 6,
                 System.Drawing.Color.Orange,
@@ -28,14 +32,14 @@ class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
             return
 
         event.Display.DrawLine(
-            parent_point,
-            child_point,
+            parent_anchor,
+            child_anchor,
             System.Drawing.Color.Orange,
             3,
         )
         event.Display.DrawArrowHead(
-            child_point,
-            child_point - parent_point,
+            child_anchor,
+            child_anchor - parent_anchor,
             System.Drawing.Color.Orange,
             32.0,
             0.0,

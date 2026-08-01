@@ -18,7 +18,7 @@ try:
     from tack import handlers
     from tack import metadata
     from tack import runtime
-    from tack.prompting import picking
+    from tack.prompting import command_menu
 
 
     def _short_id(object_id):
@@ -33,34 +33,23 @@ try:
         handlers.unsubscribe()
         runtime.stop_runtime()
 
-        picked = picking.pick_link(doc)
+        picked = command_menu.pick_link(doc)
         if picked is None:
             return Result.Cancel
 
-        (
-            parent_id,
-            child_id,
-            parent_vertex_type,
-            parent_vertex_index,
-            child_vertex_type,
-            child_vertex_index,
-            parent_point,
-            child_point,
-        ) = picked
+        parent_id, child_id, parent_anchor, child_anchor = picked
         if not metadata.write_link(
             doc,
             parent_id,
             child_id,
-            (parent_vertex_type, parent_vertex_index),
-            (child_vertex_type, child_vertex_index),
-            parent_point,
-            child_point,
+            parent_anchor,
+            child_anchor,
         ):
-            print("Could not write coincident vertex relationship metadata.")
+            print("Could not write Tack anchor metadata.")
             return Result.Failure
 
         if not runtime.start_runtime(parent_id, child_id):
-            print("Could not start coincident vertex relationship.")
+            print("Could not start Tack relationship.")
             return Result.Failure
         handlers.subscribe()
         print(

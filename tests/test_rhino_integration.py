@@ -10,7 +10,8 @@ RHINO_TESTS = Path(__file__).with_name("rhino")
 def test_child_and_parent_move_integration():
     with start_server() as watcher:
         try:
-            watcher.run_file(RHINO_TESTS / "setup_coincident_pair.py")
+            watcher.run_file(RHINO_TESTS / "test_bbox_analysis.py")
+            watcher.run_file(RHINO_TESTS / "setup_bbox_circles.py")
             watcher.run_file(RHINO_TESTS / "child_move.py")
             watcher.run_file(RHINO_TESTS / "test_parent_move.py")
             results = watcher.take_data(timeout=10)
@@ -19,9 +20,9 @@ def test_child_and_parent_move_integration():
             assert len(results) == 2, "Unexpected Rhino test data: {}".format(results)
             child_result, parent_result = results
             assert child_result["name"] == "child_move_restores_child"
-            assert child_result["child_vertices"] == child_result["expected_child_vertices"]
+            assert child_result["child_anchors"] == child_result["expected_child_anchors"]
             assert parent_result["name"] == "parent_move_translates_child"
-            assert parent_result["child_vertices"] == parent_result["expected_child_vertices"]
+            assert parent_result["child_anchors"] == parent_result["expected_child_anchors"]
             print("PASS master_child_and_parent_move_verification")
         finally:
             watcher.run_file(RHINO_TESTS / "cleanup.py")

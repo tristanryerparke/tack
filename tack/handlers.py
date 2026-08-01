@@ -8,19 +8,21 @@ from tack import link
 from tack import utils
 
 
-REPLACE_HANDLER_KEY = "Tack.CoincidentLink.ReplaceHandler"
-OBJECT_HANDLER_KEY = "Tack.CoincidentLink.ObjectHandler"
+REPLACE_HANDLER_KEY = "Tack.AnchorLink.ReplaceHandler"
+OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
 
 
 def _debug_object(label, obj):
     if not utils.DEBUG or obj is None:
         return
-    points = utils.vertices_as_points(obj)
+    geometry = obj.Geometry
+    bounding_box = geometry.GetBoundingBox(True)
     print(
-        "[Tack coincident] {} id={} vertices={}".format(
+        "[Tack anchor] {} id={} geometry={} bbox_valid={}".format(
             label,
             obj.Id,
-            len(points),
+            type(geometry).__name__,
+            bounding_box.IsValid,
         )
     )
 

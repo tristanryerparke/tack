@@ -1,98 +1,30 @@
 import Rhino
 import rhinoscriptsyntax as rs
 
-from tack import utils
-from tack.prompting import command_menu
-from tack.prompting.vertex_pick_conduit import VertexPickConduit
+import tack.analysis.bbox as bbox_analysis
+from tack.prompting.anchor_pick_conduit import AnchorPickConduit
 
 
-def pick_link(doc):
-    parent_id = _pick_brep("Select parent polysurface")
-    if not parent_id:
-        return None
-    parent = doc.Objects.Find(parent_id)
-    if parent is None:
-        return None
-
-    parent_vertex = _pick_vertex(parent, "Pick a vertex on the parent polysurface")
-    if parent_vertex is None:
-        return None
-
-    child_id = _pick_child(parent_id)
-    if child_id is None:
-        return None
-    child = doc.Objects.Find(child_id)
-    if child is None:
-        return None
-
-    coincident_vertices = utils.coincident_vertices(
-        parent, child, max(doc.ModelAbsoluteTolerance, 1e-7)
-    )
-    if coincident_vertices:
-        mode = _pick_child_vertex_mode(doc, child_id)
-        if mode is None:
+def pick_object(doc, prompt):
+    while True:
+        object_id = rs.GetObject(
+            prompt,
+            filter=rs.filter.allobjects,
+            preselect=False,
+            select=False,
+        )
+        if not object_id:
             return None
-        if mode == "Coincident":
-            child_vertex = _find_coincident_vertex(parent_vertex, coincident_vertices)
-        else:
-            child_vertex = _pick_vertex(
-                child, "Pick a vertex on the child polysurface"
-            )
-    else:
-        child_vertex = _pick_vertex(child, "Pick a vertex on the child polysurface")
-    if child_vertex is None:
-        return None
-
-    return (
-        parent_id,
-        child_id,
-        parent_vertex[0],
-        parent_vertex[1],
-        child_vertex[0],
-        child_vertex[1],
-        parent_vertex[2],
-        child_vertex[2],
-    )
+        obj = doc.Objects.Find(object_id)
+        if obj is not None and bbox_analysis.anchors(obj):
+            return object_id
+        print("Select an object with a valid bounding box.")
 
 
-def _pick_brep(prompt):
-    return rs.GetObject(
-        prompt,
-        filter=rs.filter.polysurface,
-        preselect=False,
-        select=False,
-    )
-
-
-def _pick_child_vertex_mode(doc, child_id):
-    locked_ids = _lock_other_objects(doc, child_id)
-    try:
-        return command_menu.pick_child_vertex_mode()
-    finally:
-        _unlock_objects(locked_ids)
-        doc.Views.Redraw()
-
-
-def _pick_child(parent_id):
-    parent_was_locked = rs.IsObjectLocked(parent_id)
-    if not parent_was_locked:
-        rs.LockObject(parent_id)
-    try:
-        child_id = _pick_brep("Select child polysurface")
-    finally:
-        if not parent_was_locked:
-            rs.UnlockObject(parent_id)
-
-    if not child_id or utils.same_id(child_id, parent_id):
-        print("Select a different child object.")
-        return None
-    return child_id
-
-
-def _lock_other_objects(doc, target_id):
+def lock_other_objects(doc, target_id):
     locked_ids = []
     for candidate in doc.Objects:
-        if candidate is None or utils.same_id(candidate.Id, target_id):
+        if candidate is None or str(candidate.Id).lower() == str(target_id).lower():
             continue
         try:
             if not rs.IsObjectLocked(candidate.Id) and rs.LockObject(candidate.Id):
@@ -102,7 +34,7 @@ def _lock_other_objects(doc, target_id):
     return locked_ids
 
 
-def _unlock_objects(object_ids):
+def unlock_objects(object_ids):
     for object_id in object_ids:
         try:
             rs.UnlockObject(object_id)
@@ -110,9 +42,9 @@ def _unlock_objects(object_ids):
             pass
 
 
-class VertexGetPoint(Rhino.Input.Custom.GetPoint):
+class AnchorGetPoint(Rhino.Input.Custom.GetPoint):
     def __init__(self, points, state):
-        super(VertexGetPoint, self).__init__()
+        super(AnchorGetPoint, self).__init__()
         self.points = points
         self.state = state
 
@@ -143,11 +75,11 @@ class VertexGetPoint(Rhino.Input.Custom.GetPoint):
         if self.state["hover"] is None:
             self.state["hover"] = -1
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-        super(VertexGetPoint, self).OnMouseMove(event)
+        super(AnchorGetPoint, self).OnMouseMove(event)
 
     def OnMouseDown(self, event):
         if event.RightButtonDown:
-            super(VertexGetPoint, self).OnMouseDown(event)
+            super(AnchorGetPoint, self).OnMouseDown(event)
             return
         if not event.LeftButtonDown:
             return
@@ -158,25 +90,25 @@ class VertexGetPoint(Rhino.Input.Custom.GetPoint):
             return
 
         self.state["result"] = index
-        super(VertexGetPoint, self).OnMouseDown(event)
+        super(AnchorGetPoint, self).OnMouseDown(event)
 
     def OnMouseUp(self, event):
         if self.state["reject_mouse_up"]:
             self.state["reject_mouse_up"] = False
             return
-        super(VertexGetPoint, self).OnMouseUp(event)
+        super(AnchorGetPoint, self).OnMouseUp(event)
 
 
-def _pick_vertex(obj, prompt):
-    points = utils.vertices_as_points(obj)
-    if not points:
-        print("The selected polysurface has no vertices.")
+def pick_anchor(obj, anchor_type, candidate_anchors, wire_segments, prompt):
+    if not candidate_anchors:
+        print("The selected object has no usable anchors.")
         return None
 
+    points = [point for _, point in candidate_anchors]
     state = {"hover": -1, "result": None, "reject_mouse_up": False}
-    conduit = VertexPickConduit(points, state)
+    conduit = AnchorPickConduit(points, state, wire_segments)
     doc = Rhino.RhinoDoc.ActiveDoc
-    locked_ids = _lock_other_objects(doc, obj.Id)
+    locked_ids = lock_other_objects(doc, obj.Id)
     conduit.Enabled = True
     doc.Views.Redraw()
 
@@ -185,7 +117,7 @@ def _pick_vertex(obj, prompt):
             state["hover"] = -1
             state["result"] = None
             state["reject_mouse_up"] = False
-            picker = VertexGetPoint(points, state)
+            picker = AnchorGetPoint(points, state)
             picker.SetCommandPrompt(prompt)
             picker.AcceptNothing(False)
             picker.AddConstructionPoints(points)
@@ -195,31 +127,13 @@ def _pick_vertex(obj, prompt):
             result = picker.Get()
             if result != Rhino.Input.GetResult.Point:
                 return None
-            index = state["result"]
-            if index is None and state["hover"] >= 0:
-                index = state["hover"]
-            if index is not None:
-                return "BrepVertex", index, points[index]
-            # A point result without an accepted parent vertex must not
-            # advance the setup command.
+            position = state["result"]
+            if position is None and state["hover"] >= 0:
+                position = state["hover"]
+            if position is not None:
+                anchor_index, point = candidate_anchors[position]
+                return anchor_type, anchor_index, point
     finally:
         conduit.Enabled = False
-        _unlock_objects(locked_ids)
+        unlock_objects(locked_ids)
         doc.Views.Redraw()
-
-
-def _find_coincident_vertex(parent_vertex, coincident_vertices):
-    matches = [
-        match
-        for match in coincident_vertices
-        if match[1] == parent_vertex[1]
-    ]
-    if not matches:
-        print("The selected parent vertex has no coincident child vertex.")
-        return None
-    if len(matches) > 1:
-        print("The selected parent vertex has multiple coincident child vertices.")
-        return None
-
-    _, _, child_vertex_type, child_vertex_index, _, child_point = matches[0]
-    return child_vertex_type, child_vertex_index, child_point

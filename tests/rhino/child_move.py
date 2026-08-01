@@ -20,9 +20,11 @@ MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
 
 def test_child_move():
     _, _, _, utils = tack_modules()
+    import tack.analysis.bbox as bbox_analysis
+
     doc = sc.doc
     state = sc.sticky.get(STATE_KEY)
-    assert state is not None, "Missing fixture; run setup_coincident_pair first"
+    assert state is not None, "Missing fixture; run setup_bbox_circles first"
 
     rs.UnselectAllObjects()
     assert rs.SelectObject(state["child_id"]), "Could not select the child"
@@ -33,29 +35,35 @@ def test_child_move():
     tack_state = sc.sticky[utils.RUNTIME_KEY]
     child = doc.Objects.Find(tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
-    child_after = utils.vertices_as_points(child)
-    assert len(child_after) == len(state["child_before"]), "Child topology changed unexpectedly"
+    child_after = bbox_analysis.anchors(child)
+    assert [index for index, _ in child_after] == [
+        index for index, _ in state["child_before"]
+    ]
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    for index, (before, after) in enumerate(zip(state["child_before"], child_after)):
+    for index, ((_, before), (_, after)) in enumerate(
+        zip(state["child_before"], child_after)
+    ):
         assert_close(
             after,
             point_from_data(before),
             tolerance,
-            "child vertex {}".format(index),
+            "child bounding-box anchor {}".format(index),
         )
 
-    _, vertex_index, child_point = state["child_vertex"]
-    linked_child = utils.get_vertex_from_brep(child, vertex_index)
+    _, anchor_index, anchor_point = state["child_anchor"]
+    linked_child = dict(child_after)[anchor_index]
     assert_close(
         linked_child,
-        point_from_data(child_point),
+        point_from_data(anchor_point),
         tolerance,
-        "linked child vertex",
+        "child anchor",
     )
     return {
         "name": "child_move_restores_child",
-        "child_vertices": [point_data(point) for point in child_after],
-        "expected_child_vertices": list(state["child_before"]),
+        "child_anchors": [point_data(point) for _, point in child_after],
+        "expected_child_anchors": [
+            point for _, point in state["child_before"]
+        ],
     }
 
 

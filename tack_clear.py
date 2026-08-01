@@ -45,7 +45,7 @@ def RunCommand(is_interactive):
             _clear_object_metadata(doc, obj.Id)
 
     doc.Views.Redraw()
-    print("Tack coincident links cleared. Save the file to keep the cleanup.")
+    print("Tack anchor links cleared. Save the file to keep the cleanup.")
     return Result.Success
 
 
