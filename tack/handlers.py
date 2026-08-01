@@ -27,21 +27,18 @@ def _debug_object(label, obj):
 
 def _websocket_output():
     try:
-        from rhino_watcher import websocket_output_sync
+        from rhino_watcher import websocket_output_if_available_sync
     except ImportError:
         return nullcontext()
-    return websocket_output_sync()
+    return websocket_output_if_available_sync()
 
 
 def _quit_watcher():
     try:
-        from rhino_watcher import send_quit_sync
+        from rhino_watcher import try_send_quit_sync
     except ImportError:
         return
-    try:
-        send_quit_sync()
-    except Exception:
-        pass
+    try_send_quit_sync()
 
 
 def _report_handler_error():

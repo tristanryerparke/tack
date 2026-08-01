@@ -18,21 +18,25 @@ class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
 
         parent_point = result["parent_point"]
         child_point = result["child_point"]
-        event.Display.DrawPoint(
-            parent_point,
-            Rhino.Display.PointStyle.RoundSimple,
-            5,
-            System.Drawing.Color.OrangeRed,
-        )
-        event.Display.DrawPoint(
-            child_point,
-            Rhino.Display.PointStyle.RoundSimple,
-            5,
-            System.Drawing.Color.DodgerBlue,
-        )
-        if parent_point.DistanceTo(child_point) > 1e-7:
-            event.Display.DrawDottedLine(
+        if parent_point.DistanceTo(child_point) <= 1e-7:
+            event.Display.DrawPoint(
                 parent_point,
-                child_point,
-                System.Drawing.Color.Gold,
+                Rhino.Display.PointStyle.RoundControlPoint,
+                6,
+                System.Drawing.Color.Orange,
             )
+            return
+
+        event.Display.DrawLine(
+            parent_point,
+            child_point,
+            System.Drawing.Color.Orange,
+            3,
+        )
+        event.Display.DrawArrowHead(
+            child_point,
+            child_point - parent_point,
+            System.Drawing.Color.Orange,
+            32.0,
+            0.0,
+        )

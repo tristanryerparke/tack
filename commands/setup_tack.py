@@ -21,6 +21,10 @@ try:
     from tack.prompting import picking
 
 
+    def _short_id(object_id):
+        return str(object_id).split("-", 1)[0]
+
+
     def RunCommand(is_interactive):
         doc = Rhino.RhinoDoc.ActiveDoc
         if doc is None:
@@ -59,27 +63,30 @@ try:
             print("Could not start coincident vertex relationship.")
             return Result.Failure
         handlers.subscribe()
-        print("Coincident vertex relationship active.")
-        print("Parent GUID: {}".format(parent_id))
-        print("Child GUID: {}".format(child_id))
+        print(
+            "Tack created between {} and {}".format(
+                _short_id(parent_id),
+                _short_id(child_id),
+            )
+        )
         return Result.Success
 
 
     if __name__ == "__main__":
-        from rhino_watcher import send_end_sync
-        from rhino_watcher import send_quit_sync
-        from rhino_watcher import websocket_output_sync
+        from rhino_watcher import try_send_end_sync
+        from rhino_watcher import try_send_quit_sync
+        from rhino_watcher import websocket_output_if_available_sync
 
-        with websocket_output_sync():
+        with websocket_output_if_available_sync():
             result = RunCommand(True)
         if result == Result.Success:
-            send_end_sync()
+            try_send_end_sync()
         else:
-            send_quit_sync()
+            try_send_quit_sync()
 except Exception:
-    from rhino_watcher import send_quit_sync
-    from rhino_watcher import websocket_output_sync
+    from rhino_watcher import try_send_quit_sync
+    from rhino_watcher import websocket_output_if_available_sync
 
-    with websocket_output_sync():
+    with websocket_output_if_available_sync():
         traceback.print_exc()
-    send_quit_sync()
+    try_send_quit_sync()

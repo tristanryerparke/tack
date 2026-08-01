@@ -84,6 +84,17 @@ def update_link(doc, state, link, role, vertex_type, vertex_index, point):
     return True
 
 
+def update_child_anchor(doc, state, link, point):
+    link["child_vertex"]["point"] = _point_data(point)
+    state["link"] = link
+    return _set_user_value(
+        doc,
+        state["child_id"],
+        LINK_KEY,
+        json.dumps(link),
+    )
+
+
 def candidate_role(state, candidate):
     try:
         child_id = candidate.Attributes.UserDictionary[CHILD_KEY]

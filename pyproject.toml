@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "rhino-python-renderer",
     "run-in-rhino",
 ]
 
@@ -17,5 +16,4 @@ build-backend = "setuptools.build_meta"
 packages = ["tack", "tack.prompting"]
 
 [tool.uv.sources]
-rhino-python-renderer = { path = "../rhino-python-renderer", editable = true }
 run-in-rhino = { path = "../run-in-rhino", editable = true }

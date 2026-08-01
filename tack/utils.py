@@ -2,7 +2,7 @@ import Rhino
 import System
 
 
-DEBUG = True
+DEBUG = False
 RUNTIME_KEY = "Tack.CoincidentLink.Runtime"
 CONDUIT_KEY = "Tack.CoincidentLink.Conduit"
 

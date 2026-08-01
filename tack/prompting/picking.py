@@ -1,9 +1,9 @@
 import Rhino
-import System.Drawing
 import rhinoscriptsyntax as rs
 
 from tack import utils
 from tack.prompting import command_menu
+from tack.prompting.vertex_pick_conduit import VertexPickConduit
 
 
 def pick_link(doc):
@@ -29,7 +29,7 @@ def pick_link(doc):
         parent, child, max(doc.ModelAbsoluteTolerance, 1e-7)
     )
     if coincident_vertices:
-        mode = command_menu.pick_child_vertex_mode()
+        mode = _pick_child_vertex_mode(doc, child_id)
         if mode is None:
             return None
         if mode == "Coincident":
@@ -64,6 +64,15 @@ def _pick_brep(prompt):
     )
 
 
+def _pick_child_vertex_mode(doc, child_id):
+    locked_ids = _lock_other_objects(doc, child_id)
+    try:
+        return command_menu.pick_child_vertex_mode()
+    finally:
+        _unlock_objects(locked_ids)
+        doc.Views.Redraw()
+
+
 def _pick_child(parent_id):
     parent_was_locked = rs.IsObjectLocked(parent_id)
     if not parent_was_locked:
@@ -80,28 +89,25 @@ def _pick_child(parent_id):
     return child_id
 
 
-class VertexPickConduit(Rhino.Display.DisplayConduit):
-    def __init__(self, points, state):
-        super(VertexPickConduit, self).__init__()
-        self.points = points
-        self.state = state
+def _lock_other_objects(doc, target_id):
+    locked_ids = []
+    for candidate in doc.Objects:
+        if candidate is None or utils.same_id(candidate.Id, target_id):
+            continue
+        try:
+            if not rs.IsObjectLocked(candidate.Id) and rs.LockObject(candidate.Id):
+                locked_ids.append(candidate.Id)
+        except Exception:
+            pass
+    return locked_ids
 
-    def DrawForeground(self, event):
-        for point in self.points:
-            event.Display.DrawPoint(
-                point,
-                Rhino.Display.PointStyle.X,
-                8,
-                System.Drawing.Color.Cyan,
-            )
-        index = self.state["hover"]
-        if index >= 0:
-            event.Display.DrawPoint(
-                self.points[index],
-                Rhino.Display.PointStyle.RoundSimple,
-                12,
-                System.Drawing.Color.Yellow,
-            )
+
+def _unlock_objects(object_ids):
+    for object_id in object_ids:
+        try:
+            rs.UnlockObject(object_id)
+        except Exception:
+            pass
 
 
 class VertexGetPoint(Rhino.Input.Custom.GetPoint):
@@ -169,8 +175,10 @@ def _pick_vertex(obj, prompt):
 
     state = {"hover": -1, "result": None, "reject_mouse_up": False}
     conduit = VertexPickConduit(points, state)
+    doc = Rhino.RhinoDoc.ActiveDoc
+    locked_ids = _lock_other_objects(doc, obj.Id)
     conduit.Enabled = True
-    Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+    doc.Views.Redraw()
 
     try:
         while True:
@@ -196,7 +204,8 @@ def _pick_vertex(obj, prompt):
             # advance the setup command.
     finally:
         conduit.Enabled = False
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+        _unlock_objects(locked_ids)
+        doc.Views.Redraw()
 
 
 def _find_coincident_vertex(parent_vertex, coincident_vertices):

@@ -30,6 +30,7 @@ def start_runtime(parent_id, child_id):
         "busy": False,
         "broken": False,
         "replacement_pending_ids": [],
+        "replacement_reconcile_roles": [],
         "link": link,
     }
     for role, obj in (("parent", parent), ("child", child)):

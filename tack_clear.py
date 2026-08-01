@@ -52,19 +52,19 @@ def RunCommand(is_interactive):
 if __name__ == "__main__":
     import traceback
 
-    from rhino_watcher import send_end_sync
-    from rhino_watcher import send_quit_sync
-    from rhino_watcher import websocket_output_sync
+    from rhino_watcher import try_send_end_sync
+    from rhino_watcher import try_send_quit_sync
+    from rhino_watcher import websocket_output_if_available_sync
 
     try:
-        with websocket_output_sync():
+        with websocket_output_if_available_sync():
             result = RunCommand(True)
     except Exception:
-        with websocket_output_sync():
+        with websocket_output_if_available_sync():
             traceback.print_exc()
-        send_quit_sync()
+        try_send_quit_sync()
     else:
         if result == Result.Success:
-            send_end_sync()
+            try_send_end_sync()
         else:
-            send_quit_sync()
+            try_send_quit_sync()

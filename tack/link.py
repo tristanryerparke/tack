@@ -194,6 +194,10 @@ def ignore_replacement_followup(state, event_name, object_ids):
     pending = state.get("replacement_pending_ids", [])
     if not any(str(object_id) in pending for object_id in object_ids):
         return False
+    # The Add event is the first point at which Rhino has installed the
+    # replacement in the document. Use it to correct the real child object.
+    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
+        return False
     if event_name == "AddRhinoObject":
         state.pop("replacement_pending_ids", None)
     return True
@@ -246,6 +250,10 @@ def maintain_link(
     if ignore_replacement_followup(state, event_name, object_ids):
         return None
 
+    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
+        state.pop("replacement_pending_ids", None)
+        state.pop("replacement_reconcile_roles", None)
+
     related = any(
         utils.same_id(object_id, state[role + "_id"])
         for object_id in object_ids
@@ -292,6 +300,9 @@ def maintain_link(
                 ),
             )
             return None
+        pending_roles = state.setdefault("replacement_reconcile_roles", [])
+        if role not in pending_roles:
+            pending_roles.append(role)
         if role == "parent":
             parent_obj = new_obj
         else:
@@ -385,6 +396,14 @@ def maintain_link(
             )
         )
 
+    if event_name == "ReplaceRhinoObject" and role in state.get(
+        "replacement_reconcile_roles", ()
+    ):
+        # ReplaceRhinoObject fires before Rhino installs the replacement. Defer
+        # the correction until AddRhinoObject can modify the document's final
+        # object instead of this transient replacement.
+        return result
+
     if result["target_child_point"].DistanceTo(result["child_point"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
@@ -402,12 +421,20 @@ def maintain_link(
         if not result["child"].CommitChanges():
             print("Child changes could not be committed.")
             return result
-        print(
-            "[Tack coincident] child updated parent={} child={}".format(
-                result["parent"].Id,
-                result["child"].Id,
-            )
+        print("Child position updated by tack")
+        metadata.update_child_anchor(
+            doc,
+            state,
+            result["link"],
+            result["target_child_point"],
         )
+        if utils.DEBUG:
+            print(
+                "[Tack coincident] child updated parent={} child={}".format(
+                    result["parent"].Id,
+                    result["child"].Id,
+                )
+            )
     finally:
         state["busy"] = False
     _restore_link(state)
