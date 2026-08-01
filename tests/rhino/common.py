@@ -1,3 +1,4 @@
+import importlib
 import os
 import sys
 import time
@@ -18,14 +19,18 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
-def tack_modules():
+def tack_modules(reload_modules=False):
+    import tack
+
+    if reload_modules:
+        importlib.reload(tack).reload()
+
     from tack import handlers
     from tack import metadata
     from tack import runtime
-    from tack import tack_frame_picker
     from tack import utils
 
-    return handlers, metadata, runtime, tack_frame_picker, utils
+    return handlers, metadata, runtime, utils
 
 
 def pause(label):

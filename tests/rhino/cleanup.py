@@ -11,7 +11,7 @@ from common import tack_modules
 
 
 def cleanup():
-    handlers, _, runtime, _, _ = tack_modules()
+    handlers, _, runtime, _ = tack_modules()
     handlers.unsubscribe()
     runtime.stop_runtime()
 

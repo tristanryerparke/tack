@@ -22,14 +22,27 @@ def undo_or_redo(doc):
     )
 
 
+def brep_geometry(obj):
+    """Return Brep geometry for a Rhino object or Brep-form geometry."""
+    geometry = getattr(obj, "Geometry", obj)
+    if hasattr(geometry, "Vertices"):
+        return geometry
+    return geometry.ToBrep()
+
+
 def vertices_as_points(obj):
     """Return the Brep vertices as Point3d values."""
-    return [Rhino.Geometry.Point3d(vertex.Location) for vertex in obj.Geometry.Vertices]
+    return [
+        Rhino.Geometry.Point3d(vertex.Location)
+        for vertex in brep_geometry(obj).Vertices
+    ]
 
 
 def get_vertex_from_brep(obj, vertex_index):
     """Return one Brep vertex as a Point3d."""
-    return Rhino.Geometry.Point3d(obj.Geometry.Vertices[int(vertex_index)].Location)
+    return Rhino.Geometry.Point3d(
+        brep_geometry(obj).Vertices[int(vertex_index)].Location
+    )
 
 
 def coincident_vertices(first_obj, second_obj, tolerance):

@@ -36,6 +36,7 @@ def write_link(doc, parent_id, child_id, parent_vertex,
             "index": int(child_vertex[1]),
             "point": _point_data(child_point),
         },
+        "offset": _point_data(child_point - parent_point),
     }
     if not _set_user_value(doc, child_id, LINK_KEY, json.dumps(link)):
         return False

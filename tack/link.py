@@ -51,6 +51,7 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     try:
         parent_point = utils.get_vertex_from_brep(parent, parent_vertex["index"])
         child_point = utils.get_vertex_from_brep(child, child_vertex["index"])
+        offset = Rhino.Geometry.Vector3d(*(link.get("offset") or (0, 0, 0)))
     except Exception:
         return None
     if parent_point is None or child_point is None:
@@ -61,8 +62,9 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
         "link": link,
         "parent_point": parent_point,
         "child_point": child_point,
+        "target_child_point": parent_point + offset,
         "correction": Rhino.Geometry.Transform.Translation(
-            parent_point - child_point
+            parent_point + offset - child_point
         ),
     }
 
@@ -186,6 +188,45 @@ def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
     return role, parent_obj, child_obj
 
 
+def ignore_replacement_followup(state, event_name, object_ids):
+    if event_name not in ("AddRhinoObject", "DeleteRhinoObject"):
+        return False
+    pending = state.get("replacement_pending_ids", [])
+    if not any(str(object_id) in pending for object_id in object_ids):
+        return False
+    if event_name == "AddRhinoObject":
+        state.pop("replacement_pending_ids", None)
+    return True
+
+
+def event_may_affect_link(
+    doc,
+    state,
+    event,
+    event_name,
+    object_ids,
+    old_obj=None,
+    new_obj=None,
+):
+    if old_obj is not None and new_obj is not None:
+        return any(
+            utils.same_id(old_obj.Id, state[role + "_id"])
+            for role in ("parent", "child")
+        )
+
+    pending = state.get("replacement_pending_ids", [])
+    if any(
+        utils.same_id(object_id, state[role + "_id"])
+        or str(object_id) in pending
+        for object_id in object_ids
+        for role in ("parent", "child")
+    ):
+        return True
+
+    candidate = _candidate(doc, event, event_name, object_ids)
+    return metadata.candidate_role(state, candidate) is not None
+
+
 def maintain_link(
     doc,
     state,
@@ -202,11 +243,7 @@ def maintain_link(
         return None
 
     object_ids = list(object_ids or utils.event_object_ids(event))
-    pending = state.get("replacement_pending_ids", [])
-    if event_name == "DeleteRhinoObject" and any(
-        str(object_id) in pending for object_id in object_ids
-    ):
-        utils.debug_event("DeleteRhinoObject (replacement; ignored)", event, state)
+    if ignore_replacement_followup(state, event_name, object_ids):
         return None
 
     related = any(
@@ -270,6 +307,11 @@ def maintain_link(
         )
         role = role or candidate_role
         related = related or candidate_role is not None
+        if event_name == "AddRhinoObject" and candidate_role is not None:
+            state.pop("replacement_pending_ids", None)
+
+    if not related:
+        return None
 
     parent = parent_obj or doc.Objects.Find(state["parent_id"])
     child = child_obj or doc.Objects.Find(state["child_id"])
@@ -343,7 +385,7 @@ def maintain_link(
             )
         )
 
-    if result["parent_point"].DistanceTo(result["child_point"]) <= max(
+    if result["target_child_point"].DistanceTo(result["child_point"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
         _restore_link(state)

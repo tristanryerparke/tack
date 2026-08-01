@@ -20,7 +20,7 @@ MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
 
 
 def test_parent_move():
-    _, _, _, _, utils = tack_modules()
+    _, _, _, utils = tack_modules()
     doc = sc.doc
     state = sc.sticky.get(STATE_KEY)
     assert state is not None, "Missing fixture; run setup_coincident_pair first"

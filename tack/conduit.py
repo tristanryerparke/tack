@@ -21,13 +21,13 @@ class CoincidentLinkConduit(Rhino.Display.DisplayConduit):
         event.Display.DrawPoint(
             parent_point,
             Rhino.Display.PointStyle.RoundSimple,
-            10,
+            5,
             System.Drawing.Color.OrangeRed,
         )
         event.Display.DrawPoint(
             child_point,
             Rhino.Display.PointStyle.RoundSimple,
-            10,
+            5,
             System.Drawing.Color.DodgerBlue,
         )
         if parent_point.DistanceTo(child_point) > 1e-7:

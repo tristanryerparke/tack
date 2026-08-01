@@ -1,6 +1,12 @@
+import importlib
+
 import Rhino
 import System
 from Rhino.Commands import Result
+
+import tack
+
+importlib.reload(tack).reload()
 
 from tack import handlers
 from tack import metadata
@@ -52,4 +58,21 @@ def RunCommand(is_interactive):
 
 
 if __name__ == "__main__":
-    RunCommand(True)
+    import traceback
+
+    from rhino_watcher import send_end_sync
+    from rhino_watcher import send_quit_sync
+    from rhino_watcher import websocket_output_sync
+
+    try:
+        with websocket_output_sync():
+            result = RunCommand(True)
+    except Exception:
+        with websocket_output_sync():
+            traceback.print_exc()
+        send_quit_sync()
+    else:
+        if result == Result.Success:
+            send_end_sync()
+        else:
+            send_quit_sync()
