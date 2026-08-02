@@ -76,24 +76,28 @@ def test_bbox_analysis():
     child_anchor = dict(vertex_analysis.anchors(child_box))[0]
     offset = child_anchor - parent_anchor
     mixed_link = {
-        "version": 2,
+        "version": 3,
+        "link_id": "mixed-link",
         "parent_id": "parent",
         "child_id": "child",
         "parent_anchor": {
             "anchor_type": bbox_analysis.ANCHOR_TYPE,
             "index": bbox_analysis.CENTER_INDEX,
-            "point": [parent_anchor.X, parent_anchor.Y, parent_anchor.Z],
         },
         "child_anchor": {
             "anchor_type": vertex_analysis.ANCHOR_TYPE,
             "index": 0,
-            "point": [child_anchor.X, child_anchor.Y, child_anchor.Z],
         },
         "offset": [offset.X, offset.Y, offset.Z],
     }
     result = link.inspect_link(
         None,
-        {"parent_id": "parent", "child_id": "child", "link": mixed_link},
+        {
+            "link_id": "mixed-link",
+            "parent_id": "parent",
+            "child_id": "child",
+            "link": mixed_link,
+        },
         parent_obj=box,
         child_obj=child_box,
     )

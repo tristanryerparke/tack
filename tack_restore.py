@@ -1,7 +1,6 @@
 import importlib
 
 import Rhino
-import System
 from Rhino.Commands import Result
 
 import tack
@@ -11,7 +10,6 @@ importlib.reload(tack).reload()
 from tack import handlers
 from tack import metadata
 from tack import runtime
-from tack import utils
 
 
 def RunCommand(is_interactive):
@@ -21,36 +19,26 @@ def RunCommand(is_interactive):
 
     handlers.unsubscribe()
     runtime.stop_runtime()
-    for child in doc.Objects:
-        if child is None:
-            continue
-        anchor_link = metadata.read_link(child)
-        if anchor_link is None:
-            continue
-        try:
-            parent_id = System.Guid.Parse(str(anchor_link["parent_id"]))
-        except Exception:
-            continue
 
-        parent = doc.Objects.Find(parent_id)
-        if parent is None:
-            print("Saved parent {} no longer exists.".format(parent_id))
-            continue
+    restored = 0
+    for saved_link in metadata.all_links(doc):
+        if runtime.start_runtime(
+            saved_link["parent_id"],
+            saved_link["child_id"],
+            saved_link["link_id"],
+        ):
+            restored += 1
+        else:
+            print(
+                "Could not restore Tack {}.".format(saved_link["link_id"])
+            )
 
-        stored_child_id = metadata.read_child_id(parent)
-        if stored_child_id is None:
-            print("Parent {} has no saved child GUID.".format(parent.Id))
-            continue
-        if not utils.same_id(stored_child_id, child.Id):
-            print("Parent/child metadata mismatch; relationship skipped.")
-            continue
+    handlers.subscribe()
+    if restored:
+        print("Restored {} Tack relationship(s).".format(restored))
+        return Result.Success
 
-        if runtime.start_runtime(parent.Id, child.Id):
-            handlers.subscribe()
-            print("Tack anchor relationship restored.")
-            return Result.Success
-
-    print("No saved Tack relationship found.")
+    print("No saved Tack relationships found.")
     return Result.Cancel
 
 

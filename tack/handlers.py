@@ -2,9 +2,10 @@ from contextlib import nullcontext
 import traceback
 
 import Rhino
-import scriptcontext as sc
 
 from tack import link
+from tack import metadata
+from tack import runtime
 from tack import utils
 
 
@@ -51,44 +52,87 @@ def _report_handler_error():
         _quit_watcher()
 
 
+def _event_objects(doc, event, object_ids, old_obj, new_obj):
+    objects = []
+
+    def add(candidate):
+        if candidate is not None and candidate not in objects:
+            objects.append(candidate)
+
+    add(old_obj)
+    add(new_obj)
+    add(utils.event_object(doc, event, object_ids))
+    for object_id in object_ids:
+        add(utils.find_object(doc, object_id))
+    return objects
+
+
+def _event_links(doc, event, object_ids, old_obj, new_obj):
+    saved_links = {}
+    objects = _event_objects(doc, event, object_ids, old_obj, new_obj)
+    for obj in objects:
+        for saved_link in metadata.links_for_object(doc, obj):
+            saved_links[saved_link["link_id"]] = saved_link
+
+    if not saved_links:
+        for saved_link in metadata.all_links(doc):
+            if not object_ids or any(
+                utils.same_id(object_id, saved_link[role + "_id"])
+                for object_id in object_ids
+                for role in ("parent", "child")
+            ):
+                saved_links[saved_link["link_id"]] = saved_link
+    return list(saved_links.values())
+
+
 def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
     object_ids = []
     try:
         object_ids = utils.event_object_ids(event)
-        state = sc.sticky.get(utils.RUNTIME_KEY)
-        if state is None or state.get("busy"):
-            return object_ids
-        if link.ignore_replacement_followup(state, label, object_ids):
-            return object_ids
         doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
-        if doc is None or not link.event_may_affect_link(
-            doc,
-            state,
-            event,
-            label,
-            object_ids,
-            old_obj=old_obj,
-            new_obj=new_obj,
-        ):
+        if doc is None:
             return object_ids
 
-        was_broken = state.get("broken")
-        with _websocket_output():
-            utils.debug_event(label, event, state)
-            _debug_object("replace old", old_obj)
-            _debug_object("replace new", new_obj)
-            result = link.maintain_link(
+        for saved_link in _event_links(
+            doc,
+            event,
+            object_ids,
+            old_obj,
+            new_obj,
+        ):
+            state = runtime.state_for_link(doc, saved_link)
+            if state is None or state.get("busy"):
+                continue
+            if link.ignore_replacement_followup(state, label, object_ids):
+                continue
+            if not link.event_may_affect_link(
                 doc,
                 state,
-                event=event,
-                event_name=label,
+                event,
+                label,
+                object_ids,
                 old_obj=old_obj,
                 new_obj=new_obj,
-                object_ids=object_ids,
-                quiet=True,
-            )
-            if result is not None or state.get("broken") != was_broken:
-                doc.Views.Redraw()
+            ):
+                continue
+
+            was_broken = state.get("broken")
+            with _websocket_output():
+                utils.debug_event(label, event, state)
+                _debug_object("replace old", old_obj)
+                _debug_object("replace new", new_obj)
+                result = link.maintain_link(
+                    doc,
+                    state,
+                    event=event,
+                    event_name=label,
+                    old_obj=old_obj,
+                    new_obj=new_obj,
+                    object_ids=object_ids,
+                    quiet=True,
+                )
+                if result is not None or state.get("broken") != was_broken:
+                    doc.Views.Redraw()
     except Exception:
         _report_handler_error()
     return object_ids
@@ -125,6 +169,9 @@ def _unsubscribe(event, handler):
 
 
 def subscribe():
+    unsubscribe()
+    import scriptcontext as sc
+
     sc.sticky[REPLACE_HANDLER_KEY] = ReplaceRhinoObjectHandler
     Rhino.RhinoDoc.ReplaceRhinoObject += ReplaceRhinoObjectHandler
 
@@ -140,6 +187,8 @@ def subscribe():
 
 
 def unsubscribe():
+    import scriptcontext as sc
+
     handler = sc.sticky.pop(REPLACE_HANDLER_KEY, None)
     if handler is not None:
         _unsubscribe(Rhino.RhinoDoc.ReplaceRhinoObject, handler)

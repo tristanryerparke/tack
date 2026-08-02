@@ -1,6 +1,5 @@
 import Rhino
 import System.Windows.Forms
-import scriptcontext as sc
 
 import tack.analysis.bbox as bbox_analysis
 import tack.analysis.vertex as vertex_analysis
@@ -22,9 +21,6 @@ def break_link(state, reason):
     if state.get("broken"):
         return
     state["broken"] = True
-    active_conduit = sc.sticky.get(utils.CONDUIT_KEY)
-    if active_conduit is not None:
-        active_conduit.Enabled = False
     message = (
         "The Tack link between objects\n"
         "{} (parent) --> {} (child)\n"
@@ -40,15 +36,16 @@ def break_link(state, reason):
 
 def _restore_link(state):
     state["broken"] = False
-    active_conduit = sc.sticky.get(utils.CONDUIT_KEY)
-    if active_conduit is not None:
-        active_conduit.Enabled = True
 
 
 def inspect_link(doc, state, parent_obj=None, child_obj=None):
-    parent = parent_obj or doc.Objects.Find(state["parent_id"])
-    child = child_obj or doc.Objects.Find(state["child_id"])
-    link = metadata.read_link(child) if child is not None else None
+    parent = parent_obj or utils.find_object(doc, state["parent_id"])
+    child = child_obj or utils.find_object(doc, state["child_id"])
+    link = (
+        metadata.read_link(child, state["link_id"])
+        if child is not None
+        else None
+    )
     link = link or state.get("link")
     if parent is None or child is None or link is None:
         return None
@@ -85,10 +82,14 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
 
 
 def _stored_link(doc, state, child_obj=None, old_obj=None, role=None):
-    child = child_obj or doc.Objects.Find(state["child_id"])
-    link = metadata.read_link(child) if child is not None else None
+    child = child_obj or utils.find_object(doc, state["child_id"])
+    link = (
+        metadata.read_link(child, state["link_id"])
+        if child is not None
+        else None
+    )
     if role == "child" and old_obj is not None:
-        link = metadata.read_link(old_obj) or link
+        link = metadata.read_link(old_obj, state["link_id"]) or link
     return link or state.get("link")
 
 
@@ -184,7 +185,7 @@ def _candidate(doc, event, event_name, object_ids):
     if candidate is not None:
         return candidate
     for object_id in object_ids:
-        candidate = doc.Objects.Find(object_id)
+        candidate = utils.find_object(doc, object_id)
         if candidate is not None:
             return candidate
     return None
@@ -272,9 +273,10 @@ def maintain_link(
     if ignore_replacement_followup(state, event_name, object_ids):
         return None
 
+    reconcile_roles = ()
     if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
+        reconcile_roles = tuple(state.pop("replacement_reconcile_roles"))
         state.pop("replacement_pending_ids", None)
-        state.pop("replacement_reconcile_roles", None)
 
     related = any(
         utils.same_id(object_id, state[role + "_id"])
@@ -346,8 +348,8 @@ def maintain_link(
     if not related:
         return None
 
-    parent = parent_obj or doc.Objects.Find(state["parent_id"])
-    child = child_obj or doc.Objects.Find(state["child_id"])
+    parent = parent_obj or utils.find_object(doc, state["parent_id"])
+    child = child_obj or utils.find_object(doc, state["child_id"])
 
     if parent is None or child is None:
         missing_role = "parent" if parent is None else "child"
@@ -360,8 +362,8 @@ def maintain_link(
             child_obj,
         )
         role = role or candidate_role
-        parent = parent_obj or doc.Objects.Find(state["parent_id"])
-        child = child_obj or doc.Objects.Find(state["child_id"])
+        parent = parent_obj or utils.find_object(doc, state["parent_id"])
+        child = child_obj or utils.find_object(doc, state["child_id"])
 
         if parent is None or child is None:
             for candidate in metadata.candidates(doc, state):
@@ -373,8 +375,8 @@ def maintain_link(
                     child_obj,
                 )
                 role = role or candidate_role
-                parent = parent_obj or doc.Objects.Find(state["parent_id"])
-                child = child_obj or doc.Objects.Find(state["child_id"])
+                parent = parent_obj or utils.find_object(doc, state["parent_id"])
+                child = child_obj or utils.find_object(doc, state["child_id"])
                 if parent is not None and child is not None:
                     break
 
@@ -393,6 +395,13 @@ def maintain_link(
                     ),
                 )
             return None
+
+    if reconcile_roles and not metadata.save_link(doc, state, state["link"]):
+        break_link(
+            state,
+            "Replacement metadata could not be saved on both linked objects.",
+        )
+        return None
 
     result = inspect_link(
         doc,
@@ -444,12 +453,6 @@ def maintain_link(
             print("Child changes could not be committed.")
             return result
         print("Child position updated by tack")
-        metadata.update_child_anchor(
-            doc,
-            state,
-            result["link"],
-            result["target_child_anchor"],
-        )
         if utils.DEBUG:
             print(
                 "[Tack anchor] child updated parent={} child={}".format(

@@ -14,6 +14,16 @@ def usable_object_id(object_id):
     return not same_id(object_id, System.Guid.Empty)
 
 
+def find_object(doc, object_id):
+    if doc is None or object_id is None:
+        return None
+    try:
+        object_id = System.Guid.Parse(str(object_id))
+    except Exception:
+        return None
+    return doc.Objects.Find(object_id)
+
+
 def undo_or_redo(doc):
     return doc is not None and (
         bool(getattr(doc, "UndoActive", False))

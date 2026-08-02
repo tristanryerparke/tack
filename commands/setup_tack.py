@@ -31,29 +31,30 @@ try:
             return Result.Cancel
 
         handlers.unsubscribe()
-        runtime.stop_runtime()
+        handlers.subscribe()
 
         picked = command_menu.pick_link(doc)
         if picked is None:
             return Result.Cancel
 
         parent_id, child_id, parent_anchor, child_anchor = picked
-        if not metadata.write_link(
+        link_id = metadata.write_link(
             doc,
             parent_id,
             child_id,
             parent_anchor,
             child_anchor,
-        ):
+        )
+        if link_id is None:
             print("Could not write Tack anchor metadata.")
             return Result.Failure
 
-        if not runtime.start_runtime(parent_id, child_id):
+        if not runtime.start_runtime(parent_id, child_id, link_id):
             print("Could not start Tack relationship.")
             return Result.Failure
-        handlers.subscribe()
         print(
-            "Tack created between {} and {}".format(
+            "Tack {} created between {} and {}".format(
+                _short_id(link_id),
                 _short_id(parent_id),
                 _short_id(child_id),
             )

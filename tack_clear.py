@@ -20,8 +20,8 @@ def _clear_object_metadata(doc, object_id):
     attrs = obj.Attributes.Duplicate()
     changed = False
     for key in (
-        metadata.LINK_KEY,
-        metadata.CHILD_KEY,
+        metadata.LINKS_KEY,
+        metadata.PARENT_LINKS_KEY,
     ):
         try:
             if attrs.UserDictionary.ContainsKey(key):

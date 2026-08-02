@@ -31,16 +31,6 @@ def resolve(obj, anchor):
     return Rhino.Geometry.Point3d(brep.Vertices[index].Location)
 
 
-def _matching_index(candidate_anchors, point_data, tolerance):
-    point = Rhino.Geometry.Point3d(*point_data)
-    matches = [
-        index
-        for index, candidate in candidate_anchors
-        if point.DistanceTo(candidate) <= tolerance
-    ]
-    return matches[0] if len(matches) == 1 else None
-
-
 def _index_map(old_anchors, new_anchors, tolerance):
     remaining = {index for index, _ in new_anchors}
     new_points = dict(new_anchors)
@@ -59,7 +49,9 @@ def _index_map(old_anchors, new_anchors, tolerance):
 
 def replacement_anchor(candidate, anchor, tolerance):
     candidate_anchors = anchors(candidate)
-    index = _matching_index(candidate_anchors, anchor["point"], tolerance)
+    index = int(anchor["index"])
+    if index not in dict(candidate_anchors):
+        index = None
     return candidate_anchors, index
 
 
@@ -76,10 +68,4 @@ def remap_anchor(old_obj, new_obj, anchor, tolerance):
             new_anchors,
             tolerance,
         ).get(old_index)
-        if new_index is None:
-            new_index = _matching_index(
-                new_anchors,
-                anchor["point"],
-                tolerance,
-            )
     return new_anchors, new_index

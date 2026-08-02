@@ -17,7 +17,12 @@ def cleanup():
 
     doc = sc.doc
     state = sc.sticky.pop(STATE_KEY, {})
-    object_ids = (state.get("parent_id"), state.get("child_id"))
+    object_ids = (
+        state.get("parent_id"),
+        state.get("child_id"),
+        state.get("second_parent_id"),
+        state.get("second_child_id"),
+    )
     for object_id in object_ids:
         if object_id is not None and doc.Objects.Find(object_id) is not None:
             assert rs.DeleteObject(object_id), "Could not delete test object {}".format(
