@@ -19,7 +19,7 @@ MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
 
 
 def test_child_move():
-    _, _, _, utils = tack_modules()
+    _, metadata, _, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
     doc = sc.doc
@@ -35,6 +35,13 @@ def test_child_move():
     tack_state = sc.sticky[utils.RUNTIME_KEY][state["link_id"]]
     child = utils.find_object(doc, tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
+    saved_link = metadata.read_link(child, state["link_id"])
+    assert saved_link is not None, "Child lost Tack metadata after its first move"
+    parent = utils.find_object(doc, saved_link["parent_id"])
+    assert parent is not None, "Tack lost the parent object"
+    assert metadata.read_parent_links(parent).get(state["link_id"]) == str(
+        child.Id
+    ), "Parent lost its matching Tack link ID"
     child_after = bbox_analysis.anchors(child)
     assert [index for index, _ in child_after] == [
         index for index, _ in state["child_before"]

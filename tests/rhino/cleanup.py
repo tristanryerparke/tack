@@ -3,6 +3,7 @@ import sys
 sys.modules.pop("common", None)
 
 from common import STATE_KEY
+from common import TEST_OBJECT_KEY
 from common import pause
 from common import rs
 from common import run_step
@@ -10,27 +11,66 @@ from common import sc
 from common import tack_modules
 
 
+def _is_test_object(obj):
+    try:
+        return bool(obj.Attributes.UserDictionary[TEST_OBJECT_KEY])
+    except Exception:
+        return False
+
+
 def cleanup():
-    handlers, _, runtime, _ = tack_modules()
+    handlers, metadata, runtime, _ = tack_modules()
     handlers.unsubscribe()
     runtime.stop_runtime()
 
     doc = sc.doc
     state = sc.sticky.pop(STATE_KEY, {})
-    object_ids = (
-        state.get("parent_id"),
-        state.get("child_id"),
-        state.get("second_parent_id"),
-        state.get("second_child_id"),
-    )
+    object_ids = []
+
+    def add(object_id):
+        if object_id is not None and object_id not in object_ids:
+            object_ids.append(object_id)
+
+    for key in (
+        "parent_id",
+        "child_id",
+        "second_parent_id",
+        "second_child_id",
+    ):
+        add(state.get(key))
+    for obj in doc.Objects:
+        if obj is not None and _is_test_object(obj):
+            add(obj.Id)
+
     for object_id in object_ids:
-        if object_id is not None and doc.Objects.Find(object_id) is not None:
+        if doc.Objects.Find(object_id) is not None:
             assert rs.DeleteObject(object_id), "Could not delete test object {}".format(
                 object_id
             )
-    for object_id in object_ids:
-        assert object_id is None or doc.Objects.Find(object_id) is None
+    remaining = [
+        obj.Id
+        for obj in doc.Objects
+        if obj is not None and _is_test_object(obj)
+    ]
+    assert not remaining, "Tagged test objects remain: {}".format(remaining)
+
+    restored = 0
+    for saved_link in metadata.all_links(doc):
+        if runtime.start_runtime(
+            saved_link["parent_id"],
+            saved_link["child_id"],
+            saved_link["link_id"],
+        ):
+            restored += 1
+    handlers.subscribe()
+
     doc.Views.Redraw()
+    print(
+        "Removed {} test object(s); restored {} existing Tack relationship(s).".format(
+            len(object_ids),
+            restored,
+        )
+    )
     pause("fixture removed")
 
 

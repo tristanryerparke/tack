@@ -452,6 +452,12 @@ def maintain_link(
         if not result["child"].CommitChanges():
             print("Child changes could not be committed.")
             return result
+        if not metadata.save_link(doc, state, result["link"]):
+            break_link(
+                state,
+                "Link metadata could not be restored after moving the child.",
+            )
+            return result
         print("Child position updated by tack")
         if utils.DEBUG:
             print(

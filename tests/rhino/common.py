@@ -14,6 +14,7 @@ from rhino_watcher import websocket_output_sync
 # Set to 0 for fast runs; leave positive to watch each step in Rhino.
 SLOW_SECONDS = 0
 STATE_KEY = "Tack.IntegrationTest.ParentMove"
+TEST_OBJECT_KEY = "Tack.IntegrationTest.Object"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)

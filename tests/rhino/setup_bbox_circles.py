@@ -3,6 +3,7 @@ import sys
 sys.modules.pop("common", None)
 
 from common import STATE_KEY
+from common import TEST_OBJECT_KEY
 from common import pause
 from common import point_data
 from common import rs
@@ -16,6 +17,16 @@ def _anchor(bbox_analysis, obj):
         bbox_analysis.ANCHOR_TYPE,
         bbox_analysis.CENTER_INDEX,
         dict(bbox_analysis.anchors(obj))[bbox_analysis.CENTER_INDEX],
+    )
+
+
+def _mark_test_object(doc, object_id):
+    obj = doc.Objects.Find(object_id)
+    assert obj is not None, "Could not find test object {}".format(object_id)
+    attrs = obj.Attributes.Duplicate()
+    attrs.UserDictionary.Set(TEST_OBJECT_KEY, True)
+    assert doc.Objects.ModifyAttributes(obj.Id, attrs, True), (
+        "Could not mark test object {}".format(object_id)
     )
 
 
@@ -34,8 +45,16 @@ def setup():
 
     parent_id = rs.AddCircle((0, 0, 0), 2)
     child_id = rs.AddCircle((10, 0, 0), 2)
-    second_parent_id = rs.AddCircle((0, 20, 0), 2)
-    second_child_id = rs.AddCircle((10, 20, 0), 2)
+    second_parent_id = rs.AddPolyline(
+        [
+            (-2, 18, 0),
+            (2, 18, 0),
+            (2, 22, 0),
+            (-2, 22, 0),
+            (-2, 18, 0),
+        ]
+    )
+    second_child_id = rs.AddText("Tack child", (10, 20, 0), height=1.0)
     fixture.update(
         {
             "parent_id": parent_id,
@@ -44,9 +63,10 @@ def setup():
             "second_child_id": second_child_id,
         }
     )
-    assert all(
-        (parent_id, child_id, second_parent_id, second_child_id)
-    ), "Could not create the test circles"
+    object_ids = (parent_id, child_id, second_parent_id, second_child_id)
+    assert all(object_ids), "Could not create the test objects"
+    for object_id in object_ids:
+        _mark_test_object(doc, object_id)
 
     parent = doc.Objects.Find(parent_id)
     child = doc.Objects.Find(child_id)

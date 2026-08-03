@@ -19,7 +19,7 @@ MOVE = Rhino.Geometry.Vector3d(0, 10, 0)
 
 
 def test_multiple_tacks():
-    _, _, runtime, _ = tack_modules()
+    _, metadata, runtime, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
     doc = sc.doc
@@ -27,22 +27,32 @@ def test_multiple_tacks():
     assert state is not None, "Missing fixture; run setup_bbox_circles first"
     assert len(runtime.states()) == 2
 
+    first_child = utils.find_object(doc, state["child_id"])
+    second_child = utils.find_object(doc, state["second_child_id"])
     first_child_before = [
-        point_data(point)
-        for _, point in bbox_analysis.anchors(
-            doc.Objects.Find(state["child_id"])
-        )
+        (index, point_data(point))
+        for index, point in bbox_analysis.anchors(first_child)
     ]
 
     rs.UnselectAllObjects()
+    assert rs.SelectObject(state["parent_id"]), "Could not select the first parent"
     assert rs.SelectObject(
         state["second_parent_id"]
     ), "Could not select the second parent"
     assert rs.Command("_Move 0,0,0 0,10,0", echo=False), "Rhino Move command failed"
 
-    second_child = doc.Objects.Find(state["second_child_id"])
+    first_child = utils.find_object(doc, state["child_id"])
+    second_child = utils.find_object(doc, state["second_child_id"])
+    first_child_after = bbox_analysis.anchors(first_child)
     second_child_after = bbox_analysis.anchors(second_child)
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    for (_, before), (_, after) in zip(first_child_before, first_child_after):
+        assert_close(
+            after,
+            translated(point_from_data(before), MOVE),
+            tolerance,
+            "first Tack child anchor after simultaneous move",
+        )
     for (_, before), (_, after) in zip(
         state["second_child_before"],
         second_child_after,
@@ -51,18 +61,39 @@ def test_multiple_tacks():
             after,
             translated(point_from_data(before), MOVE),
             tolerance,
-            "second Tack child anchor",
+            "second Tack child anchor after simultaneous move",
         )
 
-    first_child_after = [
-        point_data(point)
-        for _, point in bbox_analysis.anchors(
-            doc.Objects.Find(state["child_id"])
-        )
-    ]
-    assert first_child_after == first_child_before
+    expected_ids = {state["link_id"], state["second_link_id"]}
+    saved_links = {
+        saved_link["link_id"]: saved_link
+        for saved_link in metadata.all_links(doc)
+    }
+    assert expected_ids <= set(saved_links), (
+        "One or more Tacks lost child metadata after moving both parents"
+    )
+    for link_id, parent_id, child_id in (
+        (state["link_id"], state["parent_id"], state["child_id"]),
+        (
+            state["second_link_id"],
+            state["second_parent_id"],
+            state["second_child_id"],
+        ),
+    ):
+        child = utils.find_object(doc, child_id)
+        parent = utils.find_object(doc, parent_id)
+        assert metadata.read_link(child, link_id) is not None
+        assert metadata.read_parent_links(parent).get(link_id) == str(child.Id)
+
     return {
-        "name": "multiple_tacks_are_independent",
+        "name": "multiple_tacks_survive_simultaneous_move",
+        "first_child_anchors": [
+            point_data(point) for _, point in first_child_after
+        ],
+        "expected_first_child_anchors": [
+            point_data(translated(point_from_data(point), MOVE))
+            for _, point in first_child_before
+        ],
         "second_child_anchors": [
             point_data(point) for _, point in second_child_after
         ],
