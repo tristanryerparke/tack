@@ -8,7 +8,7 @@ RHINO_STRESS_TEST = Path(__file__).with_name("rhino") / "stress_100_relationship
 
 
 def test_100_tack_relationships_update_200_objects():
-    with start_server() as watcher:
+    with start_server(environment={"debug": "true"}) as watcher:
         watcher.run_file(RHINO_STRESS_TEST)
         results = watcher.take_data(timeout=120)
 

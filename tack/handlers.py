@@ -9,23 +9,9 @@ from tack import runtime
 from tack import utils
 
 
-REPLACE_HANDLER_KEY = "Tack.AnchorLink.ReplaceHandler"
+# Remove a handler persisted by Tack versions that subscribed to Replace.
+LEGACY_REPLACE_HANDLER_KEY = "Tack.AnchorLink.ReplaceHandler"
 OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
-
-
-def _debug_object(label, obj):
-    if not utils.DEBUG or obj is None:
-        return
-    geometry = obj.Geometry
-    bounding_box = geometry.GetBoundingBox(True)
-    print(
-        "[Tack anchor] {} id={} geometry={} bbox_valid={}".format(
-            label,
-            obj.Id,
-            type(geometry).__name__,
-            bounding_box.IsValid,
-        )
-    )
 
 
 def _websocket_output():
@@ -46,30 +32,29 @@ def _quit_watcher():
 
 def _report_handler_error():
     try:
-        with _websocket_output():
-            traceback.print_exc()
+        if utils.DEBUG:
+            with _websocket_output():
+                traceback.print_exc()
     finally:
         _quit_watcher()
 
 
-def _event_objects(doc, event, object_ids, old_obj, new_obj):
+def _event_objects(doc, event, object_ids):
     objects = []
 
     def add(candidate):
         if candidate is not None and candidate not in objects:
             objects.append(candidate)
 
-    add(old_obj)
-    add(new_obj)
     add(utils.event_object(doc, event, object_ids))
     for object_id in object_ids:
         add(utils.find_object(doc, object_id))
     return objects
 
 
-def _event_links(doc, event, object_ids, old_obj, new_obj):
+def _event_links(doc, event, object_ids):
     saved_links = {}
-    objects = _event_objects(doc, event, object_ids, old_obj, new_obj)
+    objects = _event_objects(doc, event, object_ids)
     for obj in objects:
         for saved_link in metadata.links_for_object(doc, obj):
             saved_links[saved_link["link_id"]] = saved_link
@@ -85,25 +70,26 @@ def _event_links(doc, event, object_ids, old_obj, new_obj):
     return list(saved_links.values())
 
 
-def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
+def _HandleRhinoObjectEvent(label, event):
     object_ids = []
     try:
         object_ids = utils.event_object_ids(event)
         doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
         if doc is None:
             return object_ids
+        if label == "DeleteRhinoObject":
+            with _websocket_output():
+                utils.debug(
+                    "[Tack anchor] DeleteRhinoObject ids={} is lifecycle-only; "
+                    "waiting for AddRhinoObject or UndeleteRhinoObject.".format(
+                        [str(object_id) for object_id in object_ids]
+                    )
+                )
+            return object_ids
 
-        for saved_link in _event_links(
-            doc,
-            event,
-            object_ids,
-            old_obj,
-            new_obj,
-        ):
+        for saved_link in _event_links(doc, event, object_ids):
             state = runtime.state_for_link(doc, saved_link)
             if state is None or state.get("busy"):
-                continue
-            if link.ignore_replacement_followup(state, label, object_ids):
                 continue
             if not link.event_may_affect_link(
                 doc,
@@ -111,23 +97,17 @@ def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
                 event,
                 label,
                 object_ids,
-                old_obj=old_obj,
-                new_obj=new_obj,
             ):
                 continue
 
             was_broken = state.get("broken")
             with _websocket_output():
                 utils.debug_event(label, event, state)
-                _debug_object("replace old", old_obj)
-                _debug_object("replace new", new_obj)
                 result = link.maintain_link(
                     doc,
                     state,
                     event=event,
                     event_name=label,
-                    old_obj=old_obj,
-                    new_obj=new_obj,
                     object_ids=object_ids,
                     quiet=True,
                 )
@@ -136,17 +116,6 @@ def _HandleRhinoObjectEvent(label, event, old_obj=None, new_obj=None):
     except Exception:
         _report_handler_error()
     return object_ids
-
-
-def ReplaceRhinoObjectHandler(sender, event):
-    old_obj = getattr(event, "OldRhinoObject", None)
-    new_obj = getattr(event, "NewRhinoObject", None)
-    _HandleRhinoObjectEvent(
-        "ReplaceRhinoObject",
-        event,
-        old_obj=old_obj,
-        new_obj=new_obj,
-    )
 
 
 def AddRhinoObjectHandler(sender, event):
@@ -172,9 +141,6 @@ def subscribe():
     unsubscribe()
     import scriptcontext as sc
 
-    sc.sticky[REPLACE_HANDLER_KEY] = ReplaceRhinoObjectHandler
-    Rhino.RhinoDoc.ReplaceRhinoObject += ReplaceRhinoObjectHandler
-
     object_handlers = (
         AddRhinoObjectHandler,
         DeleteRhinoObjectHandler,
@@ -189,7 +155,7 @@ def subscribe():
 def unsubscribe():
     import scriptcontext as sc
 
-    handler = sc.sticky.pop(REPLACE_HANDLER_KEY, None)
+    handler = sc.sticky.pop(LEGACY_REPLACE_HANDLER_KEY, None)
     if handler is not None:
         _unsubscribe(Rhino.RhinoDoc.ReplaceRhinoObject, handler)
 

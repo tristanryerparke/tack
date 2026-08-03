@@ -81,15 +81,13 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     }
 
 
-def _stored_link(doc, state, child_obj=None, old_obj=None, role=None):
+def _stored_link(doc, state, child_obj=None):
     child = child_obj or utils.find_object(doc, state["child_id"])
     link = (
         metadata.read_link(child, state["link_id"])
         if child is not None
         else None
     )
-    if role == "child" and old_obj is not None:
-        link = metadata.read_link(old_obj, state["link_id"]) or link
     return link or state.get("link")
 
 
@@ -99,8 +97,6 @@ def _adopt_candidate(
     role,
     candidate,
     link,
-    old_obj=None,
-    replacement_id=None,
 ):
     if candidate is None or link is None:
         return False
@@ -111,31 +107,21 @@ def _adopt_candidate(
     if analyzer is None:
         return False
 
-    if old_obj is None:
-        old_anchors = state.get(role + "_anchors")
-        if old_anchors is None:
-            return False
-        new_anchors, new_index = analyzer.replacement_anchor(
-            candidate,
-            anchor,
-            tolerance,
-        )
-    else:
-        old_anchors = analyzer.anchors(old_obj)
-        state[role + "_anchors"] = old_anchors
-        new_anchors, new_index = analyzer.remap_anchor(
-            old_obj,
-            candidate,
-            anchor,
-            tolerance,
-        )
+    old_anchors = state.get(role + "_anchors")
+    if old_anchors is None:
+        return False
+    new_anchors, new_index = analyzer.replacement_anchor(
+        candidate,
+        anchor,
+        tolerance,
+    )
 
     if utils.DEBUG:
         old_index = int(anchor["index"])
         old_points = dict(old_anchors)
         new_points = dict(new_anchors)
         print(
-            "[Tack anchor] remap role={} anchor_type={} analysis_changed={} old_count={} new_count={} old_index={} new_index={} old_anchor={} new_anchor={}".format(
+            "[Tack anchor] resolve final candidate role={} anchor_type={} analysis_changed={} saved_count={} candidate_count={} saved_index={} candidate_index={} saved_anchor={} candidate_anchor={}".format(
                 role,
                 anchor["anchor_type"],
                 len(old_anchors) != len(new_anchors),
@@ -154,7 +140,7 @@ def _adopt_candidate(
     was_busy = state.get("busy", False)
     state["busy"] = True
     try:
-        state[role + "_id"] = replacement_id or candidate.Id
+        state[role + "_id"] = candidate.Id
         new_anchor = dict(new_anchors)[new_index]
         metadata.update_anchor(
             doc,
@@ -211,40 +197,15 @@ def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
     return role, parent_obj, child_obj
 
 
-def ignore_replacement_followup(state, event_name, object_ids):
-    if event_name not in ("AddRhinoObject", "DeleteRhinoObject"):
-        return False
-    pending = state.get("replacement_pending_ids", [])
-    if not any(str(object_id) in pending for object_id in object_ids):
-        return False
-    # The Add event is the first point at which Rhino has installed the
-    # replacement in the document. Use it to correct the real child object.
-    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
-        return False
-    if event_name == "AddRhinoObject":
-        state.pop("replacement_pending_ids", None)
-    return True
-
-
 def event_may_affect_link(
     doc,
     state,
     event,
     event_name,
     object_ids,
-    old_obj=None,
-    new_obj=None,
 ):
-    if old_obj is not None and new_obj is not None:
-        return any(
-            utils.same_id(old_obj.Id, state[role + "_id"])
-            for role in ("parent", "child")
-        )
-
-    pending = state.get("replacement_pending_ids", [])
     if any(
         utils.same_id(object_id, state[role + "_id"])
-        or str(object_id) in pending
         for object_id in object_ids
         for role in ("parent", "child")
     ):
@@ -261,8 +222,6 @@ def maintain_link(
     event_name=None,
     parent_obj=None,
     child_obj=None,
-    old_obj=None,
-    new_obj=None,
     object_ids=None,
     quiet=True,
 ):
@@ -270,80 +229,21 @@ def maintain_link(
         return None
 
     object_ids = list(object_ids or utils.event_object_ids(event))
-    if ignore_replacement_followup(state, event_name, object_ids):
-        return None
-
-    reconcile_roles = ()
-    if event_name == "AddRhinoObject" and state.get("replacement_reconcile_roles"):
-        reconcile_roles = tuple(state.pop("replacement_reconcile_roles"))
-        state.pop("replacement_pending_ids", None)
 
     related = any(
         utils.same_id(object_id, state[role + "_id"])
         for object_id in object_ids
         for role in ("parent", "child")
     )
-    role = None
-
-    if old_obj is not None and new_obj is not None:
-        if utils.same_id(old_obj.Id, state["parent_id"]):
-            role = "parent"
-        elif utils.same_id(old_obj.Id, state["child_id"]):
-            role = "child"
-        if role is None:
-            return None
-
-        related = True
-        state["replacement_pending_ids"] = [
-            str(old_obj.Id),
-            str(new_obj.Id),
-        ]
-        replacement_id = (
-            new_obj.Id if utils.usable_object_id(new_obj.Id) else old_obj.Id
-        )
-        replacement_link = _stored_link(
-            doc,
-            state,
-            child_obj=child_obj,
-            old_obj=old_obj,
-            role=role,
-        )
-        if replacement_link is None or not _adopt_candidate(
-            doc,
-            state,
-            role,
-            new_obj,
-            replacement_link,
-            old_obj=old_obj,
-            replacement_id=replacement_id,
-        ):
-            break_link(
-                state,
-                "The {} anchor could not be matched after the geometry change.".format(
-                    role
-                ),
-            )
-            return None
-        pending_roles = state.setdefault("replacement_reconcile_roles", [])
-        if role not in pending_roles:
-            pending_roles.append(role)
-        if role == "parent":
-            parent_obj = new_obj
-        else:
-            child_obj = new_obj
-    else:
-        candidate = _candidate(doc, event, event_name, object_ids)
-        candidate_role, parent_obj, child_obj = _adopt_event_candidate(
-            doc,
-            state,
-            candidate,
-            parent_obj,
-            child_obj,
-        )
-        role = role or candidate_role
-        related = related or candidate_role is not None
-        if event_name == "AddRhinoObject" and candidate_role is not None:
-            state.pop("replacement_pending_ids", None)
+    candidate = _candidate(doc, event, event_name, object_ids)
+    candidate_role, parent_obj, child_obj = _adopt_event_candidate(
+        doc,
+        state,
+        candidate,
+        parent_obj,
+        child_obj,
+    )
+    related = related or candidate_role is not None
 
     if not related:
         return None
@@ -361,7 +261,6 @@ def maintain_link(
             parent_obj,
             child_obj,
         )
-        role = role or candidate_role
         parent = parent_obj or utils.find_object(doc, state["parent_id"])
         child = child_obj or utils.find_object(doc, state["child_id"])
 
@@ -374,7 +273,6 @@ def maintain_link(
                     parent_obj,
                     child_obj,
                 )
-                role = role or candidate_role
                 parent = parent_obj or utils.find_object(doc, state["parent_id"])
                 child = child_obj or utils.find_object(doc, state["child_id"])
                 if parent is not None and child is not None:
@@ -396,13 +294,6 @@ def maintain_link(
                 )
             return None
 
-    if reconcile_roles and not metadata.save_link(doc, state, state["link"]):
-        break_link(
-            state,
-            "Replacement metadata could not be saved on both linked objects.",
-        )
-        return None
-
     result = inspect_link(
         doc,
         state,
@@ -411,7 +302,7 @@ def maintain_link(
     )
     if result is None:
         if not quiet:
-            print("Tack anchors could not be resolved.")
+            utils.debug("[Tack anchor] anchors could not be resolved.")
         if related and event_name != "AddRhinoObject" and not utils.undo_or_redo(doc):
             break_link(
                 state,
@@ -427,14 +318,6 @@ def maintain_link(
             )
         )
 
-    if event_name == "ReplaceRhinoObject" and role in state.get(
-        "replacement_reconcile_roles", ()
-    ):
-        # ReplaceRhinoObject fires before Rhino installs the replacement. Defer
-        # the correction until AddRhinoObject can modify the document's final
-        # object instead of this transient replacement.
-        return result
-
     if result["target_child_anchor"].DistanceTo(result["child_anchor"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
@@ -447,10 +330,10 @@ def maintain_link(
     state["busy"] = True
     try:
         if not result["child"].Geometry.Transform(result["correction"]):
-            print("Child geometry translation failed.")
+            utils.debug("[Tack anchor] child geometry translation failed.")
             return result
         if not result["child"].CommitChanges():
-            print("Child changes could not be committed.")
+            utils.debug("[Tack anchor] child changes could not be committed.")
             return result
         if not metadata.save_link(doc, state, result["link"]):
             break_link(
@@ -458,14 +341,12 @@ def maintain_link(
                 "Link metadata could not be restored after moving the child.",
             )
             return result
-        print("Child position updated by tack")
-        if utils.DEBUG:
-            print(
-                "[Tack anchor] child updated parent={} child={}".format(
-                    result["parent"].Id,
-                    result["child"].Id,
-                )
+        utils.debug(
+            "[Tack anchor] child updated parent={} child={}".format(
+                result["parent"].Id,
+                result["child"].Id,
             )
+        )
     finally:
         state["busy"] = False
     _restore_link(state)

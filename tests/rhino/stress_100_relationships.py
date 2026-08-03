@@ -183,17 +183,8 @@ def stress_100_relationships():
             captured_output.getvalue()
         )
 
-        update_messages = captured_output.getvalue().count(
-            "Child position updated by tack"
-        )
-        assert update_messages == RELATIONSHIP_COUNT, (
-            "Expected {} child updates, observed {}".format(
-                RELATIONSHIP_COUNT,
-                update_messages,
-            )
-        )
-
         tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+        updated_child_count = 0
         saved_ids = {
             saved_link["link_id"]
             for saved_link in metadata.all_links(doc)
@@ -223,6 +214,7 @@ def stress_100_relationships():
                 tolerance,
                 "relationship {} child center".format(index),
             )
+            updated_child_count += 1
             assert metadata.read_link(child, link_id) is not None, (
                 "Relationship {} lost child metadata".format(index)
             )
@@ -241,7 +233,7 @@ def stress_100_relationships():
             "name": "stress_100_relationships_200_objects",
             "relationship_count": RELATIONSHIP_COUNT,
             "object_count": tagged_count_after,
-            "updated_child_count": update_messages,
+            "updated_child_count": updated_child_count,
             "setup_seconds": setup_seconds,
             "update_seconds": update_seconds,
             "milliseconds_per_relationship": (

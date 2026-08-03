@@ -8,7 +8,7 @@ RHINO_TESTS = Path(__file__).with_name("rhino")
 
 
 def test_child_and_parent_move_integration():
-    with start_server() as watcher:
+    with start_server(environment={"debug": "true"}) as watcher:
         try:
             watcher.run_file(RHINO_TESTS / "test_bbox_analysis.py")
             watcher.run_file(RHINO_TESTS / "setup_bbox_circles.py")

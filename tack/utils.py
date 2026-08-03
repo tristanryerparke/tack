@@ -1,7 +1,25 @@
+import os
+
 import System
 
 
-DEBUG = True
+def _debug_enabled_from_environment():
+    return any(
+        os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+        for name in ("debug", "TACK_DEBUG")
+    )
+
+
+# run-in-rhino installs its environment before the watched target script runs.
+# Normal Rhino sessions provide neither value, so Tack remains silent.
+DEBUG = _debug_enabled_from_environment()
+
+
+def debug(message):
+    if DEBUG:
+        print(message)
+
+
 RUNTIME_KEY = "Tack.AnchorLink.Runtime"
 CONDUIT_KEY = "Tack.AnchorLink.Conduit"
 

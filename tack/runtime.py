@@ -37,8 +37,6 @@ def _new_state(doc, saved_link):
         "child_id": saved_link["child_id"],
         "busy": False,
         "broken": False,
-        "replacement_pending_ids": [],
-        "replacement_reconcile_roles": [],
         "link": saved_link,
     }
     for role, obj in (("parent", parent), ("child", child)):
@@ -66,7 +64,7 @@ def state_for_link(doc, saved_link):
         if state is None:
             return None
         active_states[link_id] = state
-    elif not state.get("replacement_reconcile_roles"):
+    else:
         state["link"] = saved_link
         state["parent_id"] = saved_link["parent_id"]
         state["child_id"] = saved_link["child_id"]

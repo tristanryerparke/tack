@@ -1,4 +1,19 @@
+import os
 import traceback
+
+
+def _debug_enabled():
+    return os.getenv("debug", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ) or os.getenv("TACK_DEBUG", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 try:
@@ -18,6 +33,7 @@ try:
     from tack import handlers
     from tack import metadata
     from tack import runtime
+    from tack import utils
     from tack.prompting import command_menu
 
 
@@ -46,14 +62,14 @@ try:
             child_anchor,
         )
         if link_id is None:
-            print("Could not write Tack anchor metadata.")
+            utils.debug("[Tack anchor] could not write Tack anchor metadata.")
             return Result.Failure
 
         if not runtime.start_runtime(parent_id, child_id, link_id):
-            print("Could not start Tack relationship.")
+            utils.debug("[Tack anchor] could not start Tack relationship.")
             return Result.Failure
-        print(
-            "Tack {} created between {} and {}".format(
+        utils.debug(
+            "[Tack anchor] created link={} parent={} child={}".format(
                 _short_id(link_id),
                 _short_id(parent_id),
                 _short_id(child_id),
@@ -77,6 +93,7 @@ except Exception:
     from rhino_watcher import try_send_quit_sync
     from rhino_watcher import websocket_output_if_available_sync
 
-    with websocket_output_if_available_sync():
-        traceback.print_exc()
+    if _debug_enabled():
+        with websocket_output_if_available_sync():
+            traceback.print_exc()
     try_send_quit_sync()
