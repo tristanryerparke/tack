@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 CONDUIT = ROOT / "tack" / "conduit.py"
 RUNTIME = ROOT / "tack" / "runtime.py"
+DOCUMENT_RUNTIME = ROOT / "tack" / "document_runtime.py"
 CLEAR = ROOT / "commands" / "tack_clear.py"
 RESTORE = ROOT / "commands" / "tack_restore.py"
 HIDE = ROOT / "commands" / "tack_hide.py"
@@ -32,7 +33,7 @@ def _called_attributes(node):
     }
 
 
-def test_conduit_draws_only_from_runtime_cache():
+def test_conduit_draws_only_from_its_document_runtime_cache():
     draw = next(
         node
         for node in ast.walk(ast.parse(CONDUIT.read_text()))
@@ -45,14 +46,20 @@ def test_conduit_draws_only_from_runtime_cache():
     assert "link" not in names
     assert "all_links" not in calls
     assert "inspect_link" not in calls
+    assert "try_get_value" in calls
+    assert "RhinoDoc" in ast.unparse(draw)
     assert "display" in CONDUIT.read_text()
 
 
-def test_runtime_builds_clean_cache_and_discards_it_on_stop():
+def test_runtime_builds_clean_cache_and_discards_only_document_values_on_stop():
     source = RUNTIME.read_text()
+    stop = _function(RUNTIME, "stop_runtime")
+
     assert "set_display_clean" in source
-    assert 'sc.sticky.pop(utils.RUNTIME_KEY, None)' in source
+    assert "doc" in [argument.arg for argument in stop.args.args]
+    assert "remove_value" in _called_attributes(stop)
     assert 'sc.sticky.pop(utils.CONDUIT_KEY, None)' in source
+    assert "REGISTRY_KEY" in DOCUMENT_RUNTIME.read_text()
 
 
 def test_clear_and_restore_use_cache_lifecycle_entry_points():
@@ -100,14 +107,16 @@ def test_commands_import_watcher_only_on_demand_for_debug():
         ), path
 
 
-def test_show_and_hide_control_only_the_runtime_conduit():
-    runtime_source = RUNTIME.read_text()
+def test_show_and_hide_control_only_the_document_display_state():
     hide = _function(RUNTIME, "hide_display")
     show = _function(RUNTIME, "show_display")
 
-    assert "active_conduit.Enabled = False" in runtime_source
+    assert "doc" in [argument.arg for argument in hide.args.args]
+    assert "doc" in [argument.arg for argument in show.args.args]
+    assert "set_value" in _called_attributes(hide)
+    assert "set_value" in _called_attributes(show)
     assert "_ensure_conduit()" in ast.unparse(show)
-    assert "RUNTIME_KEY" in ast.unparse(show)
+    assert "DISPLAY_ENABLED_KEY" in ast.unparse(hide)
 
     hide_calls = _called_attributes(_function(HIDE, "RunCommand"))
     show_calls = _called_attributes(_function(SHOW, "RunCommand"))

@@ -21,6 +21,7 @@ def debug(message):
 
 
 RUNTIME_KEY = "Tack.AnchorLink.Runtime"
+DISPLAY_ENABLED_KEY = "Tack.AnchorLink.DisplayEnabled"
 CONDUIT_KEY = "Tack.AnchorLink.Conduit"
 
 

@@ -38,7 +38,7 @@ def setup():
     assert doc is not None, "Open a Rhino document before running this test"
 
     handlers.unsubscribe()
-    runtime.stop_runtime()
+    runtime.stop_runtime(doc)
 
     fixture = {}
     sc.sticky[STATE_KEY] = fixture
@@ -115,13 +115,19 @@ def setup():
     }
     assert metadata.read_parent_links(parent)[link_id] == str(child_id)
 
-    assert runtime.start_runtime(parent_id, child_id, link_id), "Could not start Tack"
     assert runtime.start_runtime(
+        doc,
+        parent_id,
+        child_id,
+        link_id,
+    ), "Could not start Tack"
+    assert runtime.start_runtime(
+        doc,
         second_parent_id,
         second_child_id,
         second_link_id,
     ), "Could not start second Tack"
-    assert len(runtime.states()) == 2
+    assert len(runtime.states(doc)) == 2
     handlers.subscribe()
 
     fixture["child_before"] = [

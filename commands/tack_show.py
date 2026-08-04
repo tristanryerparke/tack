@@ -21,7 +21,7 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    if not runtime.show_display():
+    if not runtime.show_display(doc):
         print("No active Tack runtime to show.")
         return Result.Cancel
 

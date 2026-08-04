@@ -100,6 +100,7 @@ try:
                 )
                 assert link_id is not None
                 assert runtime.start_runtime(
+                    doc,
                     parent_id,
                     child_id,
                     link_id,

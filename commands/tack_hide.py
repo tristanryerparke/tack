@@ -21,7 +21,7 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    if not runtime.hide_display():
+    if not runtime.hide_display(doc):
         print("No active Tack display to hide.")
         return Result.Cancel
 

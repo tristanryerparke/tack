@@ -11,6 +11,7 @@ def test_child_and_parent_move_integration():
     with start_server(environment={"debug": "true"}) as watcher:
         try:
             watcher.run_file(RHINO_TESTS / "test_bbox_analysis.py")
+            watcher.run_file(RHINO_TESTS / "test_document_runtime.py")
             watcher.run_file(RHINO_TESTS / "setup_bbox_circles.py")
             watcher.run_file(RHINO_TESTS / "child_move.py")
             child_results = watcher.take_data(timeout=10)

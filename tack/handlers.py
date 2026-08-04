@@ -78,7 +78,7 @@ def _HandleRhinoObjectEvent(label, event):
         if doc is None:
             return object_ids
         if label == "DeleteRhinoObject":
-            runtime.mark_object_ids_dirty(object_ids)
+            runtime.mark_object_ids_dirty(doc, object_ids)
             with _websocket_output():
                 utils.debug(
                     "[Tack anchor] DeleteRhinoObject ids={} is lifecycle-only; "
@@ -132,6 +132,15 @@ def UndeleteRhinoObjectHandler(sender, event):
     _HandleRhinoObjectEvent("UndeleteRhinoObject", event)
 
 
+def CloseDocumentHandler(sender, event):
+    try:
+        doc = getattr(event, "Document", None)
+        if doc is not None:
+            runtime.remove_document(doc)
+    except Exception:
+        _report_handler_error()
+
+
 def _unsubscribe(event, handler):
     try:
         event -= handler
@@ -147,11 +156,13 @@ def subscribe():
         AddRhinoObjectHandler,
         DeleteRhinoObjectHandler,
         UndeleteRhinoObjectHandler,
+        CloseDocumentHandler,
     )
     sc.sticky[OBJECT_HANDLER_KEY] = object_handlers
     Rhino.RhinoDoc.AddRhinoObject += AddRhinoObjectHandler
     Rhino.RhinoDoc.DeleteRhinoObject += DeleteRhinoObjectHandler
     Rhino.RhinoDoc.UndeleteRhinoObject += UndeleteRhinoObjectHandler
+    Rhino.RhinoDoc.CloseDocument += CloseDocumentHandler
 
 
 def unsubscribe():
@@ -168,6 +179,7 @@ def unsubscribe():
             Rhino.RhinoDoc.AddRhinoObject,
             Rhino.RhinoDoc.DeleteRhinoObject,
             Rhino.RhinoDoc.UndeleteRhinoObject,
+            Rhino.RhinoDoc.CloseDocument,
         ),
     ):
         _unsubscribe(event, handler)

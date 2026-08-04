@@ -20,10 +20,10 @@ def _is_test_object(obj):
 
 def cleanup():
     handlers, metadata, runtime, _ = tack_modules()
-    handlers.unsubscribe()
-    runtime.stop_runtime()
-
     doc = sc.doc
+    handlers.unsubscribe()
+    runtime.stop_runtime(doc)
+
     state = sc.sticky.pop(STATE_KEY, {})
     object_ids = []
 
@@ -57,6 +57,7 @@ def cleanup():
     restored = 0
     for saved_link in metadata.all_links(doc):
         if runtime.start_runtime(
+            doc,
             saved_link["parent_id"],
             saved_link["child_id"],
             saved_link["link_id"],

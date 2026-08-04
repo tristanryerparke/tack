@@ -117,7 +117,7 @@ def _object_data(state, obj):
 
 
 def _runtime_state_data(state):
-    link_state = state["runtime"].states().get(state["link_id"])
+    link_state = state["runtime"].states(state["doc"]).get(state["link_id"])
     if link_state is None:
         return None
     return {
@@ -291,7 +291,7 @@ def setup_trace():
     assert doc is not None, "Open a Rhino document before running this test"
 
     handlers.unsubscribe()
-    runtime.stop_runtime()
+    runtime.stop_runtime(doc)
     _delete_fixture_objects(doc, ())
 
     parent_id = _box((0, 0, 0), (10, 10, 10))
@@ -312,7 +312,7 @@ def setup_trace():
         _anchor(bbox_analysis, child),
     )
     assert link_id is not None
-    assert runtime.start_runtime(parent_id, child_id, link_id)
+    assert runtime.start_runtime(doc, parent_id, child_id, link_id)
 
     state = {
         "doc": doc,
@@ -349,7 +349,7 @@ def setup_trace():
 
 
 def _current_objects(state):
-    link_state = state["runtime"].states().get(state["link_id"])
+    link_state = state["runtime"].states(state["doc"]).get(state["link_id"])
     if link_state is None:
         return None, None
     return (
@@ -377,7 +377,7 @@ def _finish_scenario(state, command_result, created_ids):
     assert active is not None, "No trace scenario is active"
     state["fixture_ids"].extend(created_ids)
     parent_after, child_after = _current_objects(state)
-    link_state = state["runtime"].states().get(state["link_id"])
+    link_state = state["runtime"].states(state["doc"]).get(state["link_id"])
     entries = state["trace"][active["trace_start"] :]
     summary = {
         "name": active["name"],
@@ -432,7 +432,7 @@ def _prepare_top_level_scenario(name):
 
 def arm_move_parent():
     state = _prepare_top_level_scenario("move_parent")
-    link_state = state["runtime"].states()[state["link_id"]]
+    link_state = state["runtime"].states(state["doc"])[state["link_id"]]
     rs.UnselectAllObjects()
     assert rs.SelectObject(link_state["parent_id"])
 
@@ -443,7 +443,7 @@ def arm_undo_move():
 
 def arm_move_parent_face():
     state = _prepare_top_level_scenario("move_parent_face")
-    link_state = state["runtime"].states()[state["link_id"]]
+    link_state = state["runtime"].states(state["doc"])[state["link_id"]]
     parent_obj = state["utils"].find_object(
         state["doc"], link_state["parent_id"]
     )
@@ -464,7 +464,7 @@ def arm_move_parent_face():
 
 def arm_boolean_difference_parent():
     state = _prepare_top_level_scenario("boolean_difference_parent")
-    link_state = state["runtime"].states()[state["link_id"]]
+    link_state = state["runtime"].states(state["doc"])[state["link_id"]]
     rs.UnselectAllObjects()
     assert rs.SelectObject(link_state["parent_id"])
 
@@ -497,11 +497,12 @@ def finish_trace():
     Rhino.RhinoDoc.UndeleteRhinoObject -= trace_undelete
     state["link"].maintain_link = state["original_maintain_link"]
     state["link"].break_link = state["original_break_link"]
-    runtime.stop_runtime()
+    runtime.stop_runtime(state["doc"])
     deleted = _delete_fixture_objects(state["doc"], state["fixture_ids"])
     restored = 0
     for saved_link in state["metadata"].all_links(state["doc"]):
         if runtime.start_runtime(
+            state["doc"],
             saved_link["parent_id"],
             saved_link["child_id"],
             saved_link["link_id"],

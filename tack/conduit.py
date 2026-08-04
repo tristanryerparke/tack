@@ -1,7 +1,7 @@
 import Rhino
 import System.Drawing
-import scriptcontext as sc
 
+from tack import document_runtime
 from tack import utils
 
 
@@ -10,7 +10,19 @@ DISPLAY_TYPE_TOLERANCE = 0.1
 
 class TackLinkConduit(Rhino.Display.DisplayConduit):
     def DrawForeground(self, event):
-        for state in sc.sticky.get(utils.RUNTIME_KEY, {}).values():
+        doc = event.RhinoDoc
+        if doc is None:
+            return
+        if document_runtime.try_get_value(
+            doc,
+            utils.DISPLAY_ENABLED_KEY,
+        ) is False:
+            return
+        states = document_runtime.try_get_value(doc, utils.RUNTIME_KEY)
+        if not states:
+            return
+
+        for state in states.values():
             display = state.get("display")
             if (
                 state.get("broken")

@@ -25,7 +25,7 @@ def test_multiple_tacks():
     doc = sc.doc
     state = sc.sticky.get(STATE_KEY)
     assert state is not None, "Missing fixture; run setup_bbox_circles first"
-    assert len(runtime.states()) == 2
+    assert len(runtime.states(sc.doc)) == 2
 
     first_child = utils.find_object(doc, state["child_id"])
     second_child = utils.find_object(doc, state["second_child_id"])

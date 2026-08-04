@@ -4,6 +4,7 @@ import scriptcontext as sc
 import tack.analysis.bbox as bbox_analysis
 import tack.analysis.vertex as vertex_analysis
 from tack import conduit
+from tack import document_runtime
 from tack import metadata
 from tack import utils
 
@@ -14,8 +15,18 @@ _ANALYZERS = {
 }
 
 
-def states():
-    return sc.sticky.setdefault(utils.RUNTIME_KEY, {})
+def states(doc, create=True):
+    if create:
+        return document_runtime.get_value(
+            doc,
+            utils.RUNTIME_KEY,
+            lambda _: {},
+        )
+    return document_runtime.try_get_value(doc, utils.RUNTIME_KEY) or {}
+
+
+def has_any_runtime():
+    return document_runtime.has_nonempty_value(utils.RUNTIME_KEY)
 
 
 def mark_display_dirty(state):
@@ -26,8 +37,8 @@ def mark_display_dirty(state):
         display["dirty"] = True
 
 
-def mark_object_ids_dirty(object_ids):
-    for state in states().values():
+def mark_object_ids_dirty(doc, object_ids):
+    for state in states(doc, create=False).values():
         if any(
             utils.same_id(object_id, state[role + "_id"])
             for object_id in object_ids
@@ -46,11 +57,23 @@ def set_display_clean(state, parent_anchor, child_anchor):
     }
 
 
-def stop_runtime():
+def _disable_conduit_if_unused():
+    if has_any_runtime():
+        return
     active_conduit = sc.sticky.pop(utils.CONDUIT_KEY, None)
     if active_conduit is not None:
         active_conduit.Enabled = False
-    sc.sticky.pop(utils.RUNTIME_KEY, None)
+
+
+def stop_runtime(doc):
+    document_runtime.remove_value(doc, utils.RUNTIME_KEY)
+    document_runtime.remove_value(doc, utils.DISPLAY_ENABLED_KEY)
+    _disable_conduit_if_unused()
+
+
+def remove_document(doc):
+    document_runtime.remove_document(doc)
+    _disable_conduit_if_unused()
 
 
 def _new_state(doc, saved_link):
@@ -88,7 +111,7 @@ def _new_state(doc, saved_link):
 
 def state_for_link(doc, saved_link):
     link_id = saved_link["link_id"]
-    active_states = states()
+    active_states = states(doc)
     state = next(
         (
             value
@@ -117,23 +140,24 @@ def _ensure_conduit():
     active_conduit.Enabled = True
 
 
-def hide_display():
-    active_conduit = sc.sticky.get(utils.CONDUIT_KEY)
-    if active_conduit is None:
+def hide_display(doc):
+    if not states(doc, create=False):
         return False
-    active_conduit.Enabled = False
+    document_runtime.set_value(doc, utils.DISPLAY_ENABLED_KEY, False)
     return True
 
 
-def show_display():
-    if not sc.sticky.get(utils.RUNTIME_KEY):
+def show_display(doc):
+    if not states(doc, create=False):
         return False
+    document_runtime.set_value(doc, utils.DISPLAY_ENABLED_KEY, True)
     _ensure_conduit()
     return True
 
 
-def start_runtime(parent_id, child_id, link_id, redraw=True):
-    doc = Rhino.RhinoDoc.ActiveDoc
+def start_runtime(doc, parent_id, child_id, link_id, redraw=True):
+    if doc is None:
+        return False
     child = utils.find_object(doc, child_id)
     saved_link = metadata.read_link(child, link_id)
     if saved_link is None or not utils.same_id(saved_link["parent_id"], parent_id):

@@ -4,6 +4,7 @@ import sys
 
 _MODULES = (
     "utils",
+    "document_runtime",
     "metadata",
     "analysis.bbox",
     "analysis.vertex",

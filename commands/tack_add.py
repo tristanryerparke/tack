@@ -47,7 +47,7 @@ def RunCommand(is_interactive):
         utils.debug("[Tack anchor] could not write Tack anchor metadata.")
         return Result.Failure
 
-    if not runtime.start_runtime(parent_id, child_id, link_id):
+    if not runtime.start_runtime(doc, parent_id, child_id, link_id):
         utils.debug("[Tack anchor] could not start Tack relationship.")
         return Result.Failure
     utils.debug(

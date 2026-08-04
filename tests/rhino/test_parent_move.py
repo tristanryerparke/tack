@@ -20,7 +20,7 @@ MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
 
 
 def test_parent_move():
-    _, metadata, _, utils = tack_modules()
+    _, metadata, runtime, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
     doc = sc.doc
@@ -33,7 +33,7 @@ def test_parent_move():
     assert rs.Command("_Move 0,0,0 10,0,0", echo=False), "Rhino Move command failed"
     pause("after parent move")
 
-    tack_state = sc.sticky[utils.RUNTIME_KEY][state["link_id"]]
+    tack_state = runtime.states(doc)[state["link_id"]]
     child = utils.find_object(doc, tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
     saved_link = metadata.read_link(child, state["link_id"])

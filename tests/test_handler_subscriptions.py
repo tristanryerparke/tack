@@ -14,7 +14,7 @@ def _function(tree, name):
     )
 
 
-def test_tack_subscribes_only_to_final_object_callbacks():
+def test_tack_subscribes_to_final_object_and_document_close_callbacks():
     subscribe = _function(ast.parse(HANDLERS.read_text()), "subscribe")
     subscriptions = {
         node.target.attr
@@ -27,6 +27,7 @@ def test_tack_subscribes_only_to_final_object_callbacks():
         "AddRhinoObject",
         "DeleteRhinoObject",
         "UndeleteRhinoObject",
+        "CloseDocument",
     }
 
 

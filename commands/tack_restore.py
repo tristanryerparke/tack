@@ -24,11 +24,12 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     handlers.unsubscribe()
-    runtime.stop_runtime()
+    runtime.stop_runtime(doc)
 
     restored = 0
     for saved_link in metadata.all_links(doc):
         if runtime.start_runtime(
+            doc,
             saved_link["parent_id"],
             saved_link["child_id"],
             saved_link["link_id"],

@@ -73,6 +73,7 @@ def _restore_existing_tacks(doc, metadata, runtime):
     restored = 0
     for saved_link in metadata.all_links(doc):
         if runtime.start_runtime(
+            doc,
             saved_link["parent_id"],
             saved_link["child_id"],
             saved_link["link_id"],
@@ -95,7 +96,7 @@ def stress_100_relationships():
     restored = 0
 
     handlers.unsubscribe()
-    runtime.stop_runtime()
+    runtime.stop_runtime(doc)
     _delete_test_objects(doc)
     utils.DEBUG = False
     # Exclude per-event watcher transport while retaining the Rhino command,
@@ -135,6 +136,7 @@ def stress_100_relationships():
                 "Could not create relationship {} metadata".format(index)
             )
             assert runtime.start_runtime(
+                doc,
                 parent_id,
                 child_id,
                 link_id,
@@ -150,8 +152,8 @@ def stress_100_relationships():
 
         # Exercise the same cache lifecycle used by commands/tack_clear.py
         # and commands/tack_restore.py without clearing unrelated document metadata.
-        runtime.stop_runtime()
-        assert utils.RUNTIME_KEY not in sc.sticky
+        runtime.stop_runtime(doc)
+        assert not runtime.states(doc, create=False)
         assert utils.CONDUIT_KEY not in sc.sticky
         for parent_id, child_id, link_id in zip(
             parent_ids,
@@ -159,6 +161,7 @@ def stress_100_relationships():
             link_ids,
         ):
             assert runtime.start_runtime(
+                doc,
                 parent_id,
                 child_id,
                 link_id,
@@ -180,15 +183,15 @@ def stress_100_relationships():
                 tagged_count,
             )
         )
-        assert len(runtime.states()) == RELATIONSHIP_COUNT, (
+        assert len(runtime.states(doc)) == RELATIONSHIP_COUNT, (
             "Expected {} active relationships, found {}".format(
                 RELATIONSHIP_COUNT,
-                len(runtime.states()),
+                len(runtime.states(doc)),
             )
         )
         assert all(
             not state["display"]["dirty"]
-            for state in runtime.states().values()
+            for state in runtime.states(doc).values()
         ), "One or more display caches started dirty"
 
         rs.UnselectAllObjects()
@@ -222,7 +225,7 @@ def stress_100_relationships():
         for index, (link_id, child_before) in enumerate(
             zip(link_ids, child_centers_before)
         ):
-            state = runtime.states().get(link_id)
+            state = runtime.states(doc).get(link_id)
             assert state is not None, (
                 "Relationship {} disappeared from runtime".format(index)
             )
@@ -294,7 +297,7 @@ def stress_100_relationships():
         }
     finally:
         handlers.unsubscribe()
-        runtime.stop_runtime()
+        runtime.stop_runtime(doc)
         deleted = _delete_test_objects(doc)
         restored = _restore_existing_tacks(doc, metadata, runtime)
         handlers.subscribe()

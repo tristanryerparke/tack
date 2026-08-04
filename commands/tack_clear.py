@@ -45,12 +45,14 @@ def RunCommand(is_interactive, no_metadata=False):
         return Result.Cancel
 
     handlers.unsubscribe()
-    runtime.stop_runtime()
+    runtime.stop_runtime(doc)
     if not no_metadata:
         for obj in doc.Objects:
             if obj is not None:
                 _clear_object_metadata(doc, obj.Id)
 
+    if runtime.has_any_runtime():
+        handlers.subscribe()
     doc.Views.Redraw()
     if no_metadata:
         print("Tack runtime cleared. Saved anchor links were preserved.")
