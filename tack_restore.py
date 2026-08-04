@@ -26,6 +26,7 @@ def RunCommand(is_interactive):
             saved_link["parent_id"],
             saved_link["child_id"],
             saved_link["link_id"],
+            redraw=False,
         ):
             restored += 1
         else:
@@ -34,6 +35,7 @@ def RunCommand(is_interactive):
             )
 
     handlers.subscribe()
+    doc.Views.Redraw()
     if restored:
         print("Restored {} Tack relationship(s).".format(restored))
         return Result.Success

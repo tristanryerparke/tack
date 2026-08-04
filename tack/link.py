@@ -4,6 +4,7 @@ import System.Windows.Forms
 import tack.analysis.bbox as bbox_analysis
 import tack.analysis.vertex as vertex_analysis
 from tack import metadata
+from tack import runtime
 from tack import utils
 
 
@@ -321,9 +322,19 @@ def maintain_link(
     if result["target_child_anchor"].DistanceTo(result["child_anchor"]) <= max(
         doc.ModelAbsoluteTolerance, 1e-7
     ):
+        runtime.set_display_clean(
+            state,
+            result["parent_anchor"],
+            result["child_anchor"],
+        )
         _restore_link(state)
         return result
     if utils.undo_or_redo(doc):
+        runtime.set_display_clean(
+            state,
+            result["parent_anchor"],
+            result["child_anchor"],
+        )
         _restore_link(state)
         return result
 
@@ -341,6 +352,11 @@ def maintain_link(
                 "Link metadata could not be restored after moving the child.",
             )
             return result
+        runtime.set_display_clean(
+            state,
+            result["parent_anchor"],
+            result["target_child_anchor"],
+        )
         utils.debug(
             "[Tack anchor] child updated parent={} child={}".format(
                 result["parent"].Id,

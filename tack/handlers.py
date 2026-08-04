@@ -78,6 +78,7 @@ def _HandleRhinoObjectEvent(label, event):
         if doc is None:
             return object_ids
         if label == "DeleteRhinoObject":
+            runtime.mark_object_ids_dirty(object_ids)
             with _websocket_output():
                 utils.debug(
                     "[Tack anchor] DeleteRhinoObject ids={} is lifecycle-only; "
@@ -101,6 +102,7 @@ def _HandleRhinoObjectEvent(label, event):
                 continue
 
             was_broken = state.get("broken")
+            runtime.mark_display_dirty(state)
             with _websocket_output():
                 utils.debug_event(label, event, state)
                 result = link.maintain_link(

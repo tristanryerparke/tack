@@ -18,6 +18,34 @@ def states():
     return sc.sticky.setdefault(utils.RUNTIME_KEY, {})
 
 
+def mark_display_dirty(state):
+    display = state.get("display")
+    if display is None:
+        state["display"] = {"dirty": True}
+    else:
+        display["dirty"] = True
+
+
+def mark_object_ids_dirty(object_ids):
+    for state in states().values():
+        if any(
+            utils.same_id(object_id, state[role + "_id"])
+            for object_id in object_ids
+            for role in ("parent", "child")
+        ):
+            mark_display_dirty(state)
+
+
+def set_display_clean(state, parent_anchor, child_anchor):
+    offset = Rhino.Geometry.Vector3d(*(state["link"].get("offset") or (0, 0, 0)))
+    state["display"] = {
+        "dirty": False,
+        "parent_anchor": Rhino.Geometry.Point3d(parent_anchor),
+        "child_anchor": Rhino.Geometry.Point3d(child_anchor),
+        "setup_offset_length": offset.Length,
+    }
+
+
 def stop_runtime():
     active_conduit = sc.sticky.pop(utils.CONDUIT_KEY, None)
     if active_conduit is not None:
@@ -39,12 +67,22 @@ def _new_state(doc, saved_link):
         "broken": False,
         "link": saved_link,
     }
+    resolved_anchors = {}
     for role, obj in (("parent", parent), ("child", child)):
         anchor = saved_link[role + "_anchor"]
         analyzer = _ANALYZERS.get(anchor["anchor_type"])
-        if analyzer is None or analyzer.resolve(obj, anchor) is None:
+        if analyzer is None:
             return None
+        resolved_anchor = analyzer.resolve(obj, anchor)
+        if resolved_anchor is None:
+            return None
+        resolved_anchors[role] = resolved_anchor
         state[role + "_anchors"] = analyzer.anchors(obj)
+    set_display_clean(
+        state,
+        resolved_anchors["parent"],
+        resolved_anchors["child"],
+    )
     return state
 
 
@@ -79,7 +117,7 @@ def _ensure_conduit():
     active_conduit.Enabled = True
 
 
-def start_runtime(parent_id, child_id, link_id):
+def start_runtime(parent_id, child_id, link_id, redraw=True):
     doc = Rhino.RhinoDoc.ActiveDoc
     child = utils.find_object(doc, child_id)
     saved_link = metadata.read_link(child, link_id)
@@ -98,5 +136,6 @@ def start_runtime(parent_id, child_id, link_id):
                 utils.DEBUG,
             )
         )
-    doc.Views.Redraw()
+    if redraw:
+        doc.Views.Redraw()
     return True

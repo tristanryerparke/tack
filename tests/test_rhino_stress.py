@@ -20,11 +20,15 @@ def test_100_tack_relationships_update_200_objects():
     assert result["updated_child_count"] == 100
     assert result["update_seconds"] > 0
     assert result["milliseconds_per_relationship"] > 0
+    assert result["ten_redraw_seconds"] > 0
+    assert result["milliseconds_per_redraw"] > 0
     print(
         "PASS 100 relationships / 200 objects: "
-        "{:.3f}s total, {:.3f}ms per relationship; setup {:.3f}s".format(
+        "{:.3f}s total, {:.3f}ms per relationship; setup {:.3f}s; "
+        "cached redraw {:.3f}ms".format(
             result["update_seconds"],
             result["milliseconds_per_relationship"],
             result["setup_seconds"],
+            result["milliseconds_per_redraw"],
         )
     )

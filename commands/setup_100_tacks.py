@@ -99,7 +99,12 @@ try:
                     _anchor(child),
                 )
                 assert link_id is not None
-                assert runtime.start_runtime(parent_id, child_id, link_id)
+                assert runtime.start_runtime(
+                    parent_id,
+                    child_id,
+                    link_id,
+                    redraw=False,
+                )
                 link_ids.append(link_id)
 
             if not rs.IsGroup(GROUP_NAME):

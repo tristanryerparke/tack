@@ -1,446 +1,109 @@
 {
   "nodes": [
     {
-      "id": "g-lanes",
-      "type": "group",
-      "x": 0.0,
-      "y": 0,
-      "width": 1850.0,
-      "height": 6200,
-      "color": "5",
-      "label": "Observed Rhino command lanes \u2014 each path runs left \u2192 right"
-    },
-    {
-      "id": "g-shared",
-      "type": "group",
-      "x": 1950.0,
-      "y": 0,
-      "width": 1450.0,
-      "height": 6200,
-      "color": "2",
-      "label": "Shared Tack handler path \u2014 lanes converge here"
-    },
-    {
-      "id": "g-results",
-      "type": "group",
-      "x": 3550.0,
-      "y": 0,
-      "width": 1100.0,
-      "height": 6200,
-      "color": "4",
-      "label": "Observed result \u2014 lanes diverge here"
-    },
-    {
       "id": "title",
       "type": "text",
-      "x": 0.0,
-      "y": -900,
-      "width": 1800.0,
-      "height": 650,
+      "x": 0,
+      "y": -950,
+      "width": 1800,
+      "height": 600,
       "color": "5",
-      "text": "# Tack handler flow \u2014 observed Rhino command traces\n\nFour command scenarios arranged as parallel horizontal lanes. Each lane records the useful callback payload, the handler stage that consumes it, and the observed result. Solid arrows flow left \u2192 right; diagonal arrows explicitly converge on shared Tack logic."
+      "text": "# Tack final-shape handler and display-cache flow\n\nEach row is one chronological left-to-right path. `ReplaceRhinoObject` is shown where Rhino emits it, but Tack does not subscribe to it. Runtime display data is marked dirty during replacement lifecycle events and cleaned only after final-object analysis completes."
     },
     {
       "id": "legend",
       "type": "text",
-      "x": 1950.0,
-      "y": -900,
-      "width": 1450.0,
-      "height": 650,
+      "x": 2300,
+      "y": -950,
+      "width": 2500,
+      "height": 600,
       "color": "3",
-      "text": "## Callback subscription policy\n\n- **ReplaceRhinoObject**: Rhino may emit it, but Tack does **not** subscribe. It has no effect on maintenance.\n- **DeleteRhinoObject**: subscribed lifecycle/debug signal; it never calls `maintain_link()` because no final object is installed.\n- **AddRhinoObject**: subscribed installed-object callback; normal final-shape analysis and correction trigger.\n- **UndeleteRhinoObject**: subscribed installed restored-object callback; useful during Undo/Redo without child correction."
+      "text": "## Callback policy\n\n- `ReplaceRhinoObject`: not subscribed\n- `DeleteRhinoObject`: lifecycle-only; marks matching cache dirty\n- `AddRhinoObject`: installed final object; normal maintenance trigger\n- `UndeleteRhinoObject`: restored final object; Undo/Redo maintenance trigger\n- `DrawForeground`: reads clean runtime cache only"
     },
-    {
-      "id": "move-command",
-      "type": "text",
-      "x": 75.0,
-      "y": 350,
-      "width": 310.0,
-      "height": 380,
-      "color": "5",
-      "text": "## 1. Move parent\n\n```text\n_Move 0,0,0 0,10,0\n```\n\nParent center:\n`[5,5,5] \u2192 [5,15,5]`"
-    },
-    {
-      "id": "move-events",
-      "type": "text",
-      "x": 460.0,
-      "y": 230,
-      "width": 390.0,
-      "height": 850,
-      "color": "5",
-      "text": "## Raw Rhino callback order\n\n```text\n1. parent ReplaceRhinoObject  (not subscribed)\n2. parent DeleteRhinoObject\n3. parent AddRhinoObject     \u2190 Tack analyzes final parent\n4. child ReplaceRhinoObject  (not subscribed)\n5. child DeleteRhinoObject\n6. child AddRhinoObject      (busy: skip)\n```\n\nTack first acts at parent AddRhinoObject. The child callbacks begin only after its `child.CommitChanges()`."
-    },
-    {
-      "id": "move-consume",
-      "type": "text",
-      "x": 940.0,
-      "y": 190,
-      "width": 775.0,
-      "height": 700,
-      "color": "2",
-      "text": "## Final-shape maintenance\n\n```python\nDeleteRhinoObject: lifecycle-only; wait\nAddRhinoObject: installed parent via\n  ObjectId + document lookup\ninspect_link(final parent, child)\n```\n\nTack does not consume ReplaceRhinoObject or maintain at DeleteRhinoObject. **Parent AddRhinoObject** resolves static anchors from final geometry plus saved metadata, then triggers the child update."
-    },
-    {
-      "id": "undo-command",
-      "type": "text",
-      "x": 75.0,
-      "y": 1850,
-      "width": 310.0,
-      "height": 430,
-      "color": "3",
-      "text": "## 2. Undo parent Move\n\n```python\ndoc.Undo()\n```\n\nParent and child centers return to their pre-Move positions."
-    },
-    {
-      "id": "undo-events",
-      "type": "text",
-      "x": 460.0,
-      "y": 1690,
-      "width": 390.0,
-      "height": 750,
-      "color": "3",
-      "text": "## Raw Rhino callback order\n\n```text\nchild:  ReplaceRhinoObject (not subscribed)\n        DeleteRhinoObject \u2192 UndeleteRhinoObject\nparent: ReplaceRhinoObject (not subscribed)\n        DeleteRhinoObject \u2192 UndeleteRhinoObject\n```\n\nCounts: ReplaceRhinoObject 2, DeleteRhinoObject 2, UndeleteRhinoObject 2. No AddRhinoObject callback occurs in this restoration sequence."
-    },
-    {
-      "id": "undo-consume",
-      "type": "text",
-      "x": 940.0,
-      "y": 1690,
-      "width": 775.0,
-      "height": 750,
-      "color": "3",
-      "text": "## Final-shape maintenance\n\n```python\nDeleteRhinoObject: lifecycle-only; wait\nUndeleteRhinoObject: restored object\n  \u2192 inspect static anchors + metadata\n```\n\nTack does not consume ReplaceRhinoObject or maintain at DeleteRhinoObject. UndeleteRhinoObject supplies the installed restored shape; Undo/Redo suppression prevents Tack from moving the already-restored child."
-    },
-    {
-      "id": "face-command",
-      "type": "text",
-      "x": 75.0,
-      "y": 3450,
-      "width": 310.0,
-      "height": 450,
-      "color": "6",
-      "text": "## 3. Move parent face\n\n```text\n_MoveFace 0,0,0 2,0,0\n```\n\nThe right Brep face moves 2 units; parent bounding-box center shifts 1 unit in X."
-    },
-    {
-      "id": "face-events",
-      "type": "text",
-      "x": 460.0,
-      "y": 3330,
-      "width": 390.0,
-      "height": 850,
-      "color": "6",
-      "text": "## Raw Rhino callback order\n\n```text\n1. parent ReplaceRhinoObject  (not subscribed)\n2. parent DeleteRhinoObject\n3. parent AddRhinoObject     \u2190 Tack analyzes final parent\n4. child ReplaceRhinoObject  (not subscribed)\n5. child DeleteRhinoObject\n6. child AddRhinoObject      (busy: skip)\n```\n\nThe child triplet is nested after parent AddRhinoObject, emitted by Tack\u2019s `child.CommitChanges()`."
-    },
-    {
-      "id": "face-consume",
-      "type": "text",
-      "x": 940.0,
-      "y": 3290,
-      "width": 775.0,
-      "height": 740,
-      "color": "2",
-      "text": "## Final-shape maintenance\n\n```python\nDeleteRhinoObject: lifecycle-only; wait\nAddRhinoObject: final parent in document\ninspect_link(final parent, child)\n```\n\nTack intentionally ignores ReplaceRhinoObject, including its transient `NewRhinoObject.Id == Empty`, and waits through DeleteRhinoObject. **Parent AddRhinoObject** provides the final object ID and triggers static-analysis correction."
-    },
-    {
-      "id": "boolean-command",
-      "type": "text",
-      "x": 75.0,
-      "y": 5050,
-      "width": 310.0,
-      "height": 410,
-      "color": "1",
-      "text": "## 4. Boolean Difference on parent\n\n```text\n_BooleanDifference\n```\n\nA cutter replaces the source parent with a new Boolean result object."
-    },
-    {
-      "id": "boolean-events",
-      "type": "text",
-      "x": 460.0,
-      "y": 4890,
-      "width": 390.0,
-      "height": 730,
-      "color": "1",
-      "text": "## Observed callbacks\n\n```text\nAddRhinoObject(new Boolean result)\nDeleteRhinoObject(original parent)\n```\n\nCounts: AddRhinoObject 1, DeleteRhinoObject 1. No ReplaceRhinoObject or UndeleteRhinoObject was observed for this command."
-    },
-    {
-      "id": "boolean-consume",
-      "type": "text",
-      "x": 940.0,
-      "y": 4870,
-      "width": 775.0,
-      "height": 770,
-      "color": "2",
-      "text": "## Final-shape maintenance\n\n```python\nAddRhinoObject: candidate with saved link\n  \u2192 adopt as parent\nDeleteRhinoObject: lifecycle-only source signal\n```\n\nThe new Boolean result\u2019s AddRhinoObject callback supplies final geometry plus copied metadata. Tack adopts that candidate and resolves static anchors without old\u2192new remapping."
-    },
-    {
-      "id": "shared-discovery",
-      "type": "text",
-      "x": 2035.0,
-      "y": 450,
-      "width": 550.0,
-      "height": 930,
-      "color": "5",
-      "text": "## Shared 1. Discover final objects + links\n\n```python\nids = event_object_ids(event)\nobj = event_object(doc, event, ids)\nlinks = _event_links(doc, event, ids)\n```\n\nTack subscribes only to AddRhinoObject, DeleteRhinoObject, and UndeleteRhinoObject. Delete logs lifecycle progress then returns. Add/Undelete provide installed objects and proceed to metadata discovery."
-    },
-    {
-      "id": "shared-gates",
-      "type": "text",
-      "x": 2725.0,
-      "y": 450,
-      "width": 540.0,
-      "height": 930,
-      "color": "2",
-      "text": "## Shared 2. Gate final-object callbacks\n\n```python\nif state[\"busy\"]: skip\nif event_may_affect_link(...):\n    maintain_link(...)\n```\n\nOnly AddRhinoObject and UndeleteRhinoObject reach this gate. There is no ReplaceRhinoObject pending-state queue. `busy` suppresses the child callbacks caused by Tack\u2019s own correction."
-    },
-    {
-      "id": "shared-maintain",
-      "type": "text",
-      "x": 2035.0,
-      "y": 2400,
-      "width": 550.0,
-      "height": 1050,
-      "color": "2",
-      "text": "## Shared 3. Static candidate adoption\n\n```python\ncandidate = _candidate(...)\nrole = candidate_role(state, candidate)\nreplacement_anchor(\n  final_candidate, saved_anchor\n)\n```\n\nFor a new Boolean result, AddRhinoObject adopts the metadata-bearing final object. For same-ID edits, the final object is inspected directly. No old/new geometry remapping occurs."
-    },
-    {
-      "id": "shared-anchor",
-      "type": "text",
-      "x": 2725.0,
-      "y": 2400,
-      "width": 540.0,
-      "height": 1050,
-      "color": "6",
-      "text": "## Shared 4. Inspect live anchors\n\n```python\nresult = inspect_link(\n  doc, state, parent, child\n)\ntarget = parent_anchor + offset\ncorrection = target - child_anchor\n```\n\nBoth role analyzers resolve current world-space anchors. The correction is zero for a restoration or an already-aligned relationship."
-    },
-    {
-      "id": "shared-correct",
-      "type": "text",
-      "x": 2380.0,
-      "y": 4200,
-      "width": 725.0,
-      "height": 790,
-      "color": "4",
-      "text": "## Shared 5. Correct only when allowed\n\n```python\nif correction <= tolerance: return\nif undo_or_redo(doc): return\nchild.Geometry.Transform(correction)\nchild.CommitChanges()\n```\n\nThus **AddRhinoObject** is the normal child-update trigger. Child callbacks from `CommitChanges()` re-enter while `busy=True` and do no recursive maintenance."
-    },
-    {
-      "id": "move-result",
-      "type": "text",
-      "x": 3650.0,
-      "y": 280,
-      "width": 850.0,
-      "height": 630,
-      "color": "4",
-      "text": "## Move result \u2014 verified\n\n```text\nchild AddRhinoObject \u2192 child correction\n[25,5,5] \u2192 [25,15,5]\n```\n\nChild moved with the parent. The triggering maintenance call is the parent **AddRhinoObject** callback."
-    },
-    {
-      "id": "undo-result",
-      "type": "text",
-      "x": 3650.0,
-      "y": 1810,
-      "width": 850.0,
-      "height": 630,
-      "color": "3",
-      "text": "## Undo result \u2014 verified callbacks\n\n```text\nReplaceRhinoObject / DeleteRhinoObject / UndeleteRhinoObject\nchild correction: none\n```\n\nUndo supplies restoration evidence through UndeleteRhinoObject; Rhino restores both geometries instead of Tack moving the child."
-    },
-    {
-      "id": "face-result",
-      "type": "text",
-      "x": 3650.0,
-      "y": 3420,
-      "width": 850.0,
-      "height": 630,
-      "color": "4",
-      "text": "## MoveFace result \u2014 verified\n\n```text\nchild AddRhinoObject \u2192 child correction\n[25,5,5] \u2192 [26,5,5]\n```\n\nThe installed parent AddRhinoObject callback is again the observed correction trigger, despite ReplaceRhinoObject exposing an empty new-object ID."
-    },
-    {
-      "id": "boolean-result",
-      "type": "text",
-      "x": 3650.0,
-      "y": 5020,
-      "width": 850.0,
-      "height": 630,
-      "color": "1",
-      "text": "## Boolean Difference result \u2014 verified\n\n```text\nAddRhinoObject(new parent candidate)\nDeleteRhinoObject(original parent)\nchild correction: none\n```\n\nAddRhinoObject\u2019s metadata-bearing result object is adopted as the parent. The observed Boolean trace did not translate the child."
-    }
+
+    {"id":"g-move","type":"group","x":0,"y":0,"width":5700,"height":1050,"color":"5","label":"1 — Move parent: final AddRhinoObject triggers correction"},
+    {"id":"m-command","type":"text","x":120,"y":180,"width":620,"height":700,"color":"5","text":"## `_Move` parent\n\n```text\n_Move 0,0,0 0,10,0\n```\n\nRhino begins replacing the parent geometry."},
+    {"id":"m-replace","type":"text","x":1050,"y":180,"width":620,"height":700,"text":"## `ReplaceRhinoObject`\n\n```python\n# Tack is not subscribed\n```\n\nThe transient old/new pair does not enter Tack maintenance and does not move the child."},
+    {"id":"m-delete","type":"text","x":1980,"y":180,"width":620,"height":700,"color":"1","text":"## `DeleteRhinoObject`\n\n```python\nruntime.mark_object_ids_dirty(ids)\nreturn\n```\n\nThe matching display cache is hidden. No analysis runs because the final parent is not installed yet."},
+    {"id":"m-add","type":"text","x":2910,"y":180,"width":620,"height":700,"color":"2","text":"## Parent `AddRhinoObject`\n\n```python\nObjectId → installed parent\nmark_display_dirty(state)\nmaintain_link(...)\n```\n\nThe callback supplies a usable final object ID and document object."},
+    {"id":"m-maintain","type":"text","x":3840,"y":180,"width":620,"height":700,"color":"6","text":"## Analyze, correct, cache\n\n```python\nresult = inspect_link(final_parent, child)\nchild.Transform(correction)\nchild.CommitChanges()\nset_display_clean(parent, target_child)\n```\n\nSaved anchor metadata plus final geometry determine the correction."},
+    {"id":"m-result","type":"text","x":4770,"y":180,"width":620,"height":700,"color":"4","text":"## Nested child callbacks → clean\n\nChild `ReplaceRhinoObject` is ignored. Child `DeleteRhinoObject` briefly marks dirty; child `AddRhinoObject` is skipped while `busy=True`. Parent maintenance finishes by writing the clean cache."},
+
+    {"id":"g-undo","type":"group","x":0,"y":1200,"width":5700,"height":1050,"color":"3","label":"2 — Undo Move: UndeleteRhinoObject refreshes restored final geometry"},
+    {"id":"u-command","type":"text","x":120,"y":1380,"width":620,"height":700,"color":"3","text":"## `_Undo`\n\nRhino restores child and parent geometry through replacement lifecycle callbacks."},
+    {"id":"u-replace","type":"text","x":1050,"y":1380,"width":620,"height":700,"text":"## Child `ReplaceRhinoObject`\n\n```python\n# Tack is not subscribed\n```\n\nNo old/new remapping and no correction occur here."},
+    {"id":"u-delete","type":"text","x":1980,"y":1380,"width":620,"height":700,"color":"1","text":"## Child `DeleteRhinoObject`\n\nThe child cache becomes dirty and is hidden. The handler waits for an installed restored object."},
+    {"id":"u-undelete","type":"text","x":2910,"y":1380,"width":620,"height":700,"color":"2","text":"## Child `UndeleteRhinoObject`\n\n```python\nrestored child → inspect_link(...)\nundo_or_redo(doc) → no correction\nset_display_clean(live anchors)\n```\n\nRhino, not Tack, restores the geometry."},
+    {"id":"u-parent","type":"text","x":3840,"y":1380,"width":620,"height":700,"color":"2","text":"## Parent restoration sequence\n\n```text\nReplaceRhinoObject  ignored\nDeleteRhinoObject   dirty\nUndeleteRhinoObject inspect + clean\n```\n\nThe final parent callback refreshes the cache again from restored geometry."},
+    {"id":"u-result","type":"text","x":4770,"y":1380,"width":620,"height":700,"color":"4","text":"## Restored and clean\n\nParent and child remain where Undo restored them. No Tack child transform occurs, and the conduit resumes drawing from the refreshed clean cache."},
+
+    {"id":"g-face","type":"group","x":0,"y":2400,"width":5700,"height":1050,"color":"6","label":"3 — MoveFace: transient empty ID is irrelevant because Tack waits for AddRhinoObject"},
+    {"id":"f-command","type":"text","x":120,"y":2580,"width":620,"height":700,"color":"6","text":"## `_MoveFace` parent\n\n```text\n_MoveFace 0,0,0 2,0,0\n```\n\nThe edited Brep changes the parent’s static anchor location."},
+    {"id":"f-replace","type":"text","x":1050,"y":2580,"width":620,"height":700,"text":"## `ReplaceRhinoObject`\n\n`NewRhinoObject.Id` may be `Guid.Empty`, but Tack is not subscribed and does not depend on that transient ID."},
+    {"id":"f-delete","type":"text","x":1980,"y":2580,"width":620,"height":700,"color":"1","text":"## `DeleteRhinoObject`\n\nThe current parent ID matches runtime state, so the display cache becomes dirty. No final-shape analysis runs."},
+    {"id":"f-add","type":"text","x":2910,"y":2580,"width":620,"height":700,"color":"2","text":"## Parent `AddRhinoObject`\n\nThe installed Brep now has a usable ID and can be found through the document. Tack marks dirty and enters maintenance."},
+    {"id":"f-maintain","type":"text","x":3840,"y":2580,"width":620,"height":700,"color":"6","text":"## Static final-shape analysis\n\n```python\nparent_anchor = analyzer.resolve(parent, metadata)\ntarget = parent_anchor + offset\n```\n\nTack corrects the child, persists metadata, and caches final draw points."},
+    {"id":"f-result","type":"text","x":4770,"y":2580,"width":620,"height":700,"color":"4","text":"## Corrected and clean\n\nNested child callbacks are suppressed by `busy`. The conduit resumes only after parent maintenance stores the clean parent and child anchors."},
+
+    {"id":"g-boolean","type":"group","x":0,"y":3600,"width":5700,"height":1050,"color":"1","label":"4 — Boolean Difference: AddRhinoObject adopts the new metadata-bearing parent"},
+    {"id":"b-command","type":"text","x":120,"y":3780,"width":620,"height":700,"color":"1","text":"## `_BooleanDifference`\n\nThe command creates a new result object and removes the original parent."},
+    {"id":"b-add","type":"text","x":1050,"y":3780,"width":620,"height":700,"color":"2","text":"## Result `AddRhinoObject`\n\nObserved order begins with Add. The new object carries copied parent-link metadata and has a usable installed ID."},
+    {"id":"b-adopt","type":"text","x":1980,"y":3780,"width":620,"height":700,"color":"2","text":"## Adopt final candidate\n\n```python\nrole = candidate_role(state, result)\nreplacement_anchor(result, saved_anchor)\nstate[\"parent_id\"] = result.Id\n```\n\nNo old/new geometry pair is required."},
+    {"id":"b-maintain","type":"text","x":2910,"y":3780,"width":620,"height":700,"color":"6","text":"## Inspect and reconcile\n\nTack resolves the final parent and child anchors, applies any required correction, saves the adopted IDs, and writes a clean display cache."},
+    {"id":"b-delete","type":"text","x":3840,"y":3780,"width":620,"height":700,"color":"1","text":"## Source `DeleteRhinoObject`\n\nThe runtime state already points to the new result ID. The deleted old ID no longer matches, so it does not dirty the newly cleaned cache."},
+    {"id":"b-result","type":"text","x":4770,"y":3780,"width":620,"height":700,"color":"4","text":"## New parent is active\n\nPersisted metadata and runtime state reference the Boolean result. The conduit draws only the clean cached anchors produced by maintenance."},
+
+    {"id":"g-clear","type":"group","x":0,"y":4800,"width":5700,"height":1050,"color":"1","label":"5 — tack_clear.py: discard runtime cache and persisted relationships"},
+    {"id":"c-command","type":"text","x":120,"y":4980,"width":620,"height":700,"color":"1","text":"## `tack_clear.py`\n\nRuns against the active document when the user intentionally clears Tack relationships."},
+    {"id":"c-unsubscribe","type":"text","x":1050,"y":4980,"width":620,"height":700,"text":"## Unsubscribe handlers\n\n```python\nhandlers.unsubscribe()\n```\n\nNo callbacks run while metadata and runtime state are removed."},
+    {"id":"c-stop","type":"text","x":1980,"y":4980,"width":620,"height":700,"color":"3","text":"## Stop runtime\n\n```python\nconduit.Enabled = False\nsc.sticky.pop(CONDUIT_KEY)\nsc.sticky.pop(RUNTIME_KEY)\n```\n\nAll cached draw data is discarded immediately."},
+    {"id":"c-metadata","type":"text","x":2910,"y":4980,"width":620,"height":700,"color":"1","text":"## Remove persisted metadata\n\n`Tack.AnchorLinks.v3` and `Tack.AnchorParentLinks.v3` are removed from document objects."},
+    {"id":"c-redraw","type":"text","x":3840,"y":4980,"width":620,"height":700,"color":"4","text":"## Redraw\n\nThe disabled conduit has no runtime state to draw, so all Tack graphics disappear."},
+    {"id":"c-result","type":"text","x":4770,"y":4980,"width":620,"height":700,"color":"4","text":"## Cleared\n\nNo handlers, no conduit, no runtime caches, and no persisted Tack relationships remain."},
+
+    {"id":"g-restore","type":"group","x":0,"y":6000,"width":5700,"height":1050,"color":"2","label":"6 — tack_restore.py: rebuild clean caches once, then draw without analysis"},
+    {"id":"r-command","type":"text","x":120,"y":6180,"width":620,"height":700,"color":"2","text":"## `tack_restore.py`\n\nReactivates Tack relationships persisted in the active document."},
+    {"id":"r-reset","type":"text","x":1050,"y":6180,"width":620,"height":700,"text":"## Reset old runtime\n\n```python\nhandlers.unsubscribe()\nruntime.stop_runtime()\n```\n\nAny stale conduit and cache are removed before rebuilding."},
+    {"id":"r-read","type":"text","x":1980,"y":6180,"width":620,"height":700,"color":"3","text":"## One-time metadata scan\n\n```python\nfor saved_link in metadata.all_links(doc):\n    start_runtime(..., redraw=False)\n```\n\nDocument analysis occurs during restore, not during drawing."},
+    {"id":"r-cache","type":"text","x":2910,"y":6180,"width":620,"height":700,"color":"6","text":"## Build clean runtime cache\n\n`start_runtime()` resolves both anchors, stores their points and offset length, and enables the single shared conduit."},
+    {"id":"r-subscribe","type":"text","x":3840,"y":6180,"width":620,"height":700,"color":"2","text":"## Subscribe + one redraw\n\n```python\nhandlers.subscribe()\ndoc.Views.Redraw()\n```\n\nAll links are restored before the one batched redraw."},
+    {"id":"r-result","type":"text","x":4770,"y":6180,"width":620,"height":700,"color":"4","text":"## Restored and performant\n\nEvery valid relationship starts clean. Future viewport redraws iterate cached runtime states without metadata reads or anchor analysis."}
   ],
   "edges": [
-    {
-      "id": "e-move-1",
-      "fromNode": "move-command",
-      "fromSide": "right",
-      "toNode": "move-events",
-      "toSide": "left",
-      "color": "5",
-      "label": "run command"
-    },
-    {
-      "id": "e-move-2",
-      "fromNode": "move-events",
-      "fromSide": "right",
-      "toNode": "move-consume",
-      "toSide": "left",
-      "color": "5",
-      "label": "payload stages"
-    },
-    {
-      "id": "e-move-3",
-      "fromNode": "move-consume",
-      "fromSide": "right",
-      "toNode": "shared-discovery",
-      "toSide": "left",
-      "color": "2",
-      "label": "parent evidence"
-    },
-    {
-      "id": "e-undo-1",
-      "fromNode": "undo-command",
-      "fromSide": "right",
-      "toNode": "undo-events",
-      "toSide": "left",
-      "color": "3",
-      "label": "undo restore"
-    },
-    {
-      "id": "e-undo-2",
-      "fromNode": "undo-events",
-      "fromSide": "right",
-      "toNode": "undo-consume",
-      "toSide": "left",
-      "color": "3",
-      "label": "payload stages"
-    },
-    {
-      "id": "e-undo-3",
-      "fromNode": "undo-consume",
-      "fromSide": "right",
-      "toNode": "shared-discovery",
-      "toSide": "left",
-      "color": "3",
-      "label": "restored-object evidence"
-    },
-    {
-      "id": "e-face-1",
-      "fromNode": "face-command",
-      "fromSide": "right",
-      "toNode": "face-events",
-      "toSide": "left",
-      "color": "6",
-      "label": "run command"
-    },
-    {
-      "id": "e-face-2",
-      "fromNode": "face-events",
-      "fromSide": "right",
-      "toNode": "face-consume",
-      "toSide": "left",
-      "color": "6",
-      "label": "payload stages"
-    },
-    {
-      "id": "e-face-3",
-      "fromNode": "face-consume",
-      "fromSide": "right",
-      "toNode": "shared-discovery",
-      "toSide": "left",
-      "color": "2",
-      "label": "parent evidence"
-    },
-    {
-      "id": "e-boolean-1",
-      "fromNode": "boolean-command",
-      "fromSide": "right",
-      "toNode": "boolean-events",
-      "toSide": "left",
-      "color": "1",
-      "label": "run command"
-    },
-    {
-      "id": "e-boolean-2",
-      "fromNode": "boolean-events",
-      "fromSide": "right",
-      "toNode": "boolean-consume",
-      "toSide": "left",
-      "color": "1",
-      "label": "AddRhinoObject result + DeleteRhinoObject source"
-    },
-    {
-      "id": "e-boolean-3",
-      "fromNode": "boolean-consume",
-      "fromSide": "right",
-      "toNode": "shared-discovery",
-      "toSide": "left",
-      "color": "2",
-      "label": "candidate metadata"
-    },
-    {
-      "id": "e-shared-1",
-      "fromNode": "shared-discovery",
-      "fromSide": "right",
-      "toNode": "shared-gates",
-      "toSide": "left",
-      "color": "2",
-      "label": "affected saved link"
-    },
-    {
-      "id": "e-shared-2",
-      "fromNode": "shared-gates",
-      "fromSide": "bottom",
-      "toNode": "shared-maintain",
-      "toSide": "top",
-      "color": "2",
-      "label": "not busy; relevant"
-    },
-    {
-      "id": "e-shared-3",
-      "fromNode": "shared-maintain",
-      "fromSide": "right",
-      "toNode": "shared-anchor",
-      "toSide": "left",
-      "color": "6",
-      "label": "installed objects"
-    },
-    {
-      "id": "e-shared-4",
-      "fromNode": "shared-anchor",
-      "fromSide": "bottom",
-      "toNode": "shared-correct",
-      "toSide": "top",
-      "color": "4",
-      "label": "target + correction"
-    },
-    {
-      "id": "e-result-move",
-      "fromNode": "shared-correct",
-      "fromSide": "right",
-      "toNode": "move-result",
-      "toSide": "left",
-      "color": "4",
-      "label": "AddRhinoObject; correction required"
-    },
-    {
-      "id": "e-result-undo",
-      "fromNode": "shared-correct",
-      "fromSide": "right",
-      "toNode": "undo-result",
-      "toSide": "left",
-      "color": "3",
-      "label": "Undo restores geometry"
-    },
-    {
-      "id": "e-result-face",
-      "fromNode": "shared-correct",
-      "fromSide": "right",
-      "toNode": "face-result",
-      "toSide": "left",
-      "color": "4",
-      "label": "AddRhinoObject; correction required"
-    },
-    {
-      "id": "e-result-boolean",
-      "fromNode": "shared-correct",
-      "fromSide": "right",
-      "toNode": "boolean-result",
-      "toSide": "left",
-      "color": "1",
-      "label": "candidate adopted; no correction observed"
-    }
+    {"id":"m1","fromNode":"m-command","fromSide":"right","toNode":"m-replace","toSide":"left","color":"5"},
+    {"id":"m2","fromNode":"m-replace","fromSide":"right","toNode":"m-delete","toSide":"left","color":"5"},
+    {"id":"m3","fromNode":"m-delete","fromSide":"right","toNode":"m-add","toSide":"left","color":"2","label":"final object arrives"},
+    {"id":"m4","fromNode":"m-add","fromSide":"right","toNode":"m-maintain","toSide":"left","color":"2","label":"installed parent + ID"},
+    {"id":"m5","fromNode":"m-maintain","fromSide":"right","toNode":"m-result","toSide":"left","color":"4","label":"child corrected; cache clean"},
+
+    {"id":"u1","fromNode":"u-command","fromSide":"right","toNode":"u-replace","toSide":"left","color":"3"},
+    {"id":"u2","fromNode":"u-replace","fromSide":"right","toNode":"u-delete","toSide":"left","color":"3"},
+    {"id":"u3","fromNode":"u-delete","fromSide":"right","toNode":"u-undelete","toSide":"left","color":"2","label":"restored child arrives"},
+    {"id":"u4","fromNode":"u-undelete","fromSide":"right","toNode":"u-parent","toSide":"left","color":"3","label":"then restore parent"},
+    {"id":"u5","fromNode":"u-parent","fromSide":"right","toNode":"u-result","toSide":"left","color":"4","label":"live anchors cached"},
+
+    {"id":"f1","fromNode":"f-command","fromSide":"right","toNode":"f-replace","toSide":"left","color":"6"},
+    {"id":"f2","fromNode":"f-replace","fromSide":"right","toNode":"f-delete","toSide":"left","color":"6"},
+    {"id":"f3","fromNode":"f-delete","fromSide":"right","toNode":"f-add","toSide":"left","color":"2","label":"final Brep arrives"},
+    {"id":"f4","fromNode":"f-add","fromSide":"right","toNode":"f-maintain","toSide":"left","color":"6","label":"static metadata + geometry"},
+    {"id":"f5","fromNode":"f-maintain","fromSide":"right","toNode":"f-result","toSide":"left","color":"4","label":"corrected; cache clean"},
+
+    {"id":"b1","fromNode":"b-command","fromSide":"right","toNode":"b-add","toSide":"left","color":"1"},
+    {"id":"b2","fromNode":"b-add","fromSide":"right","toNode":"b-adopt","toSide":"left","color":"2","label":"metadata-bearing result"},
+    {"id":"b3","fromNode":"b-adopt","fromSide":"right","toNode":"b-maintain","toSide":"left","color":"6","label":"new parent ID"},
+    {"id":"b4","fromNode":"b-maintain","fromSide":"right","toNode":"b-delete","toSide":"left","color":"1","label":"cache already clean"},
+    {"id":"b5","fromNode":"b-delete","fromSide":"right","toNode":"b-result","toSide":"left","color":"4"},
+
+    {"id":"c1","fromNode":"c-command","fromSide":"right","toNode":"c-unsubscribe","toSide":"left","color":"1"},
+    {"id":"c2","fromNode":"c-unsubscribe","fromSide":"right","toNode":"c-stop","toSide":"left","color":"1"},
+    {"id":"c3","fromNode":"c-stop","fromSide":"right","toNode":"c-metadata","toSide":"left","color":"1","label":"runtime removed"},
+    {"id":"c4","fromNode":"c-metadata","fromSide":"right","toNode":"c-redraw","toSide":"left","color":"1"},
+    {"id":"c5","fromNode":"c-redraw","fromSide":"right","toNode":"c-result","toSide":"left","color":"4"},
+
+    {"id":"r1","fromNode":"r-command","fromSide":"right","toNode":"r-reset","toSide":"left","color":"2"},
+    {"id":"r2","fromNode":"r-reset","fromSide":"right","toNode":"r-read","toSide":"left","color":"2"},
+    {"id":"r3","fromNode":"r-read","fromSide":"right","toNode":"r-cache","toSide":"left","color":"6","label":"saved link"},
+    {"id":"r4","fromNode":"r-cache","fromSide":"right","toNode":"r-subscribe","toSide":"left","color":"2","label":"clean runtime state"},
+    {"id":"r5","fromNode":"r-subscribe","fromSide":"right","toNode":"r-result","toSide":"left","color":"4","label":"one redraw"}
   ]
 }

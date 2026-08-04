@@ -84,6 +84,7 @@ def _restore_existing_tacks(doc, metadata, runtime):
 def stress_100_relationships():
     handlers, metadata, runtime, utils = tack_modules(reload_modules=True)
     import tack.analysis.bbox as bbox_analysis
+    from tack import link
 
     doc = sc.doc
     assert doc is not None, "Open a Rhino document before running this test"
@@ -133,9 +134,12 @@ def stress_100_relationships():
             assert link_id is not None, (
                 "Could not create relationship {} metadata".format(index)
             )
-            assert runtime.start_runtime(parent_id, child_id, link_id), (
-                "Could not start relationship {}".format(index)
-            )
+            assert runtime.start_runtime(
+                parent_id,
+                child_id,
+                link_id,
+                redraw=False,
+            ), "Could not start relationship {}".format(index)
 
             parent_ids.append(parent_id)
             child_ids.append(child_id)
@@ -143,6 +147,24 @@ def stress_100_relationships():
             child_centers_before.append(
                 dict(bbox_analysis.anchors(child))[bbox_analysis.CENTER_INDEX]
             )
+
+        # Exercise the same cache lifecycle used by tack_clear.py and
+        # tack_restore.py without clearing unrelated document metadata.
+        runtime.stop_runtime()
+        assert utils.RUNTIME_KEY not in sc.sticky
+        assert utils.CONDUIT_KEY not in sc.sticky
+        for parent_id, child_id, link_id in zip(
+            parent_ids,
+            child_ids,
+            link_ids,
+        ):
+            assert runtime.start_runtime(
+                parent_id,
+                child_id,
+                link_id,
+                redraw=False,
+            )
+        doc.Views.Redraw()
 
         handlers.subscribe()
         setup_seconds = time.perf_counter() - setup_started
@@ -164,6 +186,10 @@ def stress_100_relationships():
                 len(runtime.states()),
             )
         )
+        assert all(
+            not state["display"]["dirty"]
+            for state in runtime.states().values()
+        ), "One or more display caches started dirty"
 
         rs.UnselectAllObjects()
         selected_count = rs.SelectObjects(parent_ids)
@@ -221,6 +247,29 @@ def stress_100_relationships():
             assert metadata.read_parent_links(parent).get(link_id) == str(child.Id), (
                 "Relationship {} lost parent metadata".format(index)
             )
+            display = state.get("display")
+            assert display is not None and not display["dirty"], (
+                "Relationship {} display cache stayed dirty".format(index)
+            )
+            inspection = link.inspect_link(doc, state)
+            assert inspection is not None
+            assert_close(
+                display["parent_anchor"],
+                inspection["parent_anchor"],
+                tolerance,
+                "relationship {} cached parent anchor".format(index),
+            )
+            assert_close(
+                display["child_anchor"],
+                inspection["child_anchor"],
+                tolerance,
+                "relationship {} cached child anchor".format(index),
+            )
+
+        redraw_started = time.perf_counter()
+        for _ in range(10):
+            doc.Views.Redraw()
+        redraw_seconds = time.perf_counter() - redraw_started
 
         tagged_count_after = sum(
             1
@@ -239,6 +288,8 @@ def stress_100_relationships():
             "milliseconds_per_relationship": (
                 update_seconds * 1000 / RELATIONSHIP_COUNT
             ),
+            "ten_redraw_seconds": redraw_seconds,
+            "milliseconds_per_redraw": redraw_seconds * 1000 / 10,
             "move": point_data(MOVE),
         }
     finally:

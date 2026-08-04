@@ -15,9 +15,9 @@
               "state": {
                 "file": "Tack Handler Flow.canvas",
                 "viewState": {
-                  "x": 3622.33186734288,
-                  "y": 3089.861470553661,
-                  "zoom": -1.1375625545904045
+                  "x": 3552.7189240587495,
+                  "y": 895.0000812435754,
+                  "zoom": -0.9736203456049164
                 }
               },
               "icon": "lucide-layout-dashboard",
@@ -190,6 +190,10 @@
   },
   "active": "b7c22852a8032d19",
   "lastOpenFiles": [
+    "pytestdebug.log",
+    "tests/__pycache__/test_display_cache.cpython-313-pytest-9.1.1.pyc",
+    "tests/__pycache__/test_display_cache.cpython-313.pyc",
+    "tests/test_display_cache.py",
     "commands/__pycache__/setup_100_tacks.cpython-313.pyc",
     "commands/setup_100_tacks.py",
     "tests/__pycache__/test_handler_subscriptions.cpython-313.pyc",
@@ -197,10 +201,6 @@
     "tests/test_handler_subscriptions.py",
     "tests/rhino/event_trace_reset.py",
     "tests/__pycache__/test_debug_environment.cpython-313.pyc",
-    "tests/__pycache__/test_debug_environment.cpython-313-pytest-9.1.1.pyc",
-    "tests/test_debug_environment.py",
-    "tack_1~.3dm",
-    "tests/rhino/__pycache__/test_multiple_tacks.cpython-313-pytest-9.1.1.pyc",
     "Tack Handler Flow.canvas"
   ]
 }
