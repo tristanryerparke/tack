@@ -50,6 +50,19 @@ def test_conduit_draws_only_from_its_document_runtime_cache():
     assert "RhinoDoc" in ast.unparse(draw)
     assert "display" in CONDUIT.read_text()
 
+    color = next(
+        node.value
+        for node in ast.parse(CONDUIT.read_text()).body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "DISPLAY_COLOR"
+            for target in node.targets
+        )
+    )
+    assert color.args[0].value == 191
+    assert "PointStyle.SolidRound" in ast.unparse(draw)
+    assert "RoundControlPoint" not in ast.unparse(draw)
+
 
 def test_runtime_builds_clean_cache_and_discards_only_document_values_on_stop():
     source = RUNTIME.read_text()

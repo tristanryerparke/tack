@@ -28,6 +28,6 @@ class AnchorPickConduit(Rhino.Display.DisplayConduit):
             event.Display.DrawPoint(
                 point,
                 Rhino.Display.PointStyle.X,
-                16 if index == hover_index else 4,
+                6 if index == hover_index else 4,
                 color,
             )

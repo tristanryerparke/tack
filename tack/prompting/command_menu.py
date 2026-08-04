@@ -7,7 +7,22 @@ from tack import utils
 from tack.prompting import picking
 
 
+DISABLE_NORMAL_OSNAPS = True
+
+
 def pick_link(doc):
+    if not DISABLE_NORMAL_OSNAPS:
+        return _pick_link(doc)
+
+    osnap_was_enabled = Rhino.ApplicationSettings.ModelAidSettings.Osnap
+    Rhino.ApplicationSettings.ModelAidSettings.Osnap = False
+    try:
+        return _pick_link(doc)
+    finally:
+        Rhino.ApplicationSettings.ModelAidSettings.Osnap = osnap_was_enabled
+
+
+def _pick_link(doc):
     parent_id = picking.pick_object(doc, "Select parent object")
     if not parent_id:
         return None

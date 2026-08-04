@@ -16,6 +16,24 @@ def test_bbox_analysis():
     from tack import link
     from tack.prompting import command_menu
 
+    osnap_was_enabled = Rhino.ApplicationSettings.ModelAidSettings.Osnap
+    original_pick_link = command_menu._pick_link
+    original_disable_osnaps = command_menu.DISABLE_NORMAL_OSNAPS
+
+    def osnap_probe(doc):
+        assert not Rhino.ApplicationSettings.ModelAidSettings.Osnap
+        return "osnap-disabled"
+
+    try:
+        command_menu.DISABLE_NORMAL_OSNAPS = True
+        command_menu._pick_link = osnap_probe
+        assert command_menu.pick_link(None) == "osnap-disabled"
+        assert Rhino.ApplicationSettings.ModelAidSettings.Osnap == osnap_was_enabled
+    finally:
+        command_menu._pick_link = original_pick_link
+        command_menu.DISABLE_NORMAL_OSNAPS = original_disable_osnaps
+        Rhino.ApplicationSettings.ModelAidSettings.Osnap = osnap_was_enabled
+
     box = Rhino.Geometry.Box(
         Rhino.Geometry.Plane.WorldXY,
         Rhino.Geometry.Interval(0, 2),

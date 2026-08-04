@@ -6,6 +6,10 @@ from tack import utils
 
 
 DISPLAY_TYPE_TOLERANCE = 0.1
+DISPLAY_COLOR = System.Drawing.Color.FromArgb(
+    191,
+    System.Drawing.Color.Orange,
+)
 
 
 class TackLinkConduit(Rhino.Display.DisplayConduit):
@@ -36,22 +40,22 @@ class TackLinkConduit(Rhino.Display.DisplayConduit):
             if display["setup_offset_length"] <= DISPLAY_TYPE_TOLERANCE:
                 event.Display.DrawPoint(
                     parent_anchor,
-                    Rhino.Display.PointStyle.RoundControlPoint,
+                    Rhino.Display.PointStyle.SolidRound,
                     6,
-                    System.Drawing.Color.Orange,
+                    DISPLAY_COLOR,
                 )
                 continue
 
             event.Display.DrawLine(
                 parent_anchor,
                 child_anchor,
-                System.Drawing.Color.Orange,
+                DISPLAY_COLOR,
                 3,
             )
             event.Display.DrawArrowHead(
                 child_anchor,
                 child_anchor - parent_anchor,
-                System.Drawing.Color.Orange,
+                DISPLAY_COLOR,
                 32.0,
                 0.0,
             )
