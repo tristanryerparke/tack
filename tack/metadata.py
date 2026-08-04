@@ -6,7 +6,7 @@ from tack import utils
 
 LINKS_KEY = "Tack.AnchorLinks.v3"
 PARENT_LINKS_KEY = "Tack.AnchorParentLinks.v3"
-_ANCHOR_TYPES = ("BoundingBox", "BrepVertex")
+_ANCHOR_TYPES = ("BoundingBox", "BrepVertex", "PolylineVertex")
 
 
 def _set_user_value(doc, object_id, key, value):

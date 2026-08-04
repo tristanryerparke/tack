@@ -12,8 +12,10 @@ from common import tack_modules
 def test_bbox_analysis():
     tack_modules(reload_modules=True)
     import tack.analysis.bbox as bbox_analysis
+    import tack.analysis.polyline_vertex as polyline_vertex_analysis
     import tack.analysis.vertex as vertex_analysis
     from tack import link
+    from tack import metadata
     from tack.prompting import command_menu
 
     osnap_was_enabled = Rhino.ApplicationSettings.ModelAidSettings.Osnap
@@ -89,6 +91,55 @@ def test_bbox_analysis():
     ]
     assert len(bbox_analysis.wire_segments(rectangle)) == 4
 
+    assert polyline_vertex_analysis.supports_vertex_anchors(rectangle)
+    assert command_menu._supports_vertex_anchors(rectangle)
+    assert command_menu._vertex_analyzer(rectangle) is polyline_vertex_analysis
+    polyline_anchors = polyline_vertex_analysis.anchors(rectangle)
+    assert [index for index, _ in polyline_anchors] == [0, 1, 2, 3]
+    assert_close(
+        polyline_vertex_analysis.resolve(rectangle, {"index": 2}),
+        Rhino.Geometry.Point3d(2, 3, 5),
+        Rhino.RhinoMath.ZeroTolerance,
+        "closed polyline vertex anchor",
+    )
+    assert polyline_vertex_analysis.resolve(rectangle, {"index": 4}) is None
+
+    rectangle_with_inserted_vertex = Rhino.Geometry.PolylineCurve(
+        [
+            Rhino.Geometry.Point3d(0, 0, 5),
+            Rhino.Geometry.Point3d(1, 0, 5),
+            Rhino.Geometry.Point3d(2, 0, 5),
+            Rhino.Geometry.Point3d(2, 3, 5),
+            Rhino.Geometry.Point3d(0, 3, 5),
+            Rhino.Geometry.Point3d(0, 0, 5),
+        ]
+    )
+    remapped_anchors, remapped_index = polyline_vertex_analysis.remap_anchor(
+        rectangle,
+        rectangle_with_inserted_vertex,
+        {"index": 2},
+        Rhino.RhinoMath.ZeroTolerance,
+    )
+    assert [index for index, _ in remapped_anchors] == [0, 1, 2, 3, 4]
+    assert remapped_index == 3
+
+    open_polyline = Rhino.Geometry.PolylineCurve(
+        [
+            Rhino.Geometry.Point3d(0, 0, 0),
+            Rhino.Geometry.Point3d(1, 0, 0),
+            Rhino.Geometry.Point3d(1, 1, 0),
+        ]
+    )
+    assert [
+        index for index, _ in polyline_vertex_analysis.anchors(open_polyline)
+    ] == [0, 1, 2]
+    assert metadata._parse_anchor(
+        {"anchor_type": polyline_vertex_analysis.ANCHOR_TYPE, "index": 2}
+    ) == {
+        "anchor_type": polyline_vertex_analysis.ANCHOR_TYPE,
+        "index": 2,
+    }
+
     line = Rhino.Geometry.LineCurve(
         Rhino.Geometry.Point3d(0, 0, 0),
         Rhino.Geometry.Point3d(2, 0, 0),
@@ -99,6 +150,7 @@ def test_bbox_analysis():
         bbox_analysis.CENTER_INDEX,
     ]
     assert len(bbox_analysis.wire_segments(line)) == 1
+    assert not polyline_vertex_analysis.supports_vertex_anchors(line)
 
     point = Rhino.Geometry.Point(Rhino.Geometry.Point3d(4, 5, 6))
     assert [index for index, _ in bbox_analysis.anchors(point)] == [
@@ -153,6 +205,42 @@ def test_bbox_analysis():
         child_anchor,
         Rhino.RhinoMath.ZeroTolerance,
         "mixed child vertex anchor",
+    )
+
+    polyline_parent_anchor = dict(polyline_anchors)[2]
+    polyline_offset = child_anchor - polyline_parent_anchor
+    polyline_link = {
+        "version": 3,
+        "link_id": "polyline-link",
+        "parent_id": "polyline-parent",
+        "child_id": "child",
+        "parent_anchor": {
+            "anchor_type": polyline_vertex_analysis.ANCHOR_TYPE,
+            "index": 2,
+        },
+        "child_anchor": {
+            "anchor_type": vertex_analysis.ANCHOR_TYPE,
+            "index": 0,
+        },
+        "offset": [polyline_offset.X, polyline_offset.Y, polyline_offset.Z],
+    }
+    polyline_result = link.inspect_link(
+        None,
+        {
+            "link_id": "polyline-link",
+            "parent_id": "polyline-parent",
+            "child_id": "child",
+            "link": polyline_link,
+        },
+        parent_obj=rectangle,
+        child_obj=child_box,
+    )
+    assert polyline_result is not None
+    assert_close(
+        polyline_result["parent_anchor"],
+        polyline_parent_anchor,
+        Rhino.RhinoMath.ZeroTolerance,
+        "mixed parent polyline vertex anchor",
     )
 
 

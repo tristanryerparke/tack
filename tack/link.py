@@ -2,6 +2,7 @@ import Rhino
 import System.Windows.Forms
 
 import tack.analysis.bbox as bbox_analysis
+import tack.analysis.polyline_vertex as polyline_vertex_analysis
 import tack.analysis.vertex as vertex_analysis
 from tack import metadata
 from tack import runtime
@@ -10,6 +11,7 @@ from tack import utils
 
 _ANCHOR_ANALYZERS = {
     bbox_analysis.ANCHOR_TYPE: bbox_analysis,
+    polyline_vertex_analysis.ANCHOR_TYPE: polyline_vertex_analysis,
     vertex_analysis.ANCHOR_TYPE: vertex_analysis,
 }
 

@@ -7,6 +7,7 @@ _MODULES = (
     "document_runtime",
     "metadata",
     "analysis.bbox",
+    "analysis.polyline_vertex",
     "analysis.vertex",
     "link",
     "conduit",

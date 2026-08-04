@@ -2,6 +2,7 @@ import Rhino
 import scriptcontext as sc
 
 import tack.analysis.bbox as bbox_analysis
+import tack.analysis.polyline_vertex as polyline_vertex_analysis
 import tack.analysis.vertex as vertex_analysis
 from tack import conduit
 from tack import document_runtime
@@ -11,6 +12,7 @@ from tack import utils
 
 _ANALYZERS = {
     bbox_analysis.ANCHOR_TYPE: bbox_analysis,
+    polyline_vertex_analysis.ANCHOR_TYPE: polyline_vertex_analysis,
     vertex_analysis.ANCHOR_TYPE: vertex_analysis,
 }
 
