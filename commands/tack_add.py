@@ -1,99 +1,85 @@
+import importlib
 import os
+import sys
 import traceback
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-def _debug_enabled():
-    return os.getenv("debug", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ) or os.getenv("TACK_DEBUG", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
+import Rhino
+from Rhino.Commands import Result
+
+import tack
+
+importlib.reload(tack).reload()
+
+from tack import handlers
+from tack import metadata
+from tack import runtime
+from tack import utils
+from tack.prompting import command_menu
+
+
+def _short_id(object_id):
+    return str(object_id).split("-", 1)[0]
+
+
+def RunCommand(is_interactive):
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return Result.Cancel
+
+    handlers.unsubscribe()
+    handlers.subscribe()
+
+    picked = command_menu.pick_link(doc)
+    if picked is None:
+        return Result.Cancel
+
+    parent_id, child_id, parent_anchor, child_anchor = picked
+    link_id = metadata.write_link(
+        doc,
+        parent_id,
+        child_id,
+        parent_anchor,
+        child_anchor,
     )
+    if link_id is None:
+        utils.debug("[Tack anchor] could not write Tack anchor metadata.")
+        return Result.Failure
 
-
-try:
-    import importlib
-    import os
-    import sys
-
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-    import Rhino
-    from Rhino.Commands import Result
-
-    import tack
-
-    importlib.reload(tack).reload()
-
-    from tack import handlers
-    from tack import metadata
-    from tack import runtime
-    from tack import utils
-    from tack.prompting import command_menu
-
-
-    def _short_id(object_id):
-        return str(object_id).split("-", 1)[0]
-
-
-    def RunCommand(is_interactive):
-        doc = Rhino.RhinoDoc.ActiveDoc
-        if doc is None:
-            return Result.Cancel
-
-        handlers.unsubscribe()
-        handlers.subscribe()
-
-        picked = command_menu.pick_link(doc)
-        if picked is None:
-            return Result.Cancel
-
-        parent_id, child_id, parent_anchor, child_anchor = picked
-        link_id = metadata.write_link(
-            doc,
-            parent_id,
-            child_id,
-            parent_anchor,
-            child_anchor,
+    if not runtime.start_runtime(parent_id, child_id, link_id):
+        utils.debug("[Tack anchor] could not start Tack relationship.")
+        return Result.Failure
+    utils.debug(
+        "[Tack anchor] created link={} parent={} child={}".format(
+            _short_id(link_id),
+            _short_id(parent_id),
+            _short_id(child_id),
         )
-        if link_id is None:
-            utils.debug("[Tack anchor] could not write Tack anchor metadata.")
-            return Result.Failure
-
-        if not runtime.start_runtime(parent_id, child_id, link_id):
-            utils.debug("[Tack anchor] could not start Tack relationship.")
-            return Result.Failure
-        utils.debug(
-            "[Tack anchor] created link={} parent={} child={}".format(
-                _short_id(link_id),
-                _short_id(parent_id),
-                _short_id(child_id),
-            )
-        )
-        return Result.Success
+    )
+    return Result.Success
 
 
-    if __name__ == "__main__":
-        from rhino_watcher import try_send_end_sync
-        from rhino_watcher import try_send_quit_sync
-        from rhino_watcher import websocket_output_if_available_sync
-
-        with websocket_output_if_available_sync():
-            result = RunCommand(True)
-        if result == Result.Success:
-            try_send_end_sync()
+if __name__ == "__main__":
+    if not utils.DEBUG:
+        RunCommand(True)
+    else:
+        try:
+            from rhino_watcher import try_send_end_sync
+            from rhino_watcher import try_send_quit_sync
+            from rhino_watcher import websocket_output_if_available_sync
+        except ImportError:
+            RunCommand(True)
         else:
-            try_send_quit_sync()
-except Exception:
-    from rhino_watcher import try_send_quit_sync
-    from rhino_watcher import websocket_output_if_available_sync
-
-    if _debug_enabled():
-        with websocket_output_if_available_sync():
-            traceback.print_exc()
-    try_send_quit_sync()
+            try:
+                with websocket_output_if_available_sync():
+                    result = RunCommand(True)
+            except Exception:
+                with websocket_output_if_available_sync():
+                    traceback.print_exc()
+                try_send_quit_sync()
+            else:
+                if result == Result.Success:
+                    try_send_end_sync()
+                else:
+                    try_send_quit_sync()

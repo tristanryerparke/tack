@@ -17,6 +17,19 @@ _MODULES = (
 )
 
 
+def _reload_module(name):
+    module = sys.modules.get(name)
+    if module is None:
+        return
+    try:
+        importlib.reload(module)
+    except ModuleNotFoundError as error:
+        if error.name != name:
+            raise
+        del sys.modules[name]
+        importlib.import_module(name)
+
+
 def reload():
     """Reload Tack's loaded modules in dependency order."""
     analysis_name = __name__ + ".analysis"
@@ -26,6 +39,4 @@ def reload():
     importlib.invalidate_caches()
 
     for name in _MODULES:
-        module = sys.modules.get(__name__ + "." + name)
-        if module is not None:
-            importlib.reload(module)
+        _reload_module(__name__ + "." + name)

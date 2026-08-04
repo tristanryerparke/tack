@@ -12,8 +12,6 @@ import tack
 
 importlib.reload(tack).reload()
 
-from tack import handlers
-from tack import metadata
 from tack import runtime
 from tack import utils
 
@@ -23,31 +21,13 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    handlers.unsubscribe()
-    runtime.stop_runtime()
+    if not runtime.hide_display():
+        print("No active Tack display to hide.")
+        return Result.Cancel
 
-    restored = 0
-    for saved_link in metadata.all_links(doc):
-        if runtime.start_runtime(
-            saved_link["parent_id"],
-            saved_link["child_id"],
-            saved_link["link_id"],
-            redraw=False,
-        ):
-            restored += 1
-        else:
-            print(
-                "Could not restore Tack {}.".format(saved_link["link_id"])
-            )
-
-    handlers.subscribe()
     doc.Views.Redraw()
-    if restored:
-        print("Restored {} Tack relationship(s).".format(restored))
-        return Result.Success
-
-    print("No saved Tack relationships found.")
-    return Result.Cancel
+    print("Tack display hidden.")
+    return Result.Success
 
 
 if __name__ == "__main__":

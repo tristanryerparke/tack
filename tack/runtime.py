@@ -117,6 +117,21 @@ def _ensure_conduit():
     active_conduit.Enabled = True
 
 
+def hide_display():
+    active_conduit = sc.sticky.get(utils.CONDUIT_KEY)
+    if active_conduit is None:
+        return False
+    active_conduit.Enabled = False
+    return True
+
+
+def show_display():
+    if not sc.sticky.get(utils.RUNTIME_KEY):
+        return False
+    _ensure_conduit()
+    return True
+
+
 def start_runtime(parent_id, child_id, link_id, redraw=True):
     doc = Rhino.RhinoDoc.ActiveDoc
     child = utils.find_object(doc, child_id)

@@ -1,4 +1,9 @@
 import importlib
+import os
+import sys
+import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import Rhino
 from Rhino.Commands import Result
@@ -10,6 +15,7 @@ importlib.reload(tack).reload()
 from tack import handlers
 from tack import metadata
 from tack import runtime
+from tack import utils
 
 
 def _clear_object_metadata(doc, object_id):
@@ -54,25 +60,31 @@ def RunCommand(is_interactive, no_metadata=False):
 
 
 if __name__ == "__main__":
-    import sys
-    import traceback
+    def run():
+        return RunCommand(
+            True,
+            no_metadata="--no_metadata" in sys.argv[1:],
+        )
 
-    from rhino_watcher import try_send_end_sync
-    from rhino_watcher import try_send_quit_sync
-    from rhino_watcher import websocket_output_if_available_sync
-
-    try:
-        with websocket_output_if_available_sync():
-            result = RunCommand(
-                True,
-                no_metadata="--no_metadata" in sys.argv[1:],
-            )
-    except Exception:
-        with websocket_output_if_available_sync():
-            traceback.print_exc()
-        try_send_quit_sync()
+    if not utils.DEBUG:
+        run()
     else:
-        if result == Result.Success:
-            try_send_end_sync()
+        try:
+            from rhino_watcher import try_send_end_sync
+            from rhino_watcher import try_send_quit_sync
+            from rhino_watcher import websocket_output_if_available_sync
+        except ImportError:
+            run()
         else:
-            try_send_quit_sync()
+            try:
+                with websocket_output_if_available_sync():
+                    result = run()
+            except Exception:
+                with websocket_output_if_available_sync():
+                    traceback.print_exc()
+                try_send_quit_sync()
+            else:
+                if result == Result.Success:
+                    try_send_end_sync()
+                else:
+                    try_send_quit_sync()
