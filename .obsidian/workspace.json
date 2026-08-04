@@ -190,17 +190,17 @@
   },
   "active": "b7c22852a8032d19",
   "lastOpenFiles": [
+    "commands/tack_add.py",
+    "commands/tack_restore.py",
+    "commands/tack_clear.py",
+    "demos/setup_100_tacks.py",
+    "demos",
+    "tests/demos",
     "pytestdebug.log",
     "tests/__pycache__/test_display_cache.cpython-313-pytest-9.1.1.pyc",
     "tests/__pycache__/test_display_cache.cpython-313.pyc",
     "tests/test_display_cache.py",
     "commands/__pycache__/setup_100_tacks.cpython-313.pyc",
-    "commands/setup_100_tacks.py",
-    "tests/__pycache__/test_handler_subscriptions.cpython-313.pyc",
-    "tests/__pycache__/test_handler_subscriptions.cpython-313-pytest-9.1.1.pyc",
-    "tests/test_handler_subscriptions.py",
-    "tests/rhino/event_trace_reset.py",
-    "tests/__pycache__/test_debug_environment.cpython-313.pyc",
     "Tack Handler Flow.canvas"
   ]
 }

@@ -14,6 +14,7 @@ def test_bbox_analysis():
     import tack.analysis.bbox as bbox_analysis
     import tack.analysis.vertex as vertex_analysis
     from tack import link
+    from tack.prompting import command_menu
 
     box = Rhino.Geometry.Box(
         Rhino.Geometry.Plane.WorldXY,
@@ -23,6 +24,27 @@ def test_bbox_analysis():
     ).ToBrep()
     box_anchors = bbox_analysis.anchors(box)
     assert [index for index, _ in box_anchors] == list(range(9))
+
+    extrusion = Rhino.Geometry.Extrusion.Create(
+        Rhino.Geometry.Circle(
+            Rhino.Geometry.Plane.WorldXY,
+            1,
+        ).ToNurbsCurve(),
+        5,
+        True,
+    )
+    assert extrusion is not None
+    assert vertex_analysis.supports_vertex_anchors(extrusion)
+    assert command_menu._supports_vertex_anchors(extrusion)
+    extrusion_anchors = vertex_analysis.anchors(extrusion)
+    assert extrusion_anchors
+    extrusion_index, extrusion_point = extrusion_anchors[0]
+    assert_close(
+        vertex_analysis.resolve(extrusion, {"index": extrusion_index}),
+        extrusion_point,
+        Rhino.RhinoMath.ZeroTolerance,
+        "extrusion vertex anchor",
+    )
     assert len(bbox_analysis.wire_segments(box)) == 12
     assert_close(
         dict(box_anchors)[bbox_analysis.CENTER_INDEX],

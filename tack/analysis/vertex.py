@@ -8,7 +8,13 @@ def brep_geometry(obj):
     geometry = getattr(obj, "Geometry", obj)
     if isinstance(geometry, Rhino.Geometry.Brep):
         return geometry
+    if isinstance(geometry, Rhino.Geometry.Extrusion):
+        return geometry.ToBrep()
     return None
+
+
+def supports_vertex_anchors(obj):
+    return brep_geometry(obj) is not None
 
 
 def anchors(obj):

@@ -5,8 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 CONDUIT = ROOT / "tack" / "conduit.py"
 RUNTIME = ROOT / "tack" / "runtime.py"
-CLEAR = ROOT / "tack_clear.py"
-RESTORE = ROOT / "tack_restore.py"
+CLEAR = ROOT / "commands" / "tack_clear.py"
+RESTORE = ROOT / "commands" / "tack_restore.py"
 
 
 def _function(path, name):
@@ -56,3 +56,29 @@ def test_clear_and_restore_use_cache_lifecycle_entry_points():
 
     assert "stop_runtime" in clear_calls
     assert {"stop_runtime", "start_runtime"} <= restore_calls
+
+
+def test_clear_no_metadata_preserves_saved_link_metadata():
+    clear = _function(CLEAR, "RunCommand")
+    assert "no_metadata" in [arg.arg for arg in clear.args.args]
+
+    metadata_removals = [
+        call
+        for call in ast.walk(clear)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_clear_object_metadata"
+    ]
+    assert len(metadata_removals) == 1
+
+    guard = next(
+        node
+        for node in ast.walk(clear)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.UnaryOp)
+        and isinstance(node.test.op, ast.Not)
+        and isinstance(node.test.operand, ast.Name)
+        and node.test.operand.id == "no_metadata"
+    )
+    assert metadata_removals[0] in ast.walk(guard)
+    assert "--no_metadata" in CLEAR.read_text()

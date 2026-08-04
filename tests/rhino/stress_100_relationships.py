@@ -148,8 +148,8 @@ def stress_100_relationships():
                 dict(bbox_analysis.anchors(child))[bbox_analysis.CENTER_INDEX]
             )
 
-        # Exercise the same cache lifecycle used by tack_clear.py and
-        # tack_restore.py without clearing unrelated document metadata.
+        # Exercise the same cache lifecycle used by commands/tack_clear.py
+        # and commands/tack_restore.py without clearing unrelated document metadata.
         runtime.stop_runtime()
         assert utils.RUNTIME_KEY not in sc.sticky
         assert utils.CONDUIT_KEY not in sc.sticky

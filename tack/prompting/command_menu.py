@@ -41,10 +41,14 @@ def pick_link(doc):
     return parent_id, child_id, parent_anchor, child_anchor
 
 
+def _supports_vertex_anchors(geometry):
+    return vertex_analysis.supports_vertex_anchors(geometry)
+
+
 def _pick_anchor(obj, role):
     geometry = obj.Geometry
     anchor_type = bbox_analysis.ANCHOR_TYPE
-    if isinstance(geometry, Rhino.Geometry.Brep):
+    if _supports_vertex_anchors(geometry):
         anchor_type = _pick_brep_anchor_type(role)
         if anchor_type is None:
             return None

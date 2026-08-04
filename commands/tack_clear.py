@@ -33,23 +33,28 @@ def _clear_object_metadata(doc, object_id):
         doc.Objects.ModifyAttributes(object_id, attrs, True)
 
 
-def RunCommand(is_interactive):
+def RunCommand(is_interactive, no_metadata=False):
     doc = Rhino.RhinoDoc.ActiveDoc
     if doc is None:
         return Result.Cancel
 
     handlers.unsubscribe()
     runtime.stop_runtime()
-    for obj in doc.Objects:
-        if obj is not None:
-            _clear_object_metadata(doc, obj.Id)
+    if not no_metadata:
+        for obj in doc.Objects:
+            if obj is not None:
+                _clear_object_metadata(doc, obj.Id)
 
     doc.Views.Redraw()
-    print("Tack anchor links cleared. Save the file to keep the cleanup.")
+    if no_metadata:
+        print("Tack runtime cleared. Saved anchor links were preserved.")
+    else:
+        print("Tack anchor links cleared. Save the file to keep the cleanup.")
     return Result.Success
 
 
 if __name__ == "__main__":
+    import sys
     import traceback
 
     from rhino_watcher import try_send_end_sync
@@ -58,7 +63,10 @@ if __name__ == "__main__":
 
     try:
         with websocket_output_if_available_sync():
-            result = RunCommand(True)
+            result = RunCommand(
+                True,
+                no_metadata="--no_metadata" in sys.argv[1:],
+            )
     except Exception:
         with websocket_output_if_available_sync():
             traceback.print_exc()
