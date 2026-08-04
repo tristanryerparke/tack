@@ -60,8 +60,31 @@ def test_conduit_draws_only_from_its_document_runtime_cache():
         )
     )
     assert color.args[0].value == 191
-    assert "PointStyle.SolidRound" in ast.unparse(draw)
-    assert "RoundControlPoint" not in ast.unparse(draw)
+
+    crosshair = _function(CONDUIT, "_draw_crosshair")
+    crosshair_calls = _called_attributes(crosshair)
+    assert "WorldToClient" in crosshair_calls
+    assert sum(
+        1
+        for node in ast.walk(crosshair)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Draw2dLine"
+    ) == 2
+    crosshair_source = ast.unparse(crosshair)
+    assert "CROSSHAIR_INNER_RADIUS" in crosshair_source
+    assert "horizontal_segments" in crosshair_source
+    assert "vertical_segments" in crosshair_source
+    assert "_draw_circle(event, point)" in crosshair_source
+
+    circle = _function(CONDUIT, "_draw_circle")
+    circle_source = ast.unparse(circle)
+    assert "DrawPoint" in _called_attributes(circle)
+    assert "PointStyle.Circle" in circle_source
+
+    draw_source = ast.unparse(draw)
+    assert "midpoint" in draw_source
+    assert "_draw_circle(event, midpoint)" in draw_source
 
 
 def test_runtime_builds_clean_cache_and_discards_only_document_values_on_stop():
