@@ -56,7 +56,20 @@ def _report_error():
 
 
 def _schedule(doc):
-    return document_runtime.get_value(doc, utils.SCHEDULE_KEY, lambda _: set())
+    schedule = document_runtime.get_value(
+        doc,
+        utils.SCHEDULE_KEY,
+        lambda _: set(),
+    )
+    if isinstance(schedule, set):
+        return schedule
+
+    # A short-lived scheduler revision stored {link_id: undo_flag} here.
+    # scriptcontext.sticky survives code reloads, so normalize that persisted
+    # dictionary (or any other iterable) before the current set-based solver
+    # calls add().
+    schedule = set(schedule)
+    return document_runtime.set_value(doc, utils.SCHEDULE_KEY, schedule)
 
 
 def _register_doc(doc):
@@ -100,9 +113,7 @@ def expire_link_ids(doc, link_ids):
 
 
 def expire_all(doc):
-    """Expire every live relationship. Kept as a resync hook; not wired to a
-    RhinoDoc event because this Rhino build exposes no UndoRedo event (undo
-    is covered by UndeleteRhinoObject + maintain_link's undo_or_redo guard)."""
+    """Expire every live relationship for an explicit resync."""
     link_ids = [
         state["link_id"]
         for state in runtime.states(doc, create=False).values()
@@ -170,9 +181,13 @@ def _saved_link_map(doc):
 
 def _solve_one(doc, link_id, saved_links):
     saved_link = _lookup(saved_links, link_id)
-    if saved_link is None:
-        return
-    state = runtime.state_for_link(doc, saved_link)
+    state = _runtime_state(doc, link_id)
+    if state is None:
+        if saved_link is None:
+            return
+        state = runtime.state_for_link(doc, saved_link)
+    elif saved_link is not None:
+        state = runtime.state_for_link(doc, saved_link)
     if state is None:
         return
     if state.get("busy"):
@@ -189,6 +204,13 @@ def _solve_one(doc, link_id, saved_links):
             object_ids=(state.get("parent_id"), state.get("child_id")),
             quiet=True,
         )
+
+
+def _runtime_state(doc, link_id):
+    for saved_id, state in runtime.states(doc, create=False).items():
+        if utils.same_id(saved_id, link_id):
+            return state
+    return None
 
 
 def _lookup(saved_links, link_id):

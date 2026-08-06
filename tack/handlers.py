@@ -79,12 +79,21 @@ def _HandleRhinoObjectEvent(label, event):
         if doc is None:
             return object_ids
         if label == "DeleteRhinoObject":
-            runtime.mark_object_ids_dirty(doc, object_ids)
+            expired = runtime.mark_object_ids_dirty(doc, object_ids)
+            for saved_link in _event_links(doc, event, object_ids):
+                if not any(
+                    utils.same_id(saved_link["link_id"], link_id)
+                    for link_id in expired
+                ):
+                    expired.append(saved_link["link_id"])
+            if expired:
+                scheduler.expire_link_ids(doc, expired)
             with _websocket_output():
                 utils.debug(
-                    "[Tack anchor] DeleteRhinoObject ids={} is lifecycle-only; "
-                    "waiting for AddRhinoObject or UndeleteRhinoObject.".format(
-                        [str(object_id) for object_id in object_ids]
+                    "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
+                    "recovery check for {} link(s).".format(
+                        [str(object_id) for object_id in object_ids],
+                        len(expired),
                     )
                 )
             return object_ids

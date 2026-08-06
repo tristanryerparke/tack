@@ -40,6 +40,7 @@ def mark_display_dirty(state):
 
 
 def mark_object_ids_dirty(doc, object_ids):
+    link_ids = []
     for state in states(doc, create=False).values():
         if any(
             utils.same_id(object_id, state[role + "_id"])
@@ -47,6 +48,8 @@ def mark_object_ids_dirty(doc, object_ids):
             for role in ("parent", "child")
         ):
             mark_display_dirty(state)
+            link_ids.append(state["link_id"])
+    return link_ids
 
 
 def set_display_clean(state, parent_anchor, child_anchor):
