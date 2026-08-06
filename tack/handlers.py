@@ -88,14 +88,14 @@ def _HandleRhinoObjectEvent(label, event):
                     expired.append(saved_link["link_id"])
             if expired:
                 scheduler.expire_link_ids(doc, expired)
-            with _websocket_output():
-                utils.debug(
-                    "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
-                    "recovery check for {} link(s).".format(
-                        [str(object_id) for object_id in object_ids],
-                        len(expired),
+                with _websocket_output():
+                    utils.debug(
+                        "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
+                        "recovery check for {} link(s).".format(
+                            [str(object_id) for object_id in object_ids],
+                            len(expired),
+                        )
                     )
-                )
             return object_ids
 
         expired = []
