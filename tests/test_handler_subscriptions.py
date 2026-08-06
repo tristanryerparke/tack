@@ -4,6 +4,7 @@ from pathlib import Path
 
 HANDLERS = Path(__file__).parents[1] / "tack" / "handlers.py"
 LINK = Path(__file__).parents[1] / "tack" / "link.py"
+SCHEDULER = Path(__file__).parents[1] / "tack" / "scheduler.py"
 
 
 def _function(tree, name):
@@ -14,7 +15,16 @@ def _function(tree, name):
     )
 
 
-def test_tack_subscribes_to_final_object_and_document_close_callbacks():
+def _called_attributes(node):
+    return {
+        call.func.attr
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+    }
+
+
+def test_tack_subscribes_to_object_lifecycle_and_close_callbacks():
     subscribe = _function(ast.parse(HANDLERS.read_text()), "subscribe")
     subscriptions = {
         node.target.attr
@@ -29,6 +39,43 @@ def test_tack_subscribes_to_final_object_and_document_close_callbacks():
         "UndeleteRhinoObject",
         "CloseDocument",
     }
+
+
+def test_event_handler_defers_maintenance_to_the_idle_scheduler():
+    handler = _function(ast.parse(HANDLERS.read_text()), "_HandleRhinoObjectEvent")
+    calls = _called_attributes(handler)
+
+    assert "expire_link_ids" in calls
+    assert "maintain_link" not in calls
+
+
+def test_unsubscribe_disarms_the_idle_scheduler():
+    unsubscribe = _function(ast.parse(HANDLERS.read_text()), "unsubscribe")
+    calls = _called_attributes(unsubscribe)
+
+    assert "disarm" in calls
+
+
+def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
+    tree = ast.parse(SCHEDULER.read_text())
+
+    ensure_armed = _function(tree, "_ensure_armed")
+    targets = {
+        node.target.attr
+        for node in ast.walk(ensure_armed)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Attribute)
+    }
+    assert "Idle" in targets
+
+    assert hasattr(ast, "FunctionDef")
+    names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    assert "expire_link_ids" in names
+    assert "solve_now" in names
+    assert "expire_all" in names
 
 
 def test_final_shape_maintenance_accepts_no_replace_objects():

@@ -6,6 +6,7 @@ sys.modules.pop("common", None)
 
 from common import STATE_KEY
 from common import assert_close
+from common import pause
 from common import point_data
 from common import point_from_data
 from common import rs
@@ -40,6 +41,7 @@ def test_multiple_tacks():
         state["second_parent_id"]
     ), "Could not select the second parent"
     assert rs.Command("_Move 0,0,0 0,10,0", echo=False), "Rhino Move command failed"
+    pause("after simultaneous move")
 
     first_child = utils.find_object(doc, state["child_id"])
     second_child = utils.find_object(doc, state["second_child_id"])

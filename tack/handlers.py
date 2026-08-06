@@ -6,6 +6,7 @@ import Rhino
 from tack import link
 from tack import metadata
 from tack import runtime
+from tack import scheduler
 from tack import utils
 
 
@@ -88,6 +89,7 @@ def _HandleRhinoObjectEvent(label, event):
                 )
             return object_ids
 
+        expired = []
         for saved_link in _event_links(doc, event, object_ids):
             state = runtime.state_for_link(doc, saved_link)
             if state is None or state.get("busy"):
@@ -100,21 +102,12 @@ def _HandleRhinoObjectEvent(label, event):
                 object_ids,
             ):
                 continue
-
-            was_broken = state.get("broken")
             runtime.mark_display_dirty(state)
+            expired.append(saved_link["link_id"])
             with _websocket_output():
                 utils.debug_event(label, event, state)
-                result = link.maintain_link(
-                    doc,
-                    state,
-                    event=event,
-                    event_name=label,
-                    object_ids=object_ids,
-                    quiet=True,
-                )
-                if result is not None or state.get("broken") != was_broken:
-                    doc.Views.Redraw()
+        if expired:
+            scheduler.expire_link_ids(doc, expired)
     except Exception:
         _report_handler_error()
     return object_ids
@@ -136,6 +129,7 @@ def CloseDocumentHandler(sender, event):
     try:
         doc = getattr(event, "Document", None)
         if doc is not None:
+            scheduler.drop_document(doc)
             runtime.remove_document(doc)
     except Exception:
         _report_handler_error()
@@ -167,6 +161,8 @@ def subscribe():
 
 def unsubscribe():
     import scriptcontext as sc
+
+    scheduler.disarm()
 
     handler = sc.sticky.pop(LEGACY_REPLACE_HANDLER_KEY, None)
     if handler is not None:

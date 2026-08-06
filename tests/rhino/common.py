@@ -35,6 +35,15 @@ def tack_modules(reload_modules=False):
 
 
 def pause(label):
+    # Deferred solving (tack.scheduler) only drains on RhinoApp.Idle, which
+    # never fires while a test script holds the UI thread. Pump it here so
+    # assertions made after a pause see the solved state.
+    try:
+        from tack import scheduler
+
+        scheduler.solve_now(sc.doc)
+    except Exception:
+        pass
     if SLOW_SECONDS:
         print("waiting {} seconds: {}".format(SLOW_SECONDS, label))
         time.sleep(SLOW_SECONDS)

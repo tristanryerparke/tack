@@ -23,6 +23,7 @@ def debug(message):
 RUNTIME_KEY = "Tack.AnchorLink.Runtime"
 DISPLAY_ENABLED_KEY = "Tack.AnchorLink.DisplayEnabled"
 CONDUIT_KEY = "Tack.AnchorLink.Conduit"
+SCHEDULE_KEY = "Tack.AnchorLink.Schedule"
 
 
 def same_id(left, right):

@@ -207,6 +207,11 @@ def stress_100_relationships():
         with redirect_stdout(captured_output), redirect_stderr(captured_output):
             update_started = time.perf_counter()
             moved = rs.Command("_Move 0,0,0 3,5,2", echo=False)
+            # Deferred solving (tack.scheduler) drains on RhinoApp.Idle, which
+            # does not fire while this script holds the UI thread.
+            from tack import scheduler
+
+            scheduler.solve_now(sc.doc)
             update_seconds = time.perf_counter() - update_started
         assert moved, "Rhino Move command failed: {}".format(
             captured_output.getvalue()
