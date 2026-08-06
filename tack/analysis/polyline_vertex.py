@@ -61,12 +61,18 @@ def _index_map(old_anchors, new_anchors, tolerance):
     return mapping
 
 
-def replacement_anchor(candidate, anchor, tolerance):
+def replacement_anchor(candidate, anchor, old_anchors, tolerance):
     candidate_anchors = anchors(candidate)
-    index = int(anchor["index"])
-    if index not in dict(candidate_anchors):
-        index = None
-    return candidate_anchors, index
+    old_point = dict(old_anchors).get(int(anchor["index"]))
+    if old_point is None:
+        return candidate_anchors, None
+    matching_indexes = [
+        index
+        for index, point in candidate_anchors
+        if old_point.DistanceTo(point) <= tolerance
+    ]
+    new_index = matching_indexes[0] if len(matching_indexes) == 1 else None
+    return candidate_anchors, new_index
 
 
 def remap_anchor(old_obj, new_obj, anchor, tolerance):

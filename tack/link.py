@@ -84,6 +84,14 @@ def inspect_link(doc, state, parent_obj=None, child_obj=None):
     }
 
 
+def _refresh_anchor_snapshots(state, result):
+    for role in ("parent", "child"):
+        anchor = result["link"][role + "_anchor"]
+        analyzer = _ANCHOR_ANALYZERS.get(anchor["anchor_type"])
+        if analyzer is not None:
+            state[role + "_anchors"] = analyzer.anchors(result[role])
+
+
 def _stored_link(doc, state, child_obj=None):
     child = child_obj or utils.find_object(doc, state["child_id"])
     link = (
@@ -116,6 +124,7 @@ def _adopt_candidate(
     new_anchors, new_index = analyzer.replacement_anchor(
         candidate,
         anchor,
+        old_anchors,
         tolerance,
     )
 
@@ -313,6 +322,8 @@ def maintain_link(
             )
         return None
 
+    _refresh_anchor_snapshots(state, result)
+
     if utils.DEBUG:
         print(
             "[Tack anchor] maintain parent={} child={}".format(
@@ -354,6 +365,7 @@ def maintain_link(
                 "Link metadata could not be restored after moving the child.",
             )
             return result
+        _refresh_anchor_snapshots(state, result)
         runtime.set_display_clean(
             state,
             result["parent_anchor"],

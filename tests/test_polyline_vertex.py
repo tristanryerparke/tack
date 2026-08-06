@@ -38,6 +38,20 @@ def test_polyline_vertex_analyzer_exposes_the_anchor_contract():
     assert "Rhino.Geometry.PolylineCurve" in source
 
 
+def test_replacement_candidate_must_contain_the_original_anchor_point():
+    replacement = _function(ANALYZER, "replacement_anchor")
+    source = ast.unparse(replacement)
+
+    assert [argument.arg for argument in replacement.args.args] == [
+        "candidate",
+        "anchor",
+        "old_anchors",
+        "tolerance",
+    ]
+    assert "old_point.DistanceTo(point) <= tolerance" in source
+    assert "len(matching_indexes) == 1" in source
+
+
 def test_closed_polyline_duplicate_endpoint_is_not_an_anchor():
     vertex_count = ast.unparse(_function(ANALYZER, "_vertex_count"))
 
@@ -62,3 +76,15 @@ def test_prompting_selects_the_geometry_specific_vertex_analyzer():
     assert "polyline_vertex_analysis" in vertex_analyzer
     assert "vertex_analyzer.ANCHOR_TYPE" in pick_anchor
     assert "analyzer.anchors(obj)" in pick_anchor
+
+
+def test_link_adoption_uses_and_refreshes_anchor_snapshots():
+    source = LINK.read_text()
+    adopt_candidate = ast.unparse(_function(LINK, "_adopt_candidate"))
+    maintain_link = ast.unparse(_function(LINK, "maintain_link"))
+
+    assert "replacement_anchor(candidate, anchor, old_anchors, tolerance)" in (
+        adopt_candidate
+    )
+    assert "_refresh_anchor_snapshots(state, result)" in maintain_link
+    assert source.count("_refresh_anchor_snapshots(state, result)") >= 2

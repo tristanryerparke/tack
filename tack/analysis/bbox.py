@@ -75,7 +75,7 @@ def resolve(obj, anchor):
     return dict(anchors(obj)).get(int(anchor["index"]))
 
 
-def replacement_anchor(candidate, anchor, tolerance):
+def replacement_anchor(candidate, anchor, old_anchors, tolerance):
     candidate_anchors = anchors(candidate)
     index = int(anchor["index"])
     if index not in dict(candidate_anchors):
