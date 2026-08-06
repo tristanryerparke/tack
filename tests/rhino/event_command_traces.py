@@ -280,6 +280,11 @@ def setup_trace():
     if sc.sticky.get(STATE_KEY) is not None:
         finish_trace()
 
+    import importlib
+    import tack
+
+    importlib.reload(tack).reload()
+
     import tack.analysis.bbox as bbox_analysis
     from tack import handlers
     from tack import link
@@ -475,6 +480,12 @@ def collect_deferred_scenario():
     parent, _ = _current_objects(state)
     if parent is not None:
         parent.UnselectAllSubObjects()
+    # Deferred solving (tack.scheduler) drains on RhinoApp.Idle, which does
+    # not fire while the watcher holds the UI thread between steps. Pump it
+    # here so each scenario captures its own maintain calls.
+    from tack import scheduler
+
+    scheduler.solve_now(state["doc"])
     return _finish_scenario(state, True, [])
 
 
