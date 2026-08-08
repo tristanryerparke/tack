@@ -44,6 +44,7 @@ def cleanup():
 
     for object_id in object_ids:
         if doc.Objects.Find(object_id) is not None:
+            rs.UnlockObject(object_id)
             assert rs.DeleteObject(object_id), "Could not delete test object {}".format(
                 object_id
             )

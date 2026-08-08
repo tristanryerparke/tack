@@ -27,6 +27,10 @@ def test_parent_move():
     state = sc.sticky.get(STATE_KEY)
     assert state is not None, "Missing fixture; run setup_bbox_circles first"
 
+    child_id_before = state["child_id"]
+    assert rs.LockObject(child_id_before), "Could not lock the child"
+    assert rs.IsObjectLocked(child_id_before), "Child did not become locked"
+
     rs.UnselectAllObjects()
     assert rs.SelectObject(state["parent_id"]), "Could not select the parent"
     pause("before parent move")
@@ -36,6 +40,11 @@ def test_parent_move():
     tack_state = runtime.states(doc)[state["link_id"]]
     child = utils.find_object(doc, tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
+    assert rs.IsObjectLocked(child.Id), "Tack did not preserve the child lock"
+    assert not tack_state["display"].get("dirty", True), (
+        "Tack display remained dirty after moving the locked child"
+    )
+    state["child_id"] = child.Id
     saved_link = metadata.read_link(child, state["link_id"])
     assert saved_link is not None, "Child lost Tack metadata after the parent moved"
     parent = utils.find_object(doc, saved_link["parent_id"])

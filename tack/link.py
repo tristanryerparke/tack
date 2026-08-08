@@ -359,12 +359,22 @@ def maintain_link(
 
     state["busy"] = True
     try:
-        if not result["child"].Geometry.Transform(result["correction"]):
-            utils.debug("[Tack anchor] child geometry translation failed.")
+        transformed_child_id = doc.Objects.Transform(
+            result["child"].Id,
+            result["correction"],
+            True,
+        )
+        transformed_child = utils.find_object(doc, transformed_child_id)
+        if transformed_child is None:
+            utils.debug("[Tack anchor] child transformation failed.")
             return result
-        if not result["child"].CommitChanges():
-            utils.debug("[Tack anchor] child changes could not be committed.")
-            return result
+
+        # Rhino replaces the object when transforming through the object table,
+        # including for locked objects. Events raised by that replacement are
+        # suppressed while busy, so update the runtime relationship directly.
+        state["child_id"] = transformed_child.Id
+        result["child"] = transformed_child
+
         if not metadata.save_link(doc, state, result["link"]):
             break_link(
                 state,
