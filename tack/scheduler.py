@@ -56,20 +56,11 @@ def _report_error():
 
 
 def _schedule(doc):
-    schedule = document_runtime.get_value(
+    return document_runtime.get_value(
         doc,
         utils.SCHEDULE_KEY,
         lambda _: set(),
     )
-    if isinstance(schedule, set):
-        return schedule
-
-    # A short-lived scheduler revision stored {link_id: undo_flag} here.
-    # scriptcontext.sticky survives code reloads, so normalize that persisted
-    # dictionary (or any other iterable) before the current set-based solver
-    # calls add().
-    schedule = set(schedule)
-    return document_runtime.set_value(doc, utils.SCHEDULE_KEY, schedule)
 
 
 def _register_doc(doc):
@@ -112,16 +103,6 @@ def expire_link_ids(doc, link_ids):
             )
 
 
-def expire_all(doc):
-    """Expire every live relationship for an explicit resync."""
-    link_ids = [
-        state["link_id"]
-        for state in runtime.states(doc, create=False).values()
-        if state.get("link_id")
-    ]
-    if link_ids:
-        expire_link_ids(doc, link_ids)
-
 
 def drop_document(doc):
     """Forget pending work for a document (called on close)."""
@@ -134,7 +115,6 @@ def solve_now(doc):
 
 
 def _on_idle(sender, args):
-    global _solving
     if _solving or not _pending_docs:
         return
     for doc_key, doc in list(_pending_docs.items()):

@@ -75,7 +75,6 @@ def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
     }
     assert "expire_link_ids" in names
     assert "solve_now" in names
-    assert "expire_all" in names
 
 
 def test_final_shape_maintenance_accepts_no_replace_objects():

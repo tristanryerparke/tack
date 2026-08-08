@@ -55,7 +55,6 @@ def test_bbox_analysis():
     )
     assert extrusion is not None
     assert vertex_analysis.supports_vertex_anchors(extrusion)
-    assert command_menu._supports_vertex_anchors(extrusion)
     extrusion_anchors = vertex_analysis.anchors(extrusion)
     assert extrusion_anchors
     extrusion_index, extrusion_point = extrusion_anchors[0]
@@ -92,7 +91,6 @@ def test_bbox_analysis():
     assert len(bbox_analysis.wire_segments(rectangle)) == 4
 
     assert polyline_vertex_analysis.supports_vertex_anchors(rectangle)
-    assert command_menu._supports_vertex_anchors(rectangle)
     assert command_menu._vertex_analyzer(rectangle) is polyline_vertex_analysis
     polyline_anchors = polyline_vertex_analysis.anchors(rectangle)
     assert [index for index, _ in polyline_anchors] == [0, 1, 2, 3]
@@ -103,25 +101,6 @@ def test_bbox_analysis():
         "closed polyline vertex anchor",
     )
     assert polyline_vertex_analysis.resolve(rectangle, {"index": 4}) is None
-
-    rectangle_with_inserted_vertex = Rhino.Geometry.PolylineCurve(
-        [
-            Rhino.Geometry.Point3d(0, 0, 5),
-            Rhino.Geometry.Point3d(1, 0, 5),
-            Rhino.Geometry.Point3d(2, 0, 5),
-            Rhino.Geometry.Point3d(2, 3, 5),
-            Rhino.Geometry.Point3d(0, 3, 5),
-            Rhino.Geometry.Point3d(0, 0, 5),
-        ]
-    )
-    remapped_anchors, remapped_index = polyline_vertex_analysis.remap_anchor(
-        rectangle,
-        rectangle_with_inserted_vertex,
-        {"index": 2},
-        Rhino.RhinoMath.ZeroTolerance,
-    )
-    assert [index for index, _ in remapped_anchors] == [0, 1, 2, 3, 4]
-    assert remapped_index == 3
 
     open_polyline = Rhino.Geometry.PolylineCurve(
         [

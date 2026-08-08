@@ -177,20 +177,18 @@ def _adopt_candidate(
 
 
 def _candidate(doc, event, event_name, object_ids):
-    candidate = None
-    if event_name != "DeleteRhinoObject":
-        candidate = utils.event_object(doc, event, object_ids)
-    if candidate is not None:
-        return candidate
-    for object_id in object_ids:
-        candidate = utils.find_object(doc, object_id)
-        if candidate is not None:
-            return candidate
-    return None
+    # Replacement reconciliation runs after the event, so do not try to
+    # recover an old object by ID. Only use an object explicitly supplied by
+    # the event; idle reconciliation discovers replacements through metadata.
+    if event_name == "DeleteRhinoObject":
+        return None
+    return utils.event_object(doc, event, object_ids=())
 
 
 def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
-    if candidate is None:
+    # Advanced reconciliation is the only path that adopts an object whose
+    # ID differs from the runtime link state.
+    if candidate is None or not utils.ADVANCED_RECONCILIATION:
         return None, parent_obj, child_obj
     role = metadata.candidate_role(state, candidate)
     if role is None or (
@@ -223,6 +221,8 @@ def event_may_affect_link(
     ):
         return True
 
+    if not utils.ADVANCED_RECONCILIATION:
+        return False
     candidate = _candidate(doc, event, event_name, object_ids)
     return metadata.candidate_role(state, candidate) is not None
 
@@ -276,7 +276,13 @@ def maintain_link(
         parent = parent_obj or utils.find_object(doc, state["parent_id"])
         child = child_obj or utils.find_object(doc, state["child_id"])
 
-        if parent is None or child is None:
+        # Advanced reconciliation scans metadata-bearing replacement objects;
+        # without it, basic reconciliation can only continue with the stored
+        # object IDs.
+        if (
+            utils.ADVANCED_RECONCILIATION
+            and (parent is None or child is None)
+        ):
             for candidate in metadata.candidates(doc, state):
                 candidate_role, parent_obj, child_obj = _adopt_event_candidate(
                     doc,

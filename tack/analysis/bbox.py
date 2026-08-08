@@ -81,11 +81,3 @@ def replacement_anchor(candidate, anchor, old_anchors, tolerance):
     if index not in dict(candidate_anchors):
         index = None
     return candidate_anchors, index
-
-
-def remap_anchor(old_obj, new_obj, anchor, tolerance):
-    new_anchors = anchors(new_obj)
-    index = int(anchor["index"])
-    if index not in dict(new_anchors):
-        index = None
-    return new_anchors, index

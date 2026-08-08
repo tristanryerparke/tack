@@ -10,8 +10,6 @@ from tack import scheduler
 from tack import utils
 
 
-# Remove a handler persisted by Tack versions that subscribed to Replace.
-LEGACY_REPLACE_HANDLER_KEY = "Tack.AnchorLink.ReplaceHandler"
 OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
 
 
@@ -172,10 +170,6 @@ def unsubscribe():
     import scriptcontext as sc
 
     scheduler.disarm()
-
-    handler = sc.sticky.pop(LEGACY_REPLACE_HANDLER_KEY, None)
-    if handler is not None:
-        _unsubscribe(Rhino.RhinoDoc.ReplaceRhinoObject, handler)
 
     stored_handlers = sc.sticky.pop(OBJECT_HANDLER_KEY, ())
     for handler, event in zip(

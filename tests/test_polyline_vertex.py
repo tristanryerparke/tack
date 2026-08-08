@@ -32,7 +32,6 @@ def test_polyline_vertex_analyzer_exposes_the_anchor_contract():
         "anchors",
         "resolve",
         "replacement_anchor",
-        "remap_anchor",
     } <= functions
     assert 'ANCHOR_TYPE = "PolylineVertex"' in source
     assert "Rhino.Geometry.PolylineCurve" in source

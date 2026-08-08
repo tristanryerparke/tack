@@ -14,6 +14,11 @@ def _debug_enabled_from_environment():
 # Normal Rhino sessions provide neither value, so Tack remains silent.
 DEBUG = _debug_enabled_from_environment()
 
+# Reconcile replacement objects created by operations such as BooleanDifference
+# and Split by matching their anchor geometry. Basic reconciliation remains
+# available when this is disabled.
+ADVANCED_RECONCILIATION = True
+
 
 def debug(message):
     if DEBUG:
@@ -28,10 +33,6 @@ SCHEDULE_KEY = "Tack.AnchorLink.Schedule"
 
 def same_id(left, right):
     return str(left).lower() == str(right).lower()
-
-
-def usable_object_id(object_id):
-    return not same_id(object_id, System.Guid.Empty)
 
 
 def find_object(doc, object_id):
@@ -89,7 +90,8 @@ def event_object(doc, event, object_ids=None):
         candidate = getattr(event, name, None)
         if candidate is not None and hasattr(candidate, "Geometry"):
             return candidate
-    for object_id in object_ids or event_object_ids(event):
+    event_ids = event_object_ids(event) if object_ids is None else object_ids
+    for object_id in event_ids:
         candidate = doc.Objects.Find(object_id)
         if candidate is not None:
             return candidate
