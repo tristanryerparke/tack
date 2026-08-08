@@ -37,9 +37,10 @@ def _delete_marked(doc):
 
 
 def setup():
-    handlers, metadata, runtime, _ = tack_modules(reload_modules=True)
+    handlers, metadata, runtime, utils = tack_modules(reload_modules=True)
     import tack.analysis.polyline_vertex as polyline_vertex_analysis
 
+    utils.ADVANCED_RECONCILIATION = True
     doc = sc.doc
     assert doc is not None
     handlers.unsubscribe()

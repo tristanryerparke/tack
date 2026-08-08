@@ -17,7 +17,7 @@ DEBUG = _debug_enabled_from_environment()
 # Reconcile replacement objects created by operations such as BooleanDifference
 # and Split by matching their anchor geometry. Basic reconciliation remains
 # available when this is disabled.
-ADVANCED_RECONCILIATION = True
+ADVANCED_RECONCILIATION = False
 
 
 def debug(message):

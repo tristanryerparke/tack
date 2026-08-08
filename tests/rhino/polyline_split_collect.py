@@ -22,8 +22,10 @@ def collect():
     _, metadata, runtime, utils = tack_modules()
     import tack.analysis.polyline_vertex as polyline_vertex_analysis
     from tack import link
+    from tack import scheduler
 
     doc = sc.doc
+    scheduler.solve_now(doc)
     fixture = sc.sticky[STATE_KEY]
     state = runtime.states(doc)[fixture["link_id"]]
     assert not state["broken"]

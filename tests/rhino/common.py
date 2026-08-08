@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import importlib
 import os
 import sys
@@ -62,6 +63,24 @@ def run_step(name, action):
             print("FAIL {}".format(name))
             traceback.print_exc()
         raise
+
+
+@contextmanager
+def suppress_break_alerts():
+    from tack import link
+
+    breaks = []
+    original_break_link = link.break_link
+
+    def record_break(state, reason):
+        state["broken"] = True
+        breaks.append(reason)
+
+    link.break_link = record_break
+    try:
+        yield breaks
+    finally:
+        link.break_link = original_break_link
 
 
 def box(minimum, maximum):

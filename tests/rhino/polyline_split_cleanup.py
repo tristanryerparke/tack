@@ -15,7 +15,8 @@ def _is_marked(obj):
 
 
 def cleanup():
-    handlers, metadata, runtime, _ = tack_modules()
+    handlers, metadata, runtime, utils = tack_modules()
+    utils.ADVANCED_RECONCILIATION = False
     doc = sc.doc
     handlers.unsubscribe()
     runtime.stop_runtime(doc)

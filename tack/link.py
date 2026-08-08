@@ -24,6 +24,8 @@ def break_link(state, reason):
     if state.get("broken"):
         return
     state["broken"] = True
+    state.pop("replacement_pending_ids", None)
+    state.pop("replacement_reconcile_roles", None)
     message = (
         "The Tack link between objects\n"
         "{} (parent) --> {} (child)\n"
@@ -127,6 +129,23 @@ def _adopt_candidate(
         old_anchors,
         tolerance,
     )
+    if (
+        new_index is None
+        and utils.same_id(candidate.Id, state[role + "_id"])
+        and role in state.get("replacement_reconcile_roles", ())
+        and len(new_anchors) == len(old_anchors)
+    ):
+        candidate_indexes = dict(new_anchors)
+        saved_index = int(anchor["index"])
+        if saved_index in candidate_indexes:
+            new_index = saved_index
+            if utils.DEBUG:
+                print(
+                    "[Tack anchor] accepting same-topology moved {} anchor index={}".format(
+                        role,
+                        saved_index,
+                    )
+                )
 
     if utils.DEBUG:
         old_index = int(anchor["index"])
@@ -164,6 +183,7 @@ def _adopt_candidate(
             new_anchor,
         )
         state[role + "_anchors"] = new_anchors
+        runtime.clear_replacement_pending(state, role)
         _restore_link(state)
     finally:
         state["busy"] = was_busy
@@ -186,15 +206,23 @@ def _candidate(doc, event, event_name, object_ids):
 
 
 def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
-    # Advanced reconciliation is the only path that adopts an object whose
-    # ID differs from the runtime link state.
-    if candidate is None or not utils.ADVANCED_RECONCILIATION:
+    # Same-ID replacements still need anchor validation even when advanced
+    # reconciliation is disabled. Only different-ID candidates require the
+    # advanced replacement path.
+    if candidate is None:
         return None, parent_obj, child_obj
     role = metadata.candidate_role(state, candidate)
+    same_id = role is not None and utils.same_id(
+        candidate.Id,
+        state[role + "_id"],
+    )
     if role is None or (
         not state.get("broken")
-        and utils.same_id(candidate.Id, state[role + "_id"])
+        and same_id
+        and role not in state.get("replacement_reconcile_roles", ())
     ):
+        return role, parent_obj, child_obj
+    if not utils.ADVANCED_RECONCILIATION and not same_id:
         return role, parent_obj, child_obj
 
     link = _stored_link(doc, state, child_obj=child_obj)
@@ -242,6 +270,28 @@ def maintain_link(
 
     object_ids = list(object_ids or utils.event_object_ids(event))
 
+    pending_failed_roles = set()
+    for pending_role in tuple(
+        state.get("replacement_reconcile_roles", ())
+    ):
+        pending_id = state.get(pending_role + "_id")
+        pending_candidate = utils.find_object(doc, pending_id)
+        if pending_candidate is None:
+            continue
+        candidate_role, parent_obj, child_obj = _adopt_event_candidate(
+            doc,
+            state,
+            pending_candidate,
+            parent_obj,
+            child_obj,
+        )
+        if (
+            candidate_role == pending_role
+            and pending_role
+            in state.get("replacement_reconcile_roles", ())
+        ):
+            pending_failed_roles.add(pending_role)
+
     related = any(
         utils.same_id(object_id, state[role + "_id"])
         for object_id in object_ids
@@ -262,6 +312,21 @@ def maintain_link(
 
     parent = parent_obj or utils.find_object(doc, state["parent_id"])
     child = child_obj or utils.find_object(doc, state["child_id"])
+
+    if pending_failed_roles:
+        for failed_role in pending_failed_roles:
+            if (
+                utils.find_object(doc, state[failed_role + "_id"])
+                is not None
+            ):
+                runtime.clear_replacement_pending(state, failed_role)
+                break_link(
+                    state,
+                    "The linked {} anchor could not be uniquely reconciled after the object was replaced.".format(
+                        failed_role
+                    ),
+                )
+                return None
 
     if parent is None or child is None:
         missing_role = "parent" if parent is None else "child"
