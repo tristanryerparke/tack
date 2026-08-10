@@ -395,6 +395,45 @@ def maintain_link(
 
     _refresh_anchor_snapshots(state, result)
 
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    if utils.ALLOW_CHILD_MOVEMENT:
+        display = state.get("display") or {}
+        previous_parent_anchor = display.get("parent_anchor")
+        parent_was_stationary = (
+            previous_parent_anchor is not None
+            and previous_parent_anchor.DistanceTo(result["parent_anchor"])
+            <= tolerance
+        )
+        child_was_moved = (
+            result["target_child_anchor"].DistanceTo(
+                result["child_anchor"]
+            )
+            > tolerance
+        )
+        if parent_was_stationary and child_was_moved:
+            result["link"]["offset"] = [
+                result["child_anchor"].X - result["parent_anchor"].X,
+                result["child_anchor"].Y - result["parent_anchor"].Y,
+                result["child_anchor"].Z - result["parent_anchor"].Z,
+            ]
+            if not metadata.save_link(doc, state, result["link"]):
+                break_link(
+                    state,
+                    "The Tack offset could not be saved after the child moved.",
+                )
+                return result
+            runtime.set_display_clean(
+                state,
+                result["parent_anchor"],
+                result["child_anchor"],
+            )
+            utils.debug(
+                "[Tack anchor] child movement accepted; updated offset={}".format(
+                    result["link"]["offset"]
+                )
+            )
+            return result
+
     if utils.DEBUG:
         print(
             "[Tack anchor] maintain parent={} child={}".format(

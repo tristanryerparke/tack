@@ -19,12 +19,16 @@ def _is_test_object(obj):
 
 
 def cleanup():
-    handlers, metadata, runtime, _ = tack_modules()
+    handlers, metadata, runtime, utils = tack_modules()
     doc = sc.doc
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
 
     state = sc.sticky.pop(STATE_KEY, {})
+    utils.set_setting(
+        "allow_child_movement",
+        state.get("original_allow_child_movement", False),
+    )
     object_ids = []
 
     def add(object_id):

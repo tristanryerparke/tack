@@ -31,16 +31,20 @@ def _mark_test_object(doc, object_id):
 
 
 def setup():
-    handlers, metadata, runtime, _ = tack_modules(reload_modules=True)
+    handlers, metadata, runtime, utils = tack_modules(reload_modules=True)
     import tack.analysis.bbox as bbox_analysis
 
+    original_allow_child_movement = utils.ALLOW_CHILD_MOVEMENT
+    utils.set_setting("allow_child_movement", False)
     doc = sc.doc
     assert doc is not None, "Open a Rhino document before running this test"
 
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
 
-    fixture = {}
+    fixture = {
+        "original_allow_child_movement": original_allow_child_movement,
+    }
     sc.sticky[STATE_KEY] = fixture
 
     parent_id = rs.AddCircle((0, 0, 0), 2)

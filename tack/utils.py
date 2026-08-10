@@ -3,6 +3,23 @@ import os
 import System
 
 
+SETTINGS_KEY = "Tack.LiveSettings"
+
+
+def _live_settings():
+    try:
+        import scriptcontext as sc
+    except ImportError:
+        return {}
+    return sc.sticky.get(SETTINGS_KEY, {})
+
+
+def _as_bool(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
 def _debug_enabled_from_environment():
     return any(
         os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
@@ -12,12 +29,46 @@ def _debug_enabled_from_environment():
 
 # run-in-rhino installs its environment before the watched target script runs.
 # Normal Rhino sessions provide neither value, so Tack remains silent.
-DEBUG = _debug_enabled_from_environment()
+live_settings = _live_settings()
+DEBUG = _as_bool(
+    live_settings.get("debug", _debug_enabled_from_environment())
+)
 
 # Reconcile replacement objects created by operations such as BooleanDifference
 # and Split by matching their anchor geometry. Basic reconciliation remains
 # available when this is disabled.
-ADVANCED_RECONCILIATION = False
+ADVANCED_RECONCILIATION = _as_bool(
+    live_settings.get("advanced_reconciliation", False)
+)
+ALLOW_CHILD_MOVEMENT = _as_bool(
+    live_settings.get("allow_child_movement", False)
+)
+
+
+def set_setting(name, value):
+    if name not in (
+        "debug",
+        "advanced_reconciliation",
+        "allow_child_movement",
+    ):
+        raise ValueError("Unknown Tack setting: {}".format(name))
+    value = bool(value)
+    if name == "debug":
+        global DEBUG
+        DEBUG = value
+    elif name == "advanced_reconciliation":
+        global ADVANCED_RECONCILIATION
+        ADVANCED_RECONCILIATION = value
+    else:
+        global ALLOW_CHILD_MOVEMENT
+        ALLOW_CHILD_MOVEMENT = value
+    try:
+        import scriptcontext as sc
+    except ImportError:
+        return value
+    settings = sc.sticky.setdefault(SETTINGS_KEY, {})
+    settings[name] = value
+    return value
 
 
 def debug(message):
