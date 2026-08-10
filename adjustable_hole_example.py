@@ -19,6 +19,27 @@ class HoleEdgeConduit(Rhino.Display.DisplayConduit):
             event.Display.DrawCurve(edge, System.Drawing.Color.Yellow, 3)
 
 
+class DiameterGetPoint(Rhino.Input.Custom.GetPoint):
+    def __init__(self, circles):
+        super(DiameterGetPoint, self).__init__()
+        self.circles = circles
+        self.plane = circles[0].Plane
+        self.center = circles[0].Center
+        self.DynamicDraw += self._draw
+
+    def radius_at(self, point):
+        return self.center.DistanceTo(self.plane.ClosestPoint(point))
+
+    def _draw(self, sender, event):
+        radius = self.radius_at(event.CurrentPoint)
+        for circle in self.circles:
+            event.Display.DrawCircle(
+                Rhino.Geometry.Circle(circle.Plane, radius),
+                System.Drawing.Color.Yellow,
+                3,
+            )
+
+
 def _cylinder(face, tolerance):
     success, cylinder = face.TryGetCylinder(tolerance)
     if not success:
@@ -230,27 +251,38 @@ def RunCommand(is_interactive):
         edges.append(edge)
         edge_indices.append(edge.EdgeIndex)
 
-    cylinder = _cylinder(faces[0], doc.ModelAbsoluteTolerance)
+    cylinders = [_cylinder(face, doc.ModelAbsoluteTolerance) for face in faces]
     conduit = HoleEdgeConduit(edges)
     conduit.Enabled = True
     doc.Views.Redraw()
     try:
-        diameter = Rhino.Input.Custom.GetNumber()
-        diameter.SetCommandPrompt("New diameter for all selected holes")
-        diameter.SetDefaultNumber(cylinder.Radius * 2)
-        diameter.SetLowerLimit(doc.ModelAbsoluteTolerance * 2, False)
-        if diameter.Get() != Rhino.Input.GetResult.Number:
+        circles = [
+            cylinder.CircleAt(cylinder.Height1) for cylinder in cylinders
+        ]
+        diameter = DiameterGetPoint(circles)
+        diameter.SetCommandPrompt("Pick diameter; type an exact diameter")
+        diameter.SetBasePoint(circles[0].Center, True)
+        diameter.Constrain(circles[0].Plane, False)
+        diameter.AcceptNumber(True, False)
+        picked = diameter.Get()
+        if picked == Rhino.Input.GetResult.Number:
+            new_diameter = diameter.Number()
+        elif picked == Rhino.Input.GetResult.Point:
+            new_diameter = diameter.radius_at(diameter.Point()) * 2
+        else:
+            return Result.Cancel
+        if new_diameter <= doc.ModelAbsoluteTolerance * 2:
             return Result.Cancel
 
         print(
             "Selected object={} edges={} faces={}. Requested diameter={}".format(
-                object_id, edge_indices, [face.FaceIndex for face in faces], diameter.Number()
+                object_id, edge_indices, [face.FaceIndex for face in faces], new_diameter
             )
         )
         result = resize_holes(
             faces[0].Brep,
             faces,
-            diameter.Number() / 2,
+            new_diameter / 2,
             doc.ModelAbsoluteTolerance,
         )
         if result is None or not result.IsSolid:
