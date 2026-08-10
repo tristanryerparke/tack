@@ -142,7 +142,31 @@ def _write_parent_link(doc, link):
     )
 
 
+def would_create_cycle(doc, parent_id, child_id):
+    parent_id = str(parent_id).lower()
+    child_id = str(child_id).lower()
+    children = {}
+    for saved_link in all_links(doc):
+        children.setdefault(saved_link["parent_id"].lower(), set()).add(
+            saved_link["child_id"].lower()
+        )
+
+    pending = [child_id]
+    visited = set()
+    while pending:
+        object_id = pending.pop()
+        if object_id == parent_id:
+            return True
+        if object_id not in visited:
+            visited.add(object_id)
+            pending.extend(children.get(object_id, ()))
+    return False
+
+
 def write_link(doc, parent_id, child_id, parent_anchor, child_anchor):
+    if would_create_cycle(doc, parent_id, child_id):
+        return None
+
     parent_type, parent_index, parent_location = parent_anchor
     child_type, child_index, child_location = child_anchor
     link_id = str(uuid.uuid4())

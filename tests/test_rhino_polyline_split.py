@@ -25,11 +25,12 @@ def test_polyline_split_and_undo_preserve_tack():
                 )
             )
             watcher.run_file(COLLECT_SPLIT)
-            watcher.run_command("_Undo")
+            split_results = watcher.take_data(timeout=120)
             watcher.run_file(COLLECT_UNDO)
+            undo_results = watcher.take_data(timeout=120)
         finally:
             watcher.run_file(CLEANUP)
-        results = watcher.take_data(timeout=120)
+        results = split_results + undo_results
 
     assert [result["name"] for result in results] == [
         "polyline_split_preserves_tack",

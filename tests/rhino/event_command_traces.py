@@ -480,9 +480,8 @@ def collect_deferred_scenario():
     parent, _ = _current_objects(state)
     if parent is not None:
         parent.UnselectAllSubObjects()
-    # Deferred solving (tack.scheduler) drains on RhinoApp.Idle, which does
-    # not fire while the watcher holds the UI thread between steps. Pump it
-    # here so each scenario captures its own maintain calls.
+    # Explicitly drain so each scenario captures its own maintain calls,
+    # independent of command-event timing between watcher steps.
     from tack import scheduler
 
     scheduler.solve_now(state["doc"])

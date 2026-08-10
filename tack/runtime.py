@@ -39,19 +39,31 @@ def mark_display_dirty(state):
         display["dirty"] = True
 
 
+def mark_roles_dirty(state, object_ids, candidate_role=None):
+    roles = [
+        role
+        for role in ("parent", "child")
+        if any(
+            utils.same_id(object_id, state[role + "_id"])
+            for object_id in object_ids
+        )
+    ]
+    if candidate_role is not None and candidate_role not in roles:
+        roles.append(candidate_role)
+    if roles:
+        mark_display_dirty(state)
+        dirty_roles = state.setdefault("dirty_roles", [])
+        for role in roles:
+            if role not in dirty_roles:
+                dirty_roles.append(role)
+    return roles
+
+
 def mark_object_ids_dirty(doc, object_ids):
     link_ids = []
     for state in states(doc, create=False).values():
-        matching_roles = [
-            role
-            for role in ("parent", "child")
-            if any(
-                utils.same_id(object_id, state[role + "_id"])
-                for object_id in object_ids
-            )
-        ]
+        matching_roles = mark_roles_dirty(state, object_ids)
         if matching_roles:
-            mark_display_dirty(state)
             pending_ids = state.setdefault("replacement_pending_ids", [])
             pending_roles = state.setdefault(
                 "replacement_reconcile_roles",

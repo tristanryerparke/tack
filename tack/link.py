@@ -199,7 +199,7 @@ def _adopt_candidate(
 def _candidate(doc, event, event_name, object_ids):
     # Replacement reconciliation runs after the event, so do not try to
     # recover an old object by ID. Only use an object explicitly supplied by
-    # the event; idle reconciliation discovers replacements through metadata.
+    # the event; command-end reconciliation discovers replacements through metadata.
     if event_name == "DeleteRhinoObject":
         return None
     return utils.event_object(doc, event, object_ids=())
@@ -269,6 +269,7 @@ def maintain_link(
         return None
 
     object_ids = list(object_ids or utils.event_object_ids(event))
+    dirty_roles = set(state.pop("dirty_roles", ()))
 
     pending_failed_roles = set()
     for pending_role in tuple(
@@ -396,43 +397,38 @@ def maintain_link(
     _refresh_anchor_snapshots(state, result)
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    if utils.ALLOW_CHILD_MOVEMENT:
-        display = state.get("display") or {}
-        previous_parent_anchor = display.get("parent_anchor")
-        parent_was_stationary = (
-            previous_parent_anchor is not None
-            and previous_parent_anchor.DistanceTo(result["parent_anchor"])
-            <= tolerance
-        )
-        child_was_moved = (
-            result["target_child_anchor"].DistanceTo(
-                result["child_anchor"]
-            )
-            > tolerance
-        )
-        if parent_was_stationary and child_was_moved:
-            result["link"]["offset"] = [
-                result["child_anchor"].X - result["parent_anchor"].X,
-                result["child_anchor"].Y - result["parent_anchor"].Y,
-                result["child_anchor"].Z - result["parent_anchor"].Z,
-            ]
-            if not metadata.save_link(doc, state, result["link"]):
-                break_link(
-                    state,
-                    "The Tack offset could not be saved after the child moved.",
-                )
-                return result
-            runtime.set_display_clean(
+    child_was_moved = (
+        result["target_child_anchor"].DistanceTo(result["child_anchor"])
+        > tolerance
+    )
+    if (
+        utils.ALLOW_CHILD_MOVEMENT
+        and "child" in dirty_roles
+        and "parent" not in dirty_roles
+        and child_was_moved
+    ):
+        result["link"]["offset"] = [
+            result["child_anchor"].X - result["parent_anchor"].X,
+            result["child_anchor"].Y - result["parent_anchor"].Y,
+            result["child_anchor"].Z - result["parent_anchor"].Z,
+        ]
+        if not metadata.save_link(doc, state, result["link"]):
+            break_link(
                 state,
-                result["parent_anchor"],
-                result["child_anchor"],
-            )
-            utils.debug(
-                "[Tack anchor] child movement accepted; updated offset={}".format(
-                    result["link"]["offset"]
-                )
+                "The Tack offset could not be saved after the child moved.",
             )
             return result
+        runtime.set_display_clean(
+            state,
+            result["parent_anchor"],
+            result["child_anchor"],
+        )
+        utils.debug(
+            "[Tack anchor] child movement accepted; updated offset={}".format(
+                result["link"]["offset"]
+            )
+        )
+        return result
 
     if utils.DEBUG:
         print(

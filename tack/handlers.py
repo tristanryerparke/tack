@@ -88,7 +88,7 @@ def _HandleRhinoObjectEvent(label, event):
                 scheduler.expire_link_ids(doc, expired)
                 with _websocket_output():
                     utils.debug(
-                        "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
+                        "[Tack anchor] DeleteRhinoObject ids={}; scheduled a command-end "
                         "recovery check for {} link(s).".format(
                             [str(object_id) for object_id in object_ids],
                             len(expired),
@@ -109,7 +109,14 @@ def _HandleRhinoObjectEvent(label, event):
                 object_ids,
             ):
                 continue
-            runtime.mark_display_dirty(state)
+            runtime.mark_roles_dirty(
+                state,
+                object_ids,
+                metadata.candidate_role(
+                    state,
+                    utils.event_object(doc, event, object_ids),
+                ),
+            )
             expired.append(saved_link["link_id"])
             with _websocket_output():
                 utils.debug_event(label, event, state)
@@ -164,6 +171,7 @@ def subscribe():
     Rhino.RhinoDoc.DeleteRhinoObject += DeleteRhinoObjectHandler
     Rhino.RhinoDoc.UndeleteRhinoObject += UndeleteRhinoObjectHandler
     Rhino.RhinoDoc.CloseDocument += CloseDocumentHandler
+    scheduler.arm()
 
 
 def unsubscribe():

@@ -1,3 +1,5 @@
+import time
+
 import scriptcontext as sc
 from rhino_watcher import send_data_sync
 from rhino_watcher import websocket_output_sync
@@ -17,6 +19,8 @@ def collect():
     from tack import scheduler
 
     doc = sc.doc
+    assert doc.Undo()
+    time.sleep(1)
     scheduler.solve_now(doc)
     fixture = sc.sticky[STATE_KEY]
     state = runtime.states(doc)[fixture["link_id"]]

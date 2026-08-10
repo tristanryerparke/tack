@@ -5,6 +5,7 @@ from pathlib import Path
 HANDLERS = Path(__file__).parents[1] / "tack" / "handlers.py"
 LINK = Path(__file__).parents[1] / "tack" / "link.py"
 SCHEDULER = Path(__file__).parents[1] / "tack" / "scheduler.py"
+RUNTIME = Path(__file__).parents[1] / "tack" / "runtime.py"
 
 
 def _function(tree, name):
@@ -41,7 +42,7 @@ def test_tack_subscribes_to_object_lifecycle_and_close_callbacks():
     }
 
 
-def test_event_handler_defers_maintenance_to_the_idle_scheduler():
+def test_event_handler_defers_maintenance_to_the_command_scheduler():
     handler = _function(ast.parse(HANDLERS.read_text()), "_HandleRhinoObjectEvent")
     calls = _called_attributes(handler)
 
@@ -49,32 +50,40 @@ def test_event_handler_defers_maintenance_to_the_idle_scheduler():
     assert "maintain_link" not in calls
 
 
-def test_unsubscribe_disarms_the_idle_scheduler():
-    unsubscribe = _function(ast.parse(HANDLERS.read_text()), "unsubscribe")
-    calls = _called_attributes(unsubscribe)
+def test_scheduler_lives_with_tack_handlers():
+    tree = ast.parse(HANDLERS.read_text())
+    assert "arm" in _called_attributes(_function(tree, "subscribe"))
+    assert "disarm" in _called_attributes(_function(tree, "unsubscribe"))
 
-    assert "disarm" in calls
 
-
-def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
+def test_scheduler_always_listens_for_command_end_and_exposes_synchronous_drain():
     tree = ast.parse(SCHEDULER.read_text())
 
-    ensure_armed = _function(tree, "_ensure_armed")
+    arm = _function(tree, "arm")
     targets = {
         node.target.attr
-        for node in ast.walk(ensure_armed)
+        for node in ast.walk(arm)
         if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Attribute)
     }
-    assert "Idle" in targets
+    assert targets == {"EndCommand"}
 
-    assert hasattr(ast, "FunctionDef")
     names = {
         node.name
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
     }
-    assert "expire_link_ids" in names
-    assert "solve_now" in names
+    assert "_ensure_armed" not in names
+    assert {"arm", "_on_end_command", "expire_link_ids", "solve_now"} <= names
+
+
+def test_parent_events_override_the_allowed_child_movement_setting():
+    handler = _function(ast.parse(HANDLERS.read_text()), "_HandleRhinoObjectEvent")
+    assert "mark_roles_dirty" in _called_attributes(handler)
+    source = LINK.read_text()
+    assert '"child" in dirty_roles' in source
+    assert '"parent" not in dirty_roles' in source
+    assert "parent_was_stationary" not in source
+    assert "def mark_roles_dirty" in RUNTIME.read_text()
 
 
 def test_final_shape_maintenance_accepts_no_replace_objects():

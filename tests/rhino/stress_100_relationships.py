@@ -207,8 +207,8 @@ def stress_100_relationships():
         with redirect_stdout(captured_output), redirect_stderr(captured_output):
             update_started = time.perf_counter()
             moved = rs.Command("_Move 0,0,0 3,5,2", echo=False)
-            # Deferred solving (tack.scheduler) drains on RhinoApp.Idle, which
-            # does not fire while this script holds the UI thread.
+            # Keep timing independent of command-event delivery while this
+            # script owns the UI thread.
             from tack import scheduler
 
             scheduler.solve_now(sc.doc)

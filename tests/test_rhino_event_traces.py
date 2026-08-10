@@ -82,7 +82,7 @@ def test_four_command_event_trace():
             abs(child[i] - parent[i] - expected[i]) <= tol for i in range(3)
         )
 
-    # Under the deferred solver, maintain runs on RhinoApp.Idle and re-solves
+    # Under the deferred solver, maintain runs at command end and re-solves
     # from current document state, so the contract is outcome-based: the
     # parent->child offset is preserved across move, undo, face-move, and the
     # boolean-difference no-op.
@@ -94,7 +94,7 @@ def test_four_command_event_trace():
     ):
         assert _offset_preserved(scenarios[name]), name
 
-    # Moves drive exactly one tack child update on idle; undo re-solves to a
+    # Moves drive exactly one Tack child update at command end; undo re-solves to a
     # zero correction once the parent is restored, and the boolean command is a
     # no-op on the parent, so neither moves the child.
     assert len(scenarios["move_parent"]["child_update_events"]) == 1

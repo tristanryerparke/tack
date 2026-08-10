@@ -1,21 +1,7 @@
-"""Grasshopper-style deferred solver for Tack relationships.
+"""Deferred solver for Tack relationships at command boundaries.
 
-Event handlers in :mod:`tack.handlers` only *expire* relationships here
-(the analogue of Grasshopper's ``IGH_Param.ExpireSolution``).  This module
-owns the single idle pump that drains the expired set and re-solves each
-relationship once -- the analogue of Grasshopper's
-``GH_Document.NewSolution`` driven by ``ScheduleSolution``.
-
-GH properties this preserves:
-
-* **Coalescing** -- a relationship expired by many events in one batch is
-  solved exactly once.
-* **Re-entrancy** -- expirations raised while a solve is running queue for
-  the next idle tick instead of re-entering the solver.
-* **Cheap idle** -- the ``RhinoApp.Idle`` handler is armed only while work is
-  pending and disarms itself once the schedule drains.
-* **Per-document** -- each document has its own schedule; closing a document
-  drops its pending work.
+Object handlers expire affected links; an always-subscribed
+``Command.EndCommand`` handler coalesces and solves them after each command.
 """
 
 import traceback
@@ -31,7 +17,8 @@ from tack import runtime
 from tack import utils
 
 
-IDLE_HANDLER_KEY = "Tack.AnchorLink.IdleHandler"
+END_COMMAND_HANDLER_KEY = "Tack.AnchorLink.EndCommandHandler"
+LEGACY_IDLE_HANDLER_KEY = "Tack.AnchorLink.IdleHandler"
 
 # doc serial -> RhinoDoc, for documents with pending expirations.
 _pending_docs = {}
@@ -67,25 +54,30 @@ def _register_doc(doc):
     _pending_docs[document_runtime.document_key(doc)] = doc
 
 
-def _ensure_armed():
-    if sc.sticky.get(IDLE_HANDLER_KEY) is None:
-        handler = _on_idle
-        Rhino.RhinoApp.Idle += handler
-        sc.sticky[IDLE_HANDLER_KEY] = handler
+def arm():
+    """Subscribe for as long as Tack's object handlers are active."""
+    if sc.sticky.get(END_COMMAND_HANDLER_KEY) is None:
+        handler = _on_end_command
+        Rhino.Commands.Command.EndCommand += handler
+        sc.sticky[END_COMMAND_HANDLER_KEY] = handler
 
 
 def disarm():
-    """Remove the idle subscription if armed. Safe to call repeatedly."""
-    handler = sc.sticky.pop(IDLE_HANDLER_KEY, None)
-    if handler is not None:
-        try:
-            Rhino.RhinoApp.Idle -= handler
-        except Exception:
-            _report_error()
+    """Remove command and legacy idle subscriptions. Safe to call repeatedly."""
+    for key, event in (
+        (END_COMMAND_HANDLER_KEY, Rhino.Commands.Command.EndCommand),
+        (LEGACY_IDLE_HANDLER_KEY, Rhino.RhinoApp.Idle),
+    ):
+        handler = sc.sticky.pop(key, None)
+        if handler is not None:
+            try:
+                event -= handler
+            except Exception:
+                _report_error()
 
 
 def expire_link_ids(doc, link_ids):
-    """Mark relationships dirty and schedule a solve at the next idle tick."""
+    """Mark relationships dirty and solve them at the next command end."""
     schedule = _schedule(doc)
     added = False
     for link_id in link_ids:
@@ -94,10 +86,9 @@ def expire_link_ids(doc, link_ids):
             added = True
     if added:
         _register_doc(doc)
-        _ensure_armed()
         with _websocket_output():
             utils.debug(
-                "[Tack solve] expired {} link(s); scheduled for idle.".format(
+                "[Tack solve] expired {} link(s); scheduled for command end.".format(
                     len(schedule)
                 )
             )
@@ -111,10 +102,10 @@ def drop_document(doc):
 
 def solve_now(doc):
     """Synchronously drain *doc*'s schedule. Test / correctness hook."""
-    _solve(doc)
+    _drain(doc)
 
 
-def _on_idle(sender, args):
+def _on_end_command(sender, args):
     if _solving or not _pending_docs:
         return
     for doc_key, doc in list(_pending_docs.items()):
@@ -122,13 +113,32 @@ def _on_idle(sender, args):
             _pending_docs.pop(doc_key, None)
             continue
         try:
-            _solve(doc)
+            _drain(doc)
         except Exception:
             _report_error()
         if not _schedule(doc):
             _pending_docs.pop(doc_key, None)
-    if not _pending_docs:
-        disarm()
+
+
+def _drain(doc):
+    schedule = _schedule(doc)
+    link_count = len(metadata.all_links(doc))
+    # ponytail: bounded fallback for corrupt metadata; add graph diagnostics if
+    # valid command event sequences ever need more than 16 cleanup passes.
+    for _ in range(max(16, link_count + 1)):
+        if not schedule:
+            return
+        _solve(doc)
+
+    pending = tuple(schedule)
+    schedule.clear()
+    for link_id in pending:
+        state = _runtime_state(doc, link_id)
+        if state is not None:
+            link.break_link(
+                state,
+                "The Tack dependency graph did not settle; check it for a cycle.",
+            )
 
 
 def _solve(doc):
@@ -171,9 +181,8 @@ def _solve_one(doc, link_id, saved_links):
     if state is None:
         return
     if state.get("busy"):
-        # Defer until the state is free; re-arm for the next tick.
+        # Defer until the state is free and the next command ends.
         _schedule(doc).add(link_id)
-        _ensure_armed()
         return
     runtime.mark_display_dirty(state)
     with _websocket_output():
