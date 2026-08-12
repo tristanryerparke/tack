@@ -319,4 +319,8 @@ def stress_100_relationships():
     return result
 
 
-run_step("stress_100_relationships_200_objects", stress_100_relationships)
+run_step(
+    "stress_100_relationships_200_objects",
+    stress_100_relationships,
+    send_done=True,
+)

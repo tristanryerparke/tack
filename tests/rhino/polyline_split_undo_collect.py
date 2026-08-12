@@ -1,9 +1,8 @@
 import scriptcontext as sc
-from rhino_watcher import send_data_sync
-from rhino_watcher import websocket_output_sync
 
 from common import assert_close
 from common import point_from_data
+from common import run_step
 from common import tack_modules
 
 
@@ -66,6 +65,4 @@ def collect():
     }
 
 
-with websocket_output_sync():
-    send_data_sync(collect())
-    print("PASS polyline_split_undo_restores_tack")
+run_step("polyline_split_undo_restores_tack", collect)

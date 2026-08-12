@@ -1,16 +1,19 @@
 """Run with: uv run --with pytest pytest -s tests/test_rhino_stress.py"""
 from pathlib import Path
 
-from run_in_rhino import start_server
+from run_in_rhino.orchestration import run_rhino_python_til_done
+from run_in_rhino.server import RunContext
 
 
 RHINO_STRESS_TEST = Path(__file__).with_name("rhino") / "stress_100_relationships.py"
 
 
 def test_100_tack_relationships_update_200_objects():
-    with start_server(environment={"debug": "true"}) as watcher:
-        watcher.run_file(RHINO_STRESS_TEST)
-        results = watcher.take_data(timeout=120)
+    reason, results = run_rhino_python_til_done(
+        script_path=RHINO_STRESS_TEST,
+        context=RunContext(env={"debug": "true"}),
+    )
+    assert reason == "done"
 
     assert len(results) == 1, "Unexpected stress-test data: {}".format(results)
     result = results[0]

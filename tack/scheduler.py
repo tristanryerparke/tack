@@ -19,7 +19,6 @@ GH properties this preserves:
 """
 
 import traceback
-from contextlib import nullcontext
 
 import Rhino
 import scriptcontext as sc
@@ -29,6 +28,7 @@ from tack import link
 from tack import metadata
 from tack import runtime
 from tack import utils
+from tack import watcher
 
 
 IDLE_HANDLER_KEY = "Tack.AnchorLink.IdleHandler"
@@ -39,11 +39,7 @@ _solving = False
 
 
 def _websocket_output():
-    try:
-        from rhino_watcher import websocket_output_if_available_sync
-    except ImportError:
-        return nullcontext()
-    return websocket_output_if_available_sync()
+    return watcher.output(utils.DEBUG)
 
 
 def _report_error():

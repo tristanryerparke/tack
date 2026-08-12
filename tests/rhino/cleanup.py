@@ -80,4 +80,4 @@ def cleanup():
     pause("fixture removed")
 
 
-run_step("cleanup_anchor_pair", cleanup)
+run_step("cleanup_anchor_pair", cleanup, send_done=True)

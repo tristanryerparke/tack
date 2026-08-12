@@ -5,11 +5,13 @@ import sys
 import time
 import traceback
 
+from run_in_rhino.rhino_env.client import SocketConnection
+from run_in_rhino.rhino_env.env import install_os_environment
+from run_in_rhino.rhino_env.parasite import OutputParasite
+
 import Rhino
 import rhinoscriptsyntax as rs
 import scriptcontext as sc
-from rhino_watcher import send_data_sync
-from rhino_watcher import websocket_output_sync
 
 
 # Set to 0 for fast runs; leave positive to watch each step in Rhino.
@@ -50,19 +52,23 @@ def pause(label):
         time.sleep(SLOW_SECONDS)
 
 
-def run_step(name, action):
-    try:
-        with websocket_output_sync():
-            print("START {}".format(name))
-            data = action()
-            if data is not None:
-                send_data_sync(data)
-            print("PASS {}".format(name))
-    except Exception:
-        with websocket_output_sync():
-            print("FAIL {}".format(name))
-            traceback.print_exc()
-        raise
+connection = SocketConnection()
+install_os_environment(connection)
+
+
+def run_step(name, action, *, send_done=False):
+    with OutputParasite(connection):
+        print("START {}".format(name))
+        data = action()
+        print("PASS {}".format(name))
+
+    # Send completion only after OutputParasite has flushed. The parent can
+    # safely launch the next Rhino script once this message is acknowledged.
+    connection.send_data(
+        {"__run_step__": name} if data is None else data
+    )
+    if send_done:
+        connection.send_done()
 
 
 @contextmanager

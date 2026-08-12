@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import traceback
 
 import Rhino
@@ -8,25 +7,18 @@ from tack import metadata
 from tack import runtime
 from tack import scheduler
 from tack import utils
+from tack import watcher
 
 
 OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
 
 
 def _websocket_output():
-    try:
-        from rhino_watcher import websocket_output_if_available_sync
-    except ImportError:
-        return nullcontext()
-    return websocket_output_if_available_sync()
+    return watcher.output(utils.DEBUG)
 
 
 def _quit_watcher():
-    try:
-        from rhino_watcher import try_send_quit_sync
-    except ImportError:
-        return
-    try_send_quit_sync()
+    watcher.send_quit(utils.DEBUG)
 
 
 def _report_handler_error():

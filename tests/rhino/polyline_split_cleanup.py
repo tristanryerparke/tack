@@ -1,6 +1,7 @@
 import scriptcontext as sc
 
 from common import TEST_OBJECT_KEY
+from common import run_step
 from common import tack_modules
 
 
@@ -47,4 +48,4 @@ def cleanup():
     )
 
 
-cleanup()
+run_step("polyline_split_cleanup", cleanup, send_done=True)

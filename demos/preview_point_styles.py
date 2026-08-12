@@ -108,23 +108,7 @@ def RunCommand(is_interactive):
 
 
 if __name__ == "__main__":
-    try:
-        from rhino_watcher import try_send_end_sync
-        from rhino_watcher import try_send_quit_sync
-        from rhino_watcher import websocket_output_if_available_sync
-    except ImportError:
-        RunCommand(True)
-    else:
-        try:
-            with websocket_output_if_available_sync():
-                result = RunCommand(True)
-                print("Point styles preview closed.")
-        except Exception:
-            with websocket_output_if_available_sync():
-                traceback.print_exc()
-            try_send_quit_sync()
-        else:
-            if result == Result.Success:
-                try_send_end_sync()
-            else:
-                try_send_quit_sync()
+    from tack.watcher import run_entrypoint
+
+    run_entrypoint(lambda: RunCommand(True), True)
+    print("Point styles preview closed.")
