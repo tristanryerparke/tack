@@ -25,6 +25,7 @@ def RunCommand(is_interactive):
         print("No active Tack runtime to show.")
         return Result.Cancel
 
+    utils.set_document_display_enabled(doc, True)
     doc.Views.Redraw()
     print("Tack display shown.")
     return Result.Success

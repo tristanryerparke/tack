@@ -9,8 +9,9 @@ from tack import utils
 
 
 class _SettingsDialog(forms.Dialog[bool]):
-    def __init__(self):
+    def __init__(self, doc):
         super(_SettingsDialog, self).__init__()
+        self.doc = doc
         self.Title = "Tack Settings"
         self.Resizable = False
         self.Padding = drawing.Padding(8)
@@ -19,18 +20,20 @@ class _SettingsDialog(forms.Dialog[bool]):
 
         self.advanced = forms.CheckBox()
         self.advanced.Text = "Advanced reconciliation"
-        self.advanced.Checked = bool(utils.ADVANCED_RECONCILIATION)
+        self.advanced.Checked = bool(
+            utils.get_setting("advanced_reconciliation", doc)
+        )
 
         self.debug = forms.CheckBox()
         self.debug.Text = "Debug output"
-        self.debug.Checked = bool(utils.DEBUG)
+        self.debug.Checked = bool(utils.get_setting("debug", doc))
 
         self.allow_child_movement = forms.CheckBox()
         self.allow_child_movement.Text = (
             "Allow child movement (update Tack offset)"
         )
         self.allow_child_movement.Checked = bool(
-            utils.ALLOW_CHILD_MOVEMENT
+            utils.get_setting("allow_child_movement", doc)
         )
 
         ok = forms.Button()
@@ -81,11 +84,15 @@ class _SettingsDialog(forms.Dialog[bool]):
         self.Content = layout
 
     def _accept(self, sender, event):
-        utils.set_setting("advanced_reconciliation", bool(self.advanced.Checked))
-        utils.set_setting("debug", bool(self.debug.Checked))
-        utils.set_setting(
-            "allow_child_movement",
-            bool(self.allow_child_movement.Checked),
+        utils.set_document_settings(
+            self.doc,
+            {
+                "advanced_reconciliation": bool(self.advanced.Checked),
+                "debug": bool(self.debug.Checked),
+                "allow_child_movement": bool(
+                    self.allow_child_movement.Checked
+                ),
+            },
         )
         self.accepted = True
         self.Close()
@@ -99,7 +106,8 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    dialog = _SettingsDialog()
+    utils.ensure_document_settings(doc)
+    dialog = _SettingsDialog(doc)
     dialog.ShowModal(Rhino.UI.RhinoEtoApp.MainWindow)
     if not dialog.accepted:
         return Result.Cancel

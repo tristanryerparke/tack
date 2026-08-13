@@ -33,18 +33,55 @@ def restore_saved_tack():
 
     tack.reload()
     from tack import runtime
+    from tack import utils
 
     doc = sc.doc
     assert doc is not None
     runtime.stop_runtime(doc)
     assert not runtime.states(doc, create=False)
 
+    settings_before = doc.Strings.GetValue(
+        utils.DOCUMENT_SETTINGS_SECTION,
+        utils.DOCUMENT_SETTINGS_ENTRY,
+    )
+    display_before = doc.Strings.GetValue(
+        utils.DOCUMENT_SETTINGS_SECTION,
+        utils.DOCUMENT_DISPLAY_ENTRY,
+    )
+    assert settings_before is not None
+    assert display_before == "hidden"
+
+    utils.set_setting("advanced_reconciliation", False)
+    utils.set_setting("allow_child_movement", False)
+    assert not utils.ADVANCED_RECONCILIATION
+    assert not utils.ALLOW_CHILD_MOVEMENT
+
     command = runpy.run_path(COMMAND_PATH, run_name="tack_restore_test_command")
     result = command["RunCommand"](False)
     assert result == Rhino.Commands.Result.Success
 
+    from tack import document_runtime
     from tack import metadata
     from tack import runtime
+    from tack import utils
+
+    settings_after = doc.Strings.GetValue(
+        utils.DOCUMENT_SETTINGS_SECTION,
+        utils.DOCUMENT_SETTINGS_ENTRY,
+    )
+    display_after = doc.Strings.GetValue(
+        utils.DOCUMENT_SETTINGS_SECTION,
+        utils.DOCUMENT_DISPLAY_ENTRY,
+    )
+    assert settings_after == settings_before
+    assert display_after == display_before
+    assert utils.ADVANCED_RECONCILIATION
+    assert utils.ALLOW_CHILD_MOVEMENT
+    assert not utils.get_setting("debug", doc)
+    assert document_runtime.try_get_value(
+        doc,
+        utils.DISPLAY_ENABLED_KEY,
+    ) is False
 
     saved_links = metadata.all_links(doc)
     assert len(saved_links) == 1
@@ -66,9 +103,27 @@ def restore_saved_tack():
         "name": "restore_saved_tack",
         "document_path": doc.Path,
         "link_id": saved_link["link_id"],
+        "link_version": saved_link["version"],
         "parent_id": saved_link["parent_id"],
         "child_id": saved_link["child_id"],
         "runtime_count": len(states),
+        "settings": {
+            "advanced_reconciliation": utils.get_setting(
+                "advanced_reconciliation", doc
+            ),
+            "debug": utils.get_setting("debug", doc),
+            "allow_child_movement": utils.get_setting(
+                "allow_child_movement", doc
+            ),
+        },
+        "display_enabled": document_runtime.try_get_value(
+            doc,
+            utils.DISPLAY_ENABLED_KEY,
+        ),
+        "document_strings_unchanged": (
+            settings_after == settings_before
+            and display_after == display_before
+        ),
     }
 
 

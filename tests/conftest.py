@@ -6,7 +6,6 @@ from run_in_rhino.app_control.instance import launch_rhino
 
 
 BLANK_FILE = Path(__file__).with_name("blank_file.3dm")
-SAVED_TACK_FILE = Path(__file__).with_name("tack_restore_fixture.3dm")
 
 
 def pytest_collection_modifyitems(items):
@@ -47,8 +46,3 @@ def _rhino_instance_for_document():
 @pytest.fixture
 def rhino_instance(_rhino_instance_for_document):
     return _rhino_instance_for_document(BLANK_FILE)
-
-
-@pytest.fixture
-def saved_tack_rhino_instance(_rhino_instance_for_document):
-    return _rhino_instance_for_document(SAVED_TACK_FILE)

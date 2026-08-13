@@ -23,6 +23,9 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
+    utils.load_document_settings(doc)
+    display_enabled = utils.saved_document_display_enabled(doc)
+
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
 
@@ -40,6 +43,12 @@ def RunCommand(is_interactive):
             print(
                 "Could not restore Tack {}.".format(saved_link["link_id"])
             )
+
+    if restored and display_enabled is not None:
+        if display_enabled:
+            runtime.show_display(doc)
+        else:
+            runtime.hide_display(doc)
 
     handlers.subscribe()
     doc.Views.Redraw()

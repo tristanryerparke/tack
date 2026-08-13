@@ -222,7 +222,7 @@ def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
         and role not in state.get("replacement_reconcile_roles", ())
     ):
         return role, parent_obj, child_obj
-    if not utils.ADVANCED_RECONCILIATION and not same_id:
+    if not utils.get_setting("advanced_reconciliation", doc) and not same_id:
         return role, parent_obj, child_obj
 
     link = _stored_link(doc, state, child_obj=child_obj)
@@ -249,7 +249,7 @@ def event_may_affect_link(
     ):
         return True
 
-    if not utils.ADVANCED_RECONCILIATION:
+    if not utils.get_setting("advanced_reconciliation", doc):
         return False
     candidate = _candidate(doc, event, event_name, object_ids)
     return metadata.candidate_role(state, candidate) is not None
@@ -345,7 +345,7 @@ def maintain_link(
         # without it, basic reconciliation can only continue with the stored
         # object IDs.
         if (
-            utils.ADVANCED_RECONCILIATION
+            utils.get_setting("advanced_reconciliation", doc)
             and (parent is None or child is None)
         ):
             for candidate in metadata.candidates(doc, state):
@@ -396,7 +396,7 @@ def maintain_link(
     _refresh_anchor_snapshots(state, result)
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    if utils.ALLOW_CHILD_MOVEMENT:
+    if utils.get_setting("allow_child_movement", doc):
         display = state.get("display") or {}
         previous_parent_anchor = display.get("parent_anchor")
         parent_was_stationary = (

@@ -25,6 +25,7 @@ def RunCommand(is_interactive):
         print("No active Tack display to hide.")
         return Result.Cancel
 
+    utils.set_document_display_enabled(doc, False)
     doc.Views.Redraw()
     print("Tack display hidden.")
     return Result.Success

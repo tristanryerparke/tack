@@ -28,6 +28,9 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
+    utils.ensure_document_settings(doc)
+    display_enabled = utils.ensure_document_display_enabled(doc)
+
     handlers.unsubscribe()
     handlers.subscribe()
 
@@ -50,6 +53,8 @@ def RunCommand(is_interactive):
     if not runtime.start_runtime(doc, parent_id, child_id, link_id):
         utils.debug("[Tack anchor] could not start Tack relationship.")
         return Result.Failure
+    if not display_enabled:
+        runtime.hide_display(doc)
     utils.debug(
         "[Tack anchor] created link={} parent={} child={}".format(
             _short_id(link_id),
