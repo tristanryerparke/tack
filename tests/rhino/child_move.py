@@ -1,13 +1,10 @@
 import sys
 
-import Rhino
-
 sys.modules.pop("common", None)
 
 from common import STATE_KEY
 from common import assert_close
 from common import pause
-from common import point_data
 from common import point_from_data
 from common import rs
 from common import run_step
@@ -15,21 +12,24 @@ from common import sc
 from common import tack_modules
 
 
-MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
+STEP_KEY = "child_move_armed"
 
 
-def test_child_move():
+def arm_child_move():
+    state = sc.sticky[STATE_KEY]
+    rs.UnselectAllObjects()
+    assert rs.SelectObject(state["child_id"]), "Could not select the child"
+    state[STEP_KEY] = True
+    pause("before child move")
+
+
+def collect_child_move():
     _, metadata, runtime, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
     doc = sc.doc
-    state = sc.sticky.get(STATE_KEY)
-    assert state is not None, "Missing fixture; run setup_bbox_circles first"
-
-    rs.UnselectAllObjects()
-    assert rs.SelectObject(state["child_id"]), "Could not select the child"
-    pause("before child move")
-    assert rs.Command("_Move 0,0,0 10,0,0", echo=False), "Rhino Move command failed"
+    state = sc.sticky[STATE_KEY]
+    state.pop(STEP_KEY)
     pause("after child move")
 
     tack_state = runtime.states(doc)[state["link_id"]]
@@ -58,20 +58,17 @@ def test_child_move():
         )
 
     _, anchor_index, anchor_point = state["child_anchor"]
-    linked_child = dict(child_after)[anchor_index]
     assert_close(
-        linked_child,
+        dict(child_after)[anchor_index],
         point_from_data(anchor_point),
         tolerance,
         "child anchor",
     )
-    return {
-        "name": "child_move_restores_child",
-        "child_anchors": [point_data(point) for _, point in child_after],
-        "expected_child_anchors": [
-            point for _, point in state["child_before"]
-        ],
-    }
 
 
-run_step("test_child_move_restores_child", test_child_move)
+action = (
+    collect_child_move
+    if sc.sticky.get(STATE_KEY, {}).get(STEP_KEY)
+    else arm_child_move
+)
+run_step(action.__name__, action)

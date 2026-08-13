@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import traceback
 
 import Rhino
@@ -6,28 +5,20 @@ import Rhino
 from tack import link
 from tack import metadata
 from tack import runtime
+from tack import scheduler
 from tack import utils
+from tack import watcher
 
 
-# Remove a handler persisted by Tack versions that subscribed to Replace.
-LEGACY_REPLACE_HANDLER_KEY = "Tack.AnchorLink.ReplaceHandler"
 OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
 
 
 def _websocket_output():
-    try:
-        from rhino_watcher import websocket_output_if_available_sync
-    except ImportError:
-        return nullcontext()
-    return websocket_output_if_available_sync()
+    return watcher.output(utils.DEBUG)
 
 
 def _quit_watcher():
-    try:
-        from rhino_watcher import try_send_quit_sync
-    except ImportError:
-        return
-    try_send_quit_sync()
+    watcher.send_quit(utils.DEBUG)
 
 
 def _report_handler_error():
@@ -78,16 +69,26 @@ def _HandleRhinoObjectEvent(label, event):
         if doc is None:
             return object_ids
         if label == "DeleteRhinoObject":
-            runtime.mark_object_ids_dirty(doc, object_ids)
-            with _websocket_output():
-                utils.debug(
-                    "[Tack anchor] DeleteRhinoObject ids={} is lifecycle-only; "
-                    "waiting for AddRhinoObject or UndeleteRhinoObject.".format(
-                        [str(object_id) for object_id in object_ids]
+            expired = runtime.mark_object_ids_dirty(doc, object_ids)
+            for saved_link in _event_links(doc, event, object_ids):
+                if not any(
+                    utils.same_id(saved_link["link_id"], link_id)
+                    for link_id in expired
+                ):
+                    expired.append(saved_link["link_id"])
+            if expired:
+                scheduler.expire_link_ids(doc, expired)
+                with _websocket_output():
+                    utils.debug(
+                        "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
+                        "recovery check for {} link(s).".format(
+                            [str(object_id) for object_id in object_ids],
+                            len(expired),
+                        )
                     )
-                )
             return object_ids
 
+        expired = []
         for saved_link in _event_links(doc, event, object_ids):
             state = runtime.state_for_link(doc, saved_link)
             if state is None or state.get("busy"):
@@ -100,21 +101,12 @@ def _HandleRhinoObjectEvent(label, event):
                 object_ids,
             ):
                 continue
-
-            was_broken = state.get("broken")
             runtime.mark_display_dirty(state)
+            expired.append(saved_link["link_id"])
             with _websocket_output():
                 utils.debug_event(label, event, state)
-                result = link.maintain_link(
-                    doc,
-                    state,
-                    event=event,
-                    event_name=label,
-                    object_ids=object_ids,
-                    quiet=True,
-                )
-                if result is not None or state.get("broken") != was_broken:
-                    doc.Views.Redraw()
+        if expired:
+            scheduler.expire_link_ids(doc, expired)
     except Exception:
         _report_handler_error()
     return object_ids
@@ -136,6 +128,7 @@ def CloseDocumentHandler(sender, event):
     try:
         doc = getattr(event, "Document", None)
         if doc is not None:
+            scheduler.drop_document(doc)
             runtime.remove_document(doc)
     except Exception:
         _report_handler_error()
@@ -168,9 +161,7 @@ def subscribe():
 def unsubscribe():
     import scriptcontext as sc
 
-    handler = sc.sticky.pop(LEGACY_REPLACE_HANDLER_KEY, None)
-    if handler is not None:
-        _unsubscribe(Rhino.RhinoDoc.ReplaceRhinoObject, handler)
+    scheduler.disarm()
 
     stored_handlers = sc.sticky.pop(OBJECT_HANDLER_KEY, ())
     for handler, event in zip(

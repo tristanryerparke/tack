@@ -170,7 +170,6 @@ def write_link(doc, parent_id, child_id, parent_anchor, child_anchor):
 
 def all_links(doc):
     links = {}
-    canonical = set()
     for obj in doc.Objects:
         if obj is None:
             continue
@@ -178,8 +177,6 @@ def all_links(doc):
             is_canonical = utils.same_id(obj.Id, saved_link["child_id"])
             if link_id not in links or is_canonical:
                 links[link_id] = saved_link
-            if is_canonical:
-                canonical.add(link_id)
     return list(links.values())
 
 

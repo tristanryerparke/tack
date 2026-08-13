@@ -1,7 +1,0 @@
-{
-	"nodes":[
-		{"id":"d12f737bc5223e80","x":-500,"y":-377,"width":380,"height":497,"type":"group","label":"Command Detected"},
-		{"id":"6c863d73a1e572aa","x":-480,"y":-357,"width":280,"height":397,"type":"text","text":"Handler Function is run:\n"}
-	],
-	"edges":[]
-}

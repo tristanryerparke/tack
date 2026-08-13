@@ -1,0 +1,127 @@
+import traceback
+
+import Eto.Drawing as drawing
+import Eto.Forms as forms
+import Rhino
+from Rhino.Commands import Result
+
+from tack import utils
+
+
+class _SettingsDialog(forms.Dialog[bool]):
+    def __init__(self, doc):
+        super(_SettingsDialog, self).__init__()
+        self.doc = doc
+        self.Title = "Tack Settings"
+        self.Resizable = False
+        self.Padding = drawing.Padding(8)
+        self.ClientSize = drawing.Size(350, 115)
+        self.accepted = False
+
+        self.advanced = forms.CheckBox()
+        self.advanced.Text = "Advanced reconciliation"
+        self.advanced.Checked = bool(
+            utils.get_setting("advanced_reconciliation", doc)
+        )
+
+        self.debug = forms.CheckBox()
+        self.debug.Text = "Debug output"
+        self.debug.Checked = bool(utils.get_setting("debug", doc))
+
+        self.allow_child_movement = forms.CheckBox()
+        self.allow_child_movement.Text = (
+            "Allow child movement (update Tack offset)"
+        )
+        self.allow_child_movement.Checked = bool(
+            utils.get_setting("allow_child_movement", doc)
+        )
+
+        ok = forms.Button()
+        ok.Text = "OK"
+        ok.Size = drawing.Size(80, 24)
+        ok.MinimumSize = drawing.Size(80, 24)
+        ok.MaximumSize = drawing.Size(80, 24)
+        ok.Click += self._accept
+
+        cancel = forms.Button()
+        cancel.Text = "Cancel"
+        cancel.Size = drawing.Size(80, 24)
+        cancel.MinimumSize = drawing.Size(80, 24)
+        cancel.MaximumSize = drawing.Size(80, 24)
+        cancel.Click += self._cancel
+
+        def row(*cells):
+            result = forms.TableRow()
+            for cell in cells:
+                result.Cells.Add(cell)
+            return result
+
+        layout = forms.TableLayout()
+        layout.Padding = drawing.Padding(0)
+        layout.Spacing = drawing.Size(6, 6)
+        layout.Rows.Add(
+            row(forms.TableCell(self.advanced, True))
+        )
+        layout.Rows.Add(
+            row(forms.TableCell(self.debug, True))
+        )
+        layout.Rows.Add(
+            row(forms.TableCell(self.allow_child_movement, True))
+        )
+
+        spacer = forms.TableRow()
+        spacer.ScaleHeight = True
+        spacer.Cells.Add(forms.TableCell(forms.Panel(), True))
+        layout.Rows.Add(spacer)
+
+        layout.Rows.Add(
+            row(
+                forms.TableCell(forms.Panel(), True),
+                forms.TableCell(cancel),
+                forms.TableCell(ok),
+            )
+        )
+        self.Content = layout
+
+    def _accept(self, sender, event):
+        utils.set_document_settings(
+            self.doc,
+            {
+                "advanced_reconciliation": bool(self.advanced.Checked),
+                "debug": bool(self.debug.Checked),
+                "allow_child_movement": bool(
+                    self.allow_child_movement.Checked
+                ),
+            },
+        )
+        self.accepted = True
+        self.Close()
+
+    def _cancel(self, sender, event):
+        self.Close()
+
+
+def RunCommand(is_interactive):
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return Result.Cancel
+
+    utils.ensure_document_settings(doc)
+    dialog = _SettingsDialog(doc)
+    dialog.ShowModal(Rhino.UI.RhinoEtoApp.MainWindow)
+    if not dialog.accepted:
+        return Result.Cancel
+    doc.Views.Redraw()
+    print(
+        "Tack settings updated: advanced_reconciliation={} debug={}".format(
+            utils.ADVANCED_RECONCILIATION,
+            utils.DEBUG,
+        )
+    )
+    return Result.Success
+
+
+if __name__ == "__main__":
+    from tack.watcher import run_entrypoint
+
+    run_entrypoint(lambda: RunCommand(True), utils.DEBUG)

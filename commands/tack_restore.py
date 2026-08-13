@@ -23,6 +23,9 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
+    utils.load_document_settings(doc)
+    display_enabled = utils.saved_document_display_enabled(doc)
+
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
 
@@ -41,6 +44,12 @@ def RunCommand(is_interactive):
                 "Could not restore Tack {}.".format(saved_link["link_id"])
             )
 
+    if restored and display_enabled is not None:
+        if display_enabled:
+            runtime.show_display(doc)
+        else:
+            runtime.hide_display(doc)
+
     handlers.subscribe()
     doc.Views.Redraw()
     if restored:
@@ -52,25 +61,6 @@ def RunCommand(is_interactive):
 
 
 if __name__ == "__main__":
-    if not utils.DEBUG:
-        RunCommand(True)
-    else:
-        try:
-            from rhino_watcher import try_send_end_sync
-            from rhino_watcher import try_send_quit_sync
-            from rhino_watcher import websocket_output_if_available_sync
-        except ImportError:
-            RunCommand(True)
-        else:
-            try:
-                with websocket_output_if_available_sync():
-                    result = RunCommand(True)
-            except Exception:
-                with websocket_output_if_available_sync():
-                    traceback.print_exc()
-                try_send_quit_sync()
-            else:
-                if result == Result.Success:
-                    try_send_end_sync()
-                else:
-                    try_send_quit_sync()
+    from tack.watcher import run_entrypoint
+
+    run_entrypoint(lambda: RunCommand(True), utils.DEBUG)

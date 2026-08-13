@@ -106,7 +106,7 @@ def test_clear_and_restore_use_cache_lifecycle_entry_points():
     assert {"stop_runtime", "start_runtime"} <= restore_calls
 
 
-def test_commands_import_watcher_only_on_demand_for_debug():
+def test_commands_import_watcher_helper_only_at_entrypoint():
     assert COMMANDS
     for path in COMMANDS:
         tree = ast.parse(path.read_text())
@@ -114,33 +114,19 @@ def test_commands_import_watcher_only_on_demand_for_debug():
             node
             for node in ast.walk(tree)
             if isinstance(node, ast.ImportFrom)
-            and node.module == "rhino_watcher"
+            and node.module == "tack.watcher"
         ]
         assert watcher_imports, path
-
-        debug_guard = next(
-            node
-            for node in ast.walk(tree)
+        main_guard = next(
+            node for node in tree.body
             if isinstance(node, ast.If)
-            and isinstance(node.test, ast.UnaryOp)
-            and isinstance(node.test.op, ast.Not)
-            and isinstance(node.test.operand, ast.Attribute)
-            and isinstance(node.test.operand.value, ast.Name)
-            and node.test.operand.value.id == "utils"
-            and node.test.operand.attr == "DEBUG"
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+            and node.test.comparators[0].value == "__main__"
         )
-        debug_nodes = {
-            descendant
-            for statement in debug_guard.orelse
-            for descendant in ast.walk(statement)
-        }
-        assert all(node in debug_nodes for node in watcher_imports), path
-        assert any(
-            isinstance(node, ast.ExceptHandler)
-            and isinstance(node.type, ast.Name)
-            and node.type.id == "ImportError"
-            for node in debug_nodes
-        ), path
+        assert all(node.lineno > main_guard.lineno for node in watcher_imports), path
+        assert "run_entrypoint" in ast.unparse(tree)
 
 
 def test_show_and_hide_control_only_the_document_display_state():

@@ -1,10 +1,9 @@
 import scriptcontext as sc
-from rhino_watcher import send_data_sync
-from rhino_watcher import websocket_output_sync
 
 from common import TEST_OBJECT_KEY
 from common import assert_close
 from common import point_from_data
+from common import run_step
 from common import tack_modules
 
 
@@ -22,8 +21,10 @@ def collect():
     _, metadata, runtime, utils = tack_modules()
     import tack.analysis.polyline_vertex as polyline_vertex_analysis
     from tack import link
+    from tack import scheduler
 
     doc = sc.doc
+    scheduler.solve_now(doc)
     fixture = sc.sticky[STATE_KEY]
     state = runtime.states(doc)[fixture["link_id"]]
     assert not state["broken"]
@@ -103,6 +104,4 @@ def collect():
     }
 
 
-with websocket_output_sync():
-    send_data_sync(collect())
-    print("PASS polyline_split_preserves_tack")
+run_step("polyline_split_preserves_tack", collect)

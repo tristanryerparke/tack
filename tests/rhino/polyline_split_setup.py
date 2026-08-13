@@ -3,12 +3,11 @@ import sys
 import Rhino
 import rhinoscriptsyntax as rs
 import scriptcontext as sc
-from rhino_watcher import send_data_sync
-from rhino_watcher import websocket_output_sync
 
 sys.modules.pop("common", None)
 
 from common import TEST_OBJECT_KEY
+from common import run_step
 from common import tack_modules
 
 
@@ -37,9 +36,10 @@ def _delete_marked(doc):
 
 
 def setup():
-    handlers, metadata, runtime, _ = tack_modules(reload_modules=True)
+    handlers, metadata, runtime, utils = tack_modules(reload_modules=True)
     import tack.analysis.polyline_vertex as polyline_vertex_analysis
 
+    utils.ADVANCED_RECONCILIATION = True
     doc = sc.doc
     assert doc is not None
     handlers.unsubscribe()
@@ -115,12 +115,15 @@ def setup():
     }
 
 
-with websocket_output_sync():
+def setup_and_report():
     setup_data = setup()
-    send_data_sync(setup_data)
     print(
         "Polyline split fixture ready parent={} cutter={}".format(
             setup_data["parent_id"],
             setup_data["cutter_id"],
         )
     )
+    return setup_data
+
+
+run_step("polyline_split_setup", setup_and_report)

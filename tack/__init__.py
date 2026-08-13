@@ -12,6 +12,7 @@ _MODULES = (
     "link",
     "conduit",
     "runtime",
+    "scheduler",
     "handlers",
     "prompting.anchor_pick_conduit",
     "prompting.picking",

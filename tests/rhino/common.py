@@ -1,18 +1,18 @@
+from contextlib import contextmanager
 import importlib
 import os
 import sys
-import time
 import traceback
+
+from run_in_rhino.rhino_env.client import SocketConnection
+from run_in_rhino.rhino_env.env import install_os_environment
+from run_in_rhino.rhino_env.parasite import OutputParasite
 
 import Rhino
 import rhinoscriptsyntax as rs
 import scriptcontext as sc
-from rhino_watcher import send_data_sync
-from rhino_watcher import websocket_output_sync
 
 
-# Set to 0 for fast runs; leave positive to watch each step in Rhino.
-SLOW_SECONDS = 0
 STATE_KEY = "Tack.IntegrationTest.ParentMove"
 TEST_OBJECT_KEY = "Tack.IntegrationTest.Object"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,24 +35,52 @@ def tack_modules(reload_modules=False):
 
 
 def pause(label):
-    if SLOW_SECONDS:
-        print("waiting {} seconds: {}".format(SLOW_SECONDS, label))
-        time.sleep(SLOW_SECONDS)
-
-
-def run_step(name, action):
+    # Deferred solving (tack.scheduler) only drains on RhinoApp.Idle, which
+    # never fires while a test script holds the UI thread. Pump it here so
+    # assertions made after a pause see the solved state.
     try:
-        with websocket_output_sync():
-            print("START {}".format(name))
-            data = action()
-            if data is not None:
-                send_data_sync(data)
-            print("PASS {}".format(name))
+        from tack import scheduler
+
+        scheduler.solve_now(sc.doc)
     except Exception:
-        with websocket_output_sync():
-            print("FAIL {}".format(name))
-            traceback.print_exc()
-        raise
+        pass
+
+
+connection = SocketConnection()
+install_os_environment(connection)
+
+
+def run_step(name, action, *, send_done=False):
+    with OutputParasite(connection):
+        print("START {}".format(name))
+        data = action()
+        print("PASS {}".format(name))
+
+    # Send completion only after OutputParasite has flushed. The parent can
+    # safely launch the next Rhino script once this message is acknowledged.
+    connection.send_data(
+        {"__run_step__": name} if data is None else data
+    )
+    if send_done:
+        connection.send_done()
+
+
+@contextmanager
+def suppress_break_alerts():
+    from tack import link
+
+    breaks = []
+    original_break_link = link.break_link
+
+    def record_break(state, reason):
+        state["broken"] = True
+        breaks.append(reason)
+
+    link.break_link = record_break
+    try:
+        yield breaks
+    finally:
+        link.break_link = original_break_link
 
 
 def box(minimum, maximum):

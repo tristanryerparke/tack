@@ -64,10 +64,6 @@ def _vertex_analyzer(geometry):
     return None
 
 
-def _supports_vertex_anchors(geometry):
-    return _vertex_analyzer(geometry) is not None
-
-
 def _pick_anchor(obj, role):
     analyzer = bbox_analysis
     vertex_analyzer = _vertex_analyzer(obj.Geometry)

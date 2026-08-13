@@ -68,25 +68,6 @@ if __name__ == "__main__":
             no_metadata="--no_metadata" in sys.argv[1:],
         )
 
-    if not utils.DEBUG:
-        run()
-    else:
-        try:
-            from rhino_watcher import try_send_end_sync
-            from rhino_watcher import try_send_quit_sync
-            from rhino_watcher import websocket_output_if_available_sync
-        except ImportError:
-            run()
-        else:
-            try:
-                with websocket_output_if_available_sync():
-                    result = run()
-            except Exception:
-                with websocket_output_if_available_sync():
-                    traceback.print_exc()
-                try_send_quit_sync()
-            else:
-                if result == Result.Success:
-                    try_send_end_sync()
-                else:
-                    try_send_quit_sync()
+    from tack.watcher import run_entrypoint
+
+    run_entrypoint(run, utils.DEBUG)

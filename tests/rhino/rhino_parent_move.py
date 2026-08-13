@@ -7,7 +7,6 @@ sys.modules.pop("common", None)
 from common import STATE_KEY
 from common import assert_close
 from common import pause
-from common import point_data
 from common import point_from_data
 from common import rs
 from common import run_step
@@ -17,25 +16,36 @@ from common import translated
 
 
 MOVE = Rhino.Geometry.Vector3d(10, 0, 0)
+STEP_KEY = "parent_move_armed"
 
 
-def test_parent_move():
+def arm_parent_move():
+    state = sc.sticky[STATE_KEY]
+    assert rs.LockObject(state["child_id"]), "Could not lock the child"
+    assert rs.IsObjectLocked(state["child_id"]), "Child did not become locked"
+    rs.UnselectAllObjects()
+    assert rs.SelectObject(state["parent_id"]), "Could not select the parent"
+    state[STEP_KEY] = True
+    pause("before parent move")
+
+
+def collect_parent_move():
     _, metadata, runtime, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
     doc = sc.doc
-    state = sc.sticky.get(STATE_KEY)
-    assert state is not None, "Missing fixture; run setup_bbox_circles first"
-
-    rs.UnselectAllObjects()
-    assert rs.SelectObject(state["parent_id"]), "Could not select the parent"
-    pause("before parent move")
-    assert rs.Command("_Move 0,0,0 10,0,0", echo=False), "Rhino Move command failed"
+    state = sc.sticky[STATE_KEY]
+    state.pop(STEP_KEY)
     pause("after parent move")
 
     tack_state = runtime.states(doc)[state["link_id"]]
     child = utils.find_object(doc, tack_state["child_id"])
     assert child is not None, "Tack lost the child object"
+    assert rs.IsObjectLocked(child.Id), "Tack did not preserve the child lock"
+    assert not tack_state["display"].get("dirty", True), (
+        "Tack display remained dirty after moving the locked child"
+    )
+    state["child_id"] = child.Id
     saved_link = metadata.read_link(child, state["link_id"])
     assert saved_link is not None, "Child lost Tack metadata after the parent moved"
     parent = utils.find_object(doc, saved_link["parent_id"])
@@ -63,21 +73,17 @@ def test_parent_move():
         )
 
     _, anchor_index, anchor_point = state["child_anchor"]
-    linked_child = dict(child_after)[anchor_index]
     assert_close(
-        linked_child,
+        dict(child_after)[anchor_index],
         translated(point_from_data(anchor_point), MOVE),
         tolerance,
         "child anchor",
     )
-    return {
-        "name": "parent_move_translates_child",
-        "child_anchors": [point_data(point) for _, point in child_after],
-        "expected_child_anchors": [
-            point_data(translated(point_from_data(point), MOVE))
-            for _, point in state["child_before"]
-        ],
-    }
 
 
-run_step("test_parent_move_translates_child", test_parent_move)
+action = (
+    collect_parent_move
+    if sc.sticky.get(STATE_KEY, {}).get(STEP_KEY)
+    else arm_parent_move
+)
+run_step(action.__name__, action)

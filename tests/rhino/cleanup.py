@@ -19,12 +19,16 @@ def _is_test_object(obj):
 
 
 def cleanup():
-    handlers, metadata, runtime, _ = tack_modules()
+    handlers, metadata, runtime, utils = tack_modules()
     doc = sc.doc
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
 
     state = sc.sticky.pop(STATE_KEY, {})
+    utils.set_setting(
+        "allow_child_movement",
+        state.get("original_allow_child_movement", False),
+    )
     object_ids = []
 
     def add(object_id):
@@ -44,6 +48,7 @@ def cleanup():
 
     for object_id in object_ids:
         if doc.Objects.Find(object_id) is not None:
+            rs.UnlockObject(object_id)
             assert rs.DeleteObject(object_id), "Could not delete test object {}".format(
                 object_id
             )
@@ -75,4 +80,4 @@ def cleanup():
     pause("fixture removed")
 
 
-run_step("cleanup_anchor_pair", cleanup)
+run_step("cleanup_anchor_pair", cleanup, send_done=True)

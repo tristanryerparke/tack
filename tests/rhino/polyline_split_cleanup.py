@@ -1,6 +1,7 @@
 import scriptcontext as sc
 
 from common import TEST_OBJECT_KEY
+from common import run_step
 from common import tack_modules
 
 
@@ -15,7 +16,8 @@ def _is_marked(obj):
 
 
 def cleanup():
-    handlers, metadata, runtime, _ = tack_modules()
+    handlers, metadata, runtime, utils = tack_modules()
+    utils.ADVANCED_RECONCILIATION = False
     doc = sc.doc
     handlers.unsubscribe()
     runtime.stop_runtime(doc)
@@ -46,4 +48,4 @@ def cleanup():
     )
 
 
-cleanup()
+run_step("polyline_split_cleanup", cleanup, send_done=True)

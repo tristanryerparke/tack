@@ -40,13 +40,43 @@ def mark_display_dirty(state):
 
 
 def mark_object_ids_dirty(doc, object_ids):
+    link_ids = []
     for state in states(doc, create=False).values():
-        if any(
-            utils.same_id(object_id, state[role + "_id"])
-            for object_id in object_ids
+        matching_roles = [
+            role
             for role in ("parent", "child")
-        ):
+            if any(
+                utils.same_id(object_id, state[role + "_id"])
+                for object_id in object_ids
+            )
+        ]
+        if matching_roles:
             mark_display_dirty(state)
+            pending_ids = state.setdefault("replacement_pending_ids", [])
+            pending_roles = state.setdefault(
+                "replacement_reconcile_roles",
+                [],
+            )
+            for object_id in object_ids:
+                if not any(
+                    utils.same_id(object_id, pending_id)
+                    for pending_id in pending_ids
+                ):
+                    pending_ids.append(str(object_id))
+            for role in matching_roles:
+                if role not in pending_roles:
+                    pending_roles.append(role)
+            link_ids.append(state["link_id"])
+    return link_ids
+
+
+def clear_replacement_pending(state, role):
+    pending_roles = state.get("replacement_reconcile_roles", [])
+    if role in pending_roles:
+        pending_roles.remove(role)
+    if not pending_roles:
+        state.pop("replacement_reconcile_roles", None)
+        state.pop("replacement_pending_ids", None)
 
 
 def set_display_clean(state, parent_anchor, child_anchor):

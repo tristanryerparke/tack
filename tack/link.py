@@ -24,6 +24,8 @@ def break_link(state, reason):
     if state.get("broken"):
         return
     state["broken"] = True
+    state.pop("replacement_pending_ids", None)
+    state.pop("replacement_reconcile_roles", None)
     message = (
         "The Tack link between objects\n"
         "{} (parent) --> {} (child)\n"
@@ -127,6 +129,23 @@ def _adopt_candidate(
         old_anchors,
         tolerance,
     )
+    if (
+        new_index is None
+        and utils.same_id(candidate.Id, state[role + "_id"])
+        and role in state.get("replacement_reconcile_roles", ())
+        and len(new_anchors) == len(old_anchors)
+    ):
+        candidate_indexes = dict(new_anchors)
+        saved_index = int(anchor["index"])
+        if saved_index in candidate_indexes:
+            new_index = saved_index
+            if utils.DEBUG:
+                print(
+                    "[Tack anchor] accepting same-topology moved {} anchor index={}".format(
+                        role,
+                        saved_index,
+                    )
+                )
 
     if utils.DEBUG:
         old_index = int(anchor["index"])
@@ -164,6 +183,7 @@ def _adopt_candidate(
             new_anchor,
         )
         state[role + "_anchors"] = new_anchors
+        runtime.clear_replacement_pending(state, role)
         _restore_link(state)
     finally:
         state["busy"] = was_busy
@@ -177,26 +197,32 @@ def _adopt_candidate(
 
 
 def _candidate(doc, event, event_name, object_ids):
-    candidate = None
-    if event_name != "DeleteRhinoObject":
-        candidate = utils.event_object(doc, event, object_ids)
-    if candidate is not None:
-        return candidate
-    for object_id in object_ids:
-        candidate = utils.find_object(doc, object_id)
-        if candidate is not None:
-            return candidate
-    return None
+    # Replacement reconciliation runs after the event, so do not try to
+    # recover an old object by ID. Only use an object explicitly supplied by
+    # the event; idle reconciliation discovers replacements through metadata.
+    if event_name == "DeleteRhinoObject":
+        return None
+    return utils.event_object(doc, event, object_ids=())
 
 
 def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
+    # Same-ID replacements still need anchor validation even when advanced
+    # reconciliation is disabled. Only different-ID candidates require the
+    # advanced replacement path.
     if candidate is None:
         return None, parent_obj, child_obj
     role = metadata.candidate_role(state, candidate)
+    same_id = role is not None and utils.same_id(
+        candidate.Id,
+        state[role + "_id"],
+    )
     if role is None or (
         not state.get("broken")
-        and utils.same_id(candidate.Id, state[role + "_id"])
+        and same_id
+        and role not in state.get("replacement_reconcile_roles", ())
     ):
+        return role, parent_obj, child_obj
+    if not utils.get_setting("advanced_reconciliation", doc) and not same_id:
         return role, parent_obj, child_obj
 
     link = _stored_link(doc, state, child_obj=child_obj)
@@ -223,6 +249,8 @@ def event_may_affect_link(
     ):
         return True
 
+    if not utils.get_setting("advanced_reconciliation", doc):
+        return False
     candidate = _candidate(doc, event, event_name, object_ids)
     return metadata.candidate_role(state, candidate) is not None
 
@@ -241,6 +269,28 @@ def maintain_link(
         return None
 
     object_ids = list(object_ids or utils.event_object_ids(event))
+
+    pending_failed_roles = set()
+    for pending_role in tuple(
+        state.get("replacement_reconcile_roles", ())
+    ):
+        pending_id = state.get(pending_role + "_id")
+        pending_candidate = utils.find_object(doc, pending_id)
+        if pending_candidate is None:
+            continue
+        candidate_role, parent_obj, child_obj = _adopt_event_candidate(
+            doc,
+            state,
+            pending_candidate,
+            parent_obj,
+            child_obj,
+        )
+        if (
+            candidate_role == pending_role
+            and pending_role
+            in state.get("replacement_reconcile_roles", ())
+        ):
+            pending_failed_roles.add(pending_role)
 
     related = any(
         utils.same_id(object_id, state[role + "_id"])
@@ -263,6 +313,21 @@ def maintain_link(
     parent = parent_obj or utils.find_object(doc, state["parent_id"])
     child = child_obj or utils.find_object(doc, state["child_id"])
 
+    if pending_failed_roles:
+        for failed_role in pending_failed_roles:
+            if (
+                utils.find_object(doc, state[failed_role + "_id"])
+                is not None
+            ):
+                runtime.clear_replacement_pending(state, failed_role)
+                break_link(
+                    state,
+                    "The linked {} anchor could not be uniquely reconciled after the object was replaced.".format(
+                        failed_role
+                    ),
+                )
+                return None
+
     if parent is None or child is None:
         missing_role = "parent" if parent is None else "child"
         candidate = _candidate(doc, event, event_name, object_ids)
@@ -276,7 +341,13 @@ def maintain_link(
         parent = parent_obj or utils.find_object(doc, state["parent_id"])
         child = child_obj or utils.find_object(doc, state["child_id"])
 
-        if parent is None or child is None:
+        # Advanced reconciliation scans metadata-bearing replacement objects;
+        # without it, basic reconciliation can only continue with the stored
+        # object IDs.
+        if (
+            utils.get_setting("advanced_reconciliation", doc)
+            and (parent is None or child is None)
+        ):
             for candidate in metadata.candidates(doc, state):
                 candidate_role, parent_obj, child_obj = _adopt_event_candidate(
                     doc,
@@ -324,6 +395,45 @@ def maintain_link(
 
     _refresh_anchor_snapshots(state, result)
 
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    if utils.get_setting("allow_child_movement", doc):
+        display = state.get("display") or {}
+        previous_parent_anchor = display.get("parent_anchor")
+        parent_was_stationary = (
+            previous_parent_anchor is not None
+            and previous_parent_anchor.DistanceTo(result["parent_anchor"])
+            <= tolerance
+        )
+        child_was_moved = (
+            result["target_child_anchor"].DistanceTo(
+                result["child_anchor"]
+            )
+            > tolerance
+        )
+        if parent_was_stationary and child_was_moved:
+            result["link"]["offset"] = [
+                result["child_anchor"].X - result["parent_anchor"].X,
+                result["child_anchor"].Y - result["parent_anchor"].Y,
+                result["child_anchor"].Z - result["parent_anchor"].Z,
+            ]
+            if not metadata.save_link(doc, state, result["link"]):
+                break_link(
+                    state,
+                    "The Tack offset could not be saved after the child moved.",
+                )
+                return result
+            runtime.set_display_clean(
+                state,
+                result["parent_anchor"],
+                result["child_anchor"],
+            )
+            utils.debug(
+                "[Tack anchor] child movement accepted; updated offset={}".format(
+                    result["link"]["offset"]
+                )
+            )
+            return result
+
     if utils.DEBUG:
         print(
             "[Tack anchor] maintain parent={} child={}".format(
@@ -353,12 +463,22 @@ def maintain_link(
 
     state["busy"] = True
     try:
-        if not result["child"].Geometry.Transform(result["correction"]):
-            utils.debug("[Tack anchor] child geometry translation failed.")
+        transformed_child_id = doc.Objects.Transform(
+            result["child"].Id,
+            result["correction"],
+            True,
+        )
+        transformed_child = utils.find_object(doc, transformed_child_id)
+        if transformed_child is None:
+            utils.debug("[Tack anchor] child transformation failed.")
             return result
-        if not result["child"].CommitChanges():
-            utils.debug("[Tack anchor] child changes could not be committed.")
-            return result
+
+        # Rhino replaces the object when transforming through the object table,
+        # including for locked objects. Events raised by that replacement are
+        # suppressed while busy, so update the runtime relationship directly.
+        state["child_id"] = transformed_child.Id
+        result["child"] = transformed_child
+
         if not metadata.save_link(doc, state, result["link"]):
             break_link(
                 state,
