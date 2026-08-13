@@ -138,6 +138,8 @@ def _record_event(label, event, old_obj=None, new_obj=None):
         return
     doc = state["doc"]
     object_id = getattr(event, "ObjectId", None)
+    if label == "AddRhinoObject" and object_id is not None:
+        state["fixture_ids"].append(object_id)
     the_object = getattr(event, "TheObject", None)
     lookup = state["utils"].find_object(doc, object_id)
     entry = {
@@ -337,6 +339,12 @@ def setup_trace():
         "sequence": 0,
         "original_maintain_link": link.maintain_link,
         "original_break_link": link.break_link,
+        "trace_handlers": (
+            trace_replace,
+            trace_add,
+            trace_delete,
+            trace_undelete,
+        ),
     }
     sc.sticky[STATE_KEY] = state
     Rhino.RhinoDoc.ReplaceRhinoObject += trace_replace
@@ -471,7 +479,10 @@ def arm_boolean_difference_parent():
     state = _prepare_top_level_scenario("boolean_difference_parent")
     link_state = state["runtime"].states(state["doc"])[state["link_id"]]
     rs.UnselectAllObjects()
-    assert rs.SelectObject(link_state["parent_id"])
+    return {
+        "parent_id": str(link_state["parent_id"]),
+        "cutter_id": str(state["cutter_id"]),
+    }
 
 
 def collect_deferred_scenario():
@@ -502,10 +513,33 @@ def finish_trace():
     handlers = state["handlers"]
     runtime = state["runtime"]
     handlers.unsubscribe()
-    Rhino.RhinoDoc.ReplaceRhinoObject -= trace_replace
-    Rhino.RhinoDoc.AddRhinoObject -= trace_add
-    Rhino.RhinoDoc.DeleteRhinoObject -= trace_delete
-    Rhino.RhinoDoc.UndeleteRhinoObject -= trace_undelete
+    trace_handlers = state.get("trace_handlers")
+    if trace_handlers is None:
+        old_globals = getattr(state["link"].maintain_link, "__globals__", {})
+        trace_handlers = tuple(
+            old_globals.get(name)
+            for name in (
+                "trace_replace",
+                "trace_add",
+                "trace_delete",
+                "trace_undelete",
+            )
+        )
+    for event, handler in zip(
+        (
+            Rhino.RhinoDoc.ReplaceRhinoObject,
+            Rhino.RhinoDoc.AddRhinoObject,
+            Rhino.RhinoDoc.DeleteRhinoObject,
+            Rhino.RhinoDoc.UndeleteRhinoObject,
+        ),
+        trace_handlers,
+    ):
+        if handler is None:
+            continue
+        try:
+            event -= handler
+        except ValueError:
+            pass
     state["link"].maintain_link = state["original_maintain_link"]
     state["link"].break_link = state["original_break_link"]
     runtime.stop_runtime(state["doc"])

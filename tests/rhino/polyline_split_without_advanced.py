@@ -2,67 +2,71 @@ import scriptcontext as sc
 
 from common import assert_close
 from common import point_from_data
-from common import rs
 from common import run_step
-from common import suppress_break_alerts
 from common import tack_modules
 
 
 POLYLINE_SPLIT_STATE_KEY = "Tack.IntegrationTest.PolylineSplit"
+STEP_KEY = "Tack.IntegrationTest.PolylineSplitWithoutAdvanced"
 
 
-def split_without_advanced_reconciliation():
-    _, metadata, runtime, utils = tack_modules()
-    import tack.analysis.bbox as bbox_analysis
+def arm_split_without_advanced():
+    _, _, _, utils = tack_modules()
+    from tack import link
 
-    doc = sc.doc
     fixture = sc.sticky[POLYLINE_SPLIT_STATE_KEY]
     utils.ADVANCED_RECONCILIATION = False
-    link_id = fixture["link_id"]
-    state = runtime.states(doc)[link_id]
-    parent_id = fixture["parent_id"]
-    cutter_id = fixture["cutter_id"]
+    breaks = []
+    original_break_link = link.break_link
 
-    with suppress_break_alerts() as breaks:
-        rs.UnselectAllObjects()
-        command_result = rs.Command(
-            "_Split _SelID {} _Enter _SelID {} _Enter".format(
-                parent_id,
-                cutter_id,
-            ),
-            echo=False,
-        )
-        from tack import scheduler
+    def record_break(state, reason):
+        state["broken"] = True
+        breaks.append(reason)
 
-        scheduler.solve_now(doc)
+    link.break_link = record_break
+    sc.sticky[STEP_KEY] = {
+        "breaks": breaks,
+        "original_break_link": original_break_link,
+        "state": fixture,
+    }
 
-    assert command_result, "Rhino Split command failed"
+
+def collect_split_without_advanced():
+    _, metadata, runtime, utils = tack_modules()
+    import tack.analysis.bbox as bbox_analysis
+    from tack import link
+    from tack import scheduler
+
+    step = sc.sticky.pop(STEP_KEY)
+    fixture = step["state"]
+    try:
+        scheduler.solve_now(sc.doc)
+    finally:
+        link.break_link = step["original_break_link"]
+
+    state = runtime.states(sc.doc)[fixture["link_id"]]
     assert state["broken"], "Split did not break Tack"
-    assert breaks, "Split did not invoke the Tack break alert"
+    assert step["breaks"], "Split did not invoke the Tack break alert"
+    assert "linked parent" in step["breaks"][0]
 
-    child = utils.find_object(doc, state["child_id"])
+    child = utils.find_object(sc.doc, state["child_id"])
     assert child is not None
-    saved_link = metadata.read_link(child, link_id)
+    saved_link = metadata.read_link(child, fixture["link_id"])
     assert saved_link is not None
-    expected_child_anchor = point_from_data(fixture["child_anchor"])
     child_anchor = dict(bbox_analysis.anchors(child))[
         saved_link["child_anchor"]["index"]
     ]
     assert_close(
         child_anchor,
-        expected_child_anchor,
-        max(doc.ModelAbsoluteTolerance, 1e-7),
+        point_from_data(fixture["child_anchor"]),
+        max(sc.doc.ModelAbsoluteTolerance, 1e-7),
         "split child remained in place",
     )
 
-    return {
-        "name": "polyline_split_breaks_without_advanced_reconciliation",
-        "reason": breaks[0],
-        "child_id": str(child.Id),
-    }
 
-
-run_step(
-    "polyline_split_without_advanced_reconciliation",
-    split_without_advanced_reconciliation,
+action = (
+    collect_split_without_advanced
+    if STEP_KEY in sc.sticky
+    else arm_split_without_advanced
 )
+run_step(action.__name__, action)

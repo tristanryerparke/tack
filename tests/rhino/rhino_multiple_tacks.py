@@ -17,20 +17,17 @@ from common import translated
 
 
 MOVE = Rhino.Geometry.Vector3d(0, 10, 0)
+STEP_KEY = "multiple_tacks_move"
 
 
-def test_multiple_tacks():
-    _, metadata, runtime, utils = tack_modules()
+def arm_multiple_tacks_move():
+    _, _, runtime, utils = tack_modules()
     import tack.analysis.bbox as bbox_analysis
 
-    doc = sc.doc
-    state = sc.sticky.get(STATE_KEY)
-    assert state is not None, "Missing fixture; run setup_bbox_circles first"
+    state = sc.sticky[STATE_KEY]
     assert len(runtime.states(sc.doc)) == 2
-
-    first_child = utils.find_object(doc, state["child_id"])
-    second_child = utils.find_object(doc, state["second_child_id"])
-    first_child_before = [
+    first_child = utils.find_object(sc.doc, state["child_id"])
+    state[STEP_KEY] = [
         (index, point_data(point))
         for index, point in bbox_analysis.anchors(first_child)
     ]
@@ -40,7 +37,15 @@ def test_multiple_tacks():
     assert rs.SelectObject(
         state["second_parent_id"]
     ), "Could not select the second parent"
-    assert rs.Command("_Move 0,0,0 0,10,0", echo=False), "Rhino Move command failed"
+
+
+def collect_multiple_tacks_move():
+    _, metadata, _, utils = tack_modules()
+    import tack.analysis.bbox as bbox_analysis
+
+    doc = sc.doc
+    state = sc.sticky[STATE_KEY]
+    first_child_before = state.pop(STEP_KEY)
     pause("after simultaneous move")
 
     first_child = utils.find_object(doc, state["child_id"])
@@ -87,23 +92,10 @@ def test_multiple_tacks():
         assert metadata.read_link(child, link_id) is not None
         assert metadata.read_parent_links(parent).get(link_id) == str(child.Id)
 
-    return {
-        "name": "multiple_tacks_survive_simultaneous_move",
-        "first_child_anchors": [
-            point_data(point) for _, point in first_child_after
-        ],
-        "expected_first_child_anchors": [
-            point_data(translated(point_from_data(point), MOVE))
-            for _, point in first_child_before
-        ],
-        "second_child_anchors": [
-            point_data(point) for _, point in second_child_after
-        ],
-        "expected_second_child_anchors": [
-            point_data(translated(point_from_data(point), MOVE))
-            for _, point in state["second_child_before"]
-        ],
-    }
 
-
-run_step("test_multiple_tacks", test_multiple_tacks)
+action = (
+    collect_multiple_tacks_move
+    if STEP_KEY in sc.sticky.get(STATE_KEY, {})
+    else arm_multiple_tacks_move
+)
+run_step(action.__name__, action)

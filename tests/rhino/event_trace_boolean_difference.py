@@ -7,7 +7,7 @@ from event_command_traces import arm_boolean_difference_parent
 
 
 def run():
-    arm_boolean_difference_parent()
+    return arm_boolean_difference_parent()
 
 
 run_step(

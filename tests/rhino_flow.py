@@ -1,7 +1,8 @@
-import time
+import json
 
-from run_in_rhino.pipe import run_command, run_script
+from run_in_rhino.pipe import run_script
 from run_in_rhino.server import RunContext, server
+from run_in_rhino.utils import command_script
 
 
 def run_flow(actions, *, environment=None):
@@ -10,25 +11,35 @@ def run_flow(actions, *, environment=None):
     results = []
     position = 0
     last_data = {}
-    current_kind = None
+    command_callback = None
 
     def advance():
-        nonlocal last_data, current_kind
-        nonlocal position
-        while position < len(actions):
-            kind, value = actions[position]
-            position += 1
-            current_kind = kind
-            if kind in ("command", "command_async"):
-                command = value.format(**last_data)
-                print("DEBUG parent sending command: {}".format(command), flush=True)
-                run_command(command, block=kind != "command_async")
-                print("DEBUG parent waiting 1s for Rhino command", flush=True)
-                time.sleep(1.0)
-                continue
-            print("DEBUG parent sending script: {}".format(value), flush=True)
-            run_script(script_path=value)
+        nonlocal command_callback, position
+        if position >= len(actions):
             return
+
+        kind, value = actions[position]
+        position += 1
+        if kind == "command":
+            command = value.format(**last_data)
+            command_callback = "rhino_flow_command_{}".format(position)
+            print(
+                "DEBUG parent sending command {}: {}".format(
+                    command_callback,
+                    command,
+                ),
+                flush=True,
+            )
+            run_script(
+                script=command_script(
+                    command,
+                    callback=command_callback,
+                )
+            )
+            return
+
+        print("DEBUG parent sending script: {}".format(value), flush=True)
+        run_script(script_path=value)
 
     try:
         for status, data in events:
@@ -36,19 +47,42 @@ def run_flow(actions, *, environment=None):
                 print("DEBUG parent saw ready", flush=True)
                 advance()
             elif status == "terminal":
-                print("DEBUG Rhino terminal: {}".format(data), flush=True)
+                # server() already prints forwarded Rhino terminal output.
+                continue
             elif status == "data":
-                print("DEBUG parent received data: {}".format(data), flush=True)
-                is_step_marker = isinstance(data, dict) and (
-                    "__run_step__" in data or "__command_done__" in data
-                )
-                if isinstance(data, dict) and not is_step_marker:
-                    last_data.clear()
-                    last_data.update(data)
-                if not is_step_marker:
-                    results.append(data)
-                if position < len(actions):
+                payload = json.loads(data) if isinstance(data, str) else data
+                callback = payload.get("callback") if isinstance(payload, dict) else None
+                if isinstance(payload, dict):
+                    summary = (
+                        callback
+                        or payload.get("__run_step__")
+                        or payload.get("name")
+                        or sorted(payload)
+                    )
+                else:
+                    summary = payload
+                print("DEBUG parent received data: {}".format(summary), flush=True)
+                if command_callback is not None:
+                    if callback != command_callback:
+                        continue
+                    assert payload["succeeded"], "Rhino command failed: {}".format(
+                        payload["command"]
+                    )
+                    print(
+                        "DEBUG parent received command callback: {}".format(callback),
+                        flush=True,
+                    )
+                    command_callback = None
                     advance()
+                    continue
+
+                is_step_marker = isinstance(payload, dict) and "__run_step__" in payload
+                if isinstance(payload, dict) and not is_step_marker:
+                    last_data.clear()
+                    last_data.update(payload)
+                if not is_step_marker:
+                    results.append(payload)
+                advance()
             elif status == "done":
                 print("DEBUG parent saw done", flush=True)
     finally:

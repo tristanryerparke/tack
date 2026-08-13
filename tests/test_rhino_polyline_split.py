@@ -12,7 +12,7 @@ def test_polyline_split_and_undo_preserve_tack():
             ("script", RHINO_TESTS / "polyline_split_setup.py"),
             ("command", "_Split _SelID {parent_id} _Enter _SelID {cutter_id} _Enter"),
             ("script", RHINO_TESTS / "polyline_split_collect.py"),
-            ("command_async", "_Undo _Enter"),
+            ("command", "_Undo _Enter"),
             ("script", RHINO_TESTS / "polyline_split_undo_collect.py"),
             ("script", RHINO_TESTS / "polyline_split_cleanup.py"),
         ],

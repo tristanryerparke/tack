@@ -2,7 +2,6 @@ from contextlib import contextmanager
 import importlib
 import os
 import sys
-import time
 import traceback
 
 from run_in_rhino.rhino_env.client import SocketConnection
@@ -14,8 +13,6 @@ import rhinoscriptsyntax as rs
 import scriptcontext as sc
 
 
-# Set to 0 for fast runs; leave positive to watch each step in Rhino.
-SLOW_SECONDS = 0
 STATE_KEY = "Tack.IntegrationTest.ParentMove"
 TEST_OBJECT_KEY = "Tack.IntegrationTest.Object"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,9 +44,6 @@ def pause(label):
         scheduler.solve_now(sc.doc)
     except Exception:
         pass
-    if SLOW_SECONDS:
-        print("waiting {} seconds: {}".format(SLOW_SECONDS, label))
-        time.sleep(SLOW_SECONDS)
 
 
 connection = SocketConnection()
