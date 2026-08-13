@@ -1,0 +1,153 @@
+{
+  "host": {
+    "name": "Rhino3D",
+    "version": "8.34.26223\u002B11002",
+    "os": "macOS",
+    "arch": "arm64"
+  },
+  "id": "e59443d4-ab7b-4e21-8aa3-66a7ced1ae27",
+  "identity": {
+    "name": "Tack",
+    "version": "0.1",
+    "publisher": {
+      "email": "tristanryerparke@gmail.com",
+      "name": "Tristan Ryer-Parke"
+    },
+    "description": "Tack allows you to set up parent-child relationships between objects in rhino and have them maintained after translating the parent. It works through programattic analysis of a vertex or bounding box point on the object, and therfore does not rely on any history or state other than object metadata.",
+    "image": {
+      "light": {
+        "type": "svg",
+        "data": "PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMHB0IDBwdCA0OHB0IDQ4cHQiIGZpbGwtZGFyaz0iI0ZGRiIgc3Ryb2tlLWRhcms9Im5vbmUiPgogIDxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9InJnYigxMDcsIDEyOSwgMjA0KSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1waW4taWNvbiBsdWNpZGUtcGluIj4KICAgIDxwYXRoIGQ9Ik0xMiAxN3Y1IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIC8\u002BCiAgICA8cGF0aCBkPSJNOSAxMC43NmEyIDIgMCAwIDEtMS4xMSAxLjc5bC0xLjc4LjlBMiAyIDAgMCAwIDUgMTUuMjRWMTZhMSAxIDAgMCAwIDEgMWgxMmExIDEgMCAwIDAgMS0xdi0uNzZhMiAyIDAgMCAwLTEuMTEtMS43OWwtMS43OC0uOUEyIDIgMCAwIDEgMTUgMTAuNzZWN2ExIDEgMCAwIDEgMS0xIDIgMiAwIDAgMCAwLTRIOGEyIDIgMCAwIDAgMCA0IDEgMSAwIDAgMSAxIDF6IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIC8\u002BCiAgPC9zdmc\u002BCjwvc3ZnPg=="
+      },
+      "dark": {
+        "type": "svg",
+        "data": "PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMHB0IDBwdCA0OHB0IDQ4cHQiIGZpbGwtZGFyaz0iI0ZGRiIgc3Ryb2tlLWRhcms9Im5vbmUiPgogIDxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9InJnYigxMDcsIDEyOSwgMjA0KSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1waW4taWNvbiBsdWNpZGUtcGluIj4KICAgIDxwYXRoIGQ9Ik0xMiAxN3Y1IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIC8\u002BCiAgICA8cGF0aCBkPSJNOSAxMC43NmEyIDIgMCAwIDEtMS4xMSAxLjc5bC0xLjc4LjlBMiAyIDAgMCAwIDUgMTUuMjRWMTZhMSAxIDAgMCAwIDEgMWgxMmExIDEgMCAwIDAgMS0xdi0uNzZhMiAyIDAgMCAwLTEuMTEtMS43OWwtMS43OC0uOUEyIDIgMCAwIDEgMTUgMTAuNzZWN2ExIDEgMCAwIDEgMS0xIDIgMiAwIDAgMCAwLTRIOGEyIDIgMCAwIDAgMCA0IDEgMSAwIDAgMSAxIDF6IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIC8\u002BCiAgPC9zdmc\u002BCjwvc3ZnPg=="
+      },
+      "projectIcon": {
+        "light": {
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAGKADAAQAAAABAAAAGAAAAADiNXWtAAABl0lEQVRIDWNgGCAgALR3PhC/B\u002BL/RGCQWpAeosEGoEpiDEZWswCb6YzYBKGGMwQkzmSQVjDGoQQi/PTBWYYN89NBnA9ALAgRRZBMCCbFLKyOxSoItAoURP4gK/kEpRhsPIoYFDUcQFw4uH/jAMPpA7MZXj\u002B/CRNbCGQkwDgwmhnGQKN3APmaQCz588dnjg9vHzJomwSjKNmyJI/h/esHMDGQ4QVA/AMmAKNZYAw0GhSeAVCx/0iuhCv79P4ZjI0rFMDy1IwDmIUo9PC3IB/kXxEJNRRvo4mB1WAogArgCiJQBN8H4gkgdfqWkSAKBSCJgdSA1MISBYo6bMk0AahiORAL8ApIMrgENjCo6rijaAJxRCTUGUQl1RhePLnM8OvHFwGgUAQQPwTiC0AMB9iS2HmgrIGNZxGDvkUUXCE\u002BxsUTyxiObO8DKQEZboisFlsQGYAUEGs4mlqwXmQLsLEfAAWRS0lS2CjBg81wkFgAEIMUkmIwSO0DIAbppQjALCXaEGxxQLRmYhQOfQtwFde4fH8Ql8SAiQMAamR9iDqvw20AAAAASUVORK5CYII=",
+          "width": 24,
+          "height": 24
+        },
+        "dark": {
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAGKADAAQAAAABAAAAGAAAAADiNXWtAAABl0lEQVRIDWNgGCAgALR3PhC/B\u002BL/RGCQWpAeosEGoEpiDEZWswCb6YzYBKGGMwQkzmSQVjDGoQQi/PTBWYYN89NBnA9ALAgRRZBMCCbFLKyOxSoItAoURP4gK/kEpRhsPIoYFDUcQFw4uH/jAMPpA7MZXj\u002B/CRNbCGQkwDgwmhnGQKN3APmaQCz588dnjg9vHzJomwSjKNmyJI/h/esHMDGQ4QVA/AMmAKNZYAw0GhSeAVCx/0iuhCv79P4ZjI0rFMDy1IwDmIUo9PC3IB/kXxEJNRRvo4mB1WAogArgCiJQBN8H4gkgdfqWkSAKBSCJgdSA1MISBYo6bMk0AahiORAL8ApIMrgENjCo6rijaAJxRCTUGUQl1RhePLnM8OvHFwGgUAQQPwTiC0AMB9iS2HmgrIGNZxGDvkUUXCE\u002BxsUTyxiObO8DKQEZboisFlsQGYAUEGs4mlqwXmQLsLEfAAWRS0lS2CjBg81wkFgAEIMUkmIwSO0DIAbppQjALCXaEGxxQLRmYhQOfQtwFde4fH8Ql8SAiQMAamR9iDqvw20AAAAASUVORK5CYII=",
+          "width": 24,
+          "height": 24
+        },
+        "icoData": "AAABAAEAGBgAAAEAIAAwAgAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAYAAAAGAgGAAAA4Hc9\u002BAAAAARnQU1BAANbXlz/JngAAABEZVhJZk1NACoAAAAIAAGHaQAEAAAAAQAAABoAAAAAAAOgAQADAAAAAQABAACgAgAEAAAAAQAAABigAwAEAAAAAQAAABgAAAAA4jV1rQAAAZdJREFUSA1jYBggIAC0dz4Qvwfi/0RgkFqQHqLBBqBKYgxGVrMAm\u002BmM2AShhjMEJM5kkFYwxqEEIvz0wVmGDfPTQZwPQCwIEUWQTAgmxSysjsUqCLQKFET\u002BICv5BKUYbDyKGBQ1HEBcOLh/4wDD6QOzGV4/vwkTWwhkJMA4MJoZxkCjdwD5mkAs\u002BfPHZ44Pbx8yaJsEoyjZsiSP4f3rBzAxkOEFQPwDJgCjWWAMNBoUngFQsf9IroQr\u002B/T\u002BGYyNKxTA8tSMA5iFKPTwtyAf5F8RCTUUb6OJgdVgKIAK4AoiUATfB\u002BIJIHX6lpEgCgUgiYHUgNTCEgWKOmzJNAGoYjkQC/AKSDK4BDYwqOq4o2gCcUQk1BlEJdUYXjy5zPDrxxcBoFAEED8E4gtADAfYkth5oKyBjWcRg75FFFwhPsbFE8sYjmzvAykBGW6IrBZbEBmAFBBrOJpasF5kC7CxHwAFkUtJUtgowYPNcJBYABCDFJJiMEjtAyAG6aUIwCwl2hBscUC0ZmIUDn0LcBXXuHx/EJfEgIkDAGpkfYg6r8NtAAAAAElFTkSuQmCC"
+      },
+      "categoryIcon": {
+        "light": {
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAA0VXHyAAABp0lEQVQ4EZ1TMUtCURQ\u002Bz/d8hYhiBI9ScGgJIcIUanFyanAJosaopT/Q7tZfaElaXZxaG0IICnMIgpakwCAbMsvUnj5f33m\u002BK1fTpQ8\u002Bz7nfOffz3utRob8IQIqCGmi7ZQWxBz6Dn642McSglsEvsA22XHLOGteWwSH4W2RkgqFIPL2VJX3GT5ZlOjVV1cn8adJFIRtv1KsZiA9ik0ckbnw3zW\u002BqVm5g4KPFaMIh56xxDfiQ96jyAnml1\u002B1oL0\u002B3RrtVn1uKpcm2\u002B3R5fkx31/lH1HLoOQE7Yt/4Cdj9CMxbFt7MxhuCTg7NrY2cYNxAGFsikeIkjSYZzGNTUtd9pHhUUhQPad5Z9kmCXBvBuME2qleBUHhzZX0Hx\u002B9jEPq0urFLrHEN5J4heEAEIkhKa6k9I5naJ3/QwN27Tk1VvdRs1KhUzFG5ePYGMQFWuSjPQRhrg4fvvlwgqzfYzE0MVfPi0xlMvsYC6BjIJ\u002BAR5p\u002BI3QVg6KAmBMQSeAjyZJJswGuGrJ0OJDpwIwfx/3Ak\u002BQqiR24Qjyxrom\u002BqgdzwKi/\u002Bk/uxiTkVvwB8eKEz96a5AAAAAElFTkSuQmCC",
+          "width": 16,
+          "height": 16
+        },
+        "dark": {
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAA0VXHyAAABp0lEQVQ4EZ1TMUtCURQ\u002Bz/d8hYhiBI9ScGgJIcIUanFyanAJosaopT/Q7tZfaElaXZxaG0IICnMIgpakwCAbMsvUnj5f33m\u002BK1fTpQ8\u002Bz7nfOffz3utRob8IQIqCGmi7ZQWxBz6Dn642McSglsEvsA22XHLOGteWwSH4W2RkgqFIPL2VJX3GT5ZlOjVV1cn8adJFIRtv1KsZiA9ik0ckbnw3zW\u002BqVm5g4KPFaMIh56xxDfiQ96jyAnml1\u002B1oL0\u002B3RrtVn1uKpcm2\u002B3R5fkx31/lH1HLoOQE7Yt/4Cdj9CMxbFt7MxhuCTg7NrY2cYNxAGFsikeIkjSYZzGNTUtd9pHhUUhQPad5Z9kmCXBvBuME2qleBUHhzZX0Hx\u002B9jEPq0urFLrHEN5J4heEAEIkhKa6k9I5naJ3/QwN27Tk1VvdRs1KhUzFG5ePYGMQFWuSjPQRhrg4fvvlwgqzfYzE0MVfPi0xlMvsYC6BjIJ\u002BAR5p\u002BI3QVg6KAmBMQSeAjyZJJswGuGrJ0OJDpwIwfx/3Ak\u002BQqiR24Qjyxrom\u002BqgdzwKi/\u002Bk/uxiTkVvwB8eKEz96a5AAAAAElFTkSuQmCC",
+          "width": 16,
+          "height": 16
+        }
+      }
+    }
+  },
+  "settings": {
+    "buildPath": "build/",
+    "buildTarget": {
+      "host": {
+        "name": "Rhino3D",
+        "version": "8"
+      },
+      "title": "Rhino3D (8.*)",
+      "slug": "rh8"
+    },
+    "publishTarget": {
+      "title": "McNeel Yak Server"
+    }
+  },
+  "codes": [
+    {
+      "id": "5d9721b6-fbac-42b1-8159-bd5d4fb1b724",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackShow",
+      "uri": "commands/tack_show.py"
+    },
+    {
+      "id": "3d0ba798-c1bb-4f89-85f0-e32e8cb37c02",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackSettings",
+      "uri": "commands/tack_settings.py"
+    },
+    {
+      "id": "c1a6656e-2c49-44d9-8210-d3b5fb877e80",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackResume",
+      "uri": "commands/tack_resume.py"
+    },
+    {
+      "id": "fb65242f-a07d-4b75-9175-0c9963b9f2f6",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackRestore",
+      "uri": "commands/tack_restore.py"
+    },
+    {
+      "id": "82c70f43-4ea7-454f-9736-b2333515964f",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackPause",
+      "uri": "commands/tack_pause.py"
+    },
+    {
+      "id": "e243b98c-ba38-41ba-8461-5765b437964e",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackHide",
+      "uri": "commands/tack_hide.py"
+    },
+    {
+      "id": "e3e23181-99dc-4872-9488-b2b59d06c07e",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackClear",
+      "uri": "commands/tack_clear.py"
+    },
+    {
+      "id": "19f84da7-2ccd-4827-b61b-60faad1186aa",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "TackAdd",
+      "uri": "commands/tack_add.py"
+    }
+  ],
+  "libraries": [
+    {
+      "type": "uri",
+      "library": {
+        "base": "file:///Users/tristanryerparke/projects-local/run-in-rhino/",
+        "language": {
+          "id": "*.*.python",
+          "version": "3.*.*"
+        }
+      }
+    }
+  ]
+}
