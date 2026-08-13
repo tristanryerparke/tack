@@ -6,7 +6,7 @@ from rhino_flow import run_flow
 RHINO_TESTS = Path(__file__).with_name("rhino")
 
 
-def test_polyline_split_and_undo_preserve_tack():
+def test_polyline_split_and_undo_preserve_tack(rhino_instance):
     results = run_flow(
         [
             ("script", RHINO_TESTS / "polyline_split_setup.py"),
@@ -16,6 +16,7 @@ def test_polyline_split_and_undo_preserve_tack():
             ("script", RHINO_TESTS / "polyline_split_undo_collect.py"),
             ("script", RHINO_TESTS / "polyline_split_cleanup.py"),
         ],
+        rhino_instance,
         environment={"debug": "true"},
     )
     setup, split, undo = results

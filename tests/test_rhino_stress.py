@@ -8,10 +8,11 @@ from run_in_rhino.server import RunContext
 RHINO_STRESS_TEST = Path(__file__).with_name("rhino") / "stress_100_relationships.py"
 
 
-def test_100_tack_relationships_update_200_objects():
+def test_100_tack_relationships_update_200_objects(rhino_instance):
     reason, results = run_rhino_python_til_done(
         script_path=RHINO_STRESS_TEST,
         context=RunContext(env={"debug": "true"}),
+        pipe_path=rhino_instance.pipe_path,
     )
     assert reason == "done"
 

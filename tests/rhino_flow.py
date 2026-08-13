@@ -5,9 +5,10 @@ from run_in_rhino.server import RunContext, server
 from run_in_rhino.utils import command_script
 
 
-def run_flow(actions, *, environment=None):
-    """Run filename-based Rhino scripts and commands through one server."""
+def run_flow(actions, rhino_instance, *, environment=None):
+    """Run filename-based Rhino scripts and commands in a dedicated Rhino."""
     events = server(context=RunContext(env=environment or {}))
+    pipe_path = rhino_instance.pipe_path
     results = []
     position = 0
     last_data = {}
@@ -34,12 +35,13 @@ def run_flow(actions, *, environment=None):
                 script=command_script(
                     command,
                     callback=command_callback,
-                )
+                ),
+                pipe_path=pipe_path,
             )
             return
 
         print("DEBUG parent sending script: {}".format(value), flush=True)
-        run_script(script_path=value)
+        run_script(script_path=value, pipe_path=pipe_path)
 
     try:
         for status, data in events:

@@ -6,7 +6,7 @@ from rhino_flow import run_flow
 RHINO_TESTS = Path(__file__).with_name("rhino")
 
 
-def test_four_command_event_trace():
+def test_four_command_event_trace(rhino_instance):
     results = run_flow(
         [
             ("script_now", RHINO_TESTS / "event_trace_setup.py"),
@@ -28,6 +28,7 @@ def test_four_command_event_trace():
             ("script", RHINO_TESTS / "event_trace_collect.py"),
             ("script", RHINO_TESTS / "event_trace_finish.py"),
         ],
+        rhino_instance,
         environment={"debug": "true"},
     )
     result = results[-1]

@@ -6,7 +6,7 @@ from rhino_flow import run_flow
 RHINO_TESTS = Path(__file__).with_name("rhino")
 
 
-def test_child_and_parent_move_integration():
+def test_child_and_parent_move_integration(rhino_instance):
     run_flow(
         [
             ("script", RHINO_TESTS / "rhino_bbox_analysis.py"),
@@ -23,5 +23,6 @@ def test_child_and_parent_move_integration():
             ("script", RHINO_TESTS / "rhino_multiple_tacks.py"),
             ("script", RHINO_TESTS / "cleanup.py"),
         ],
+        rhino_instance,
         environment={"debug": "true"},
     )
