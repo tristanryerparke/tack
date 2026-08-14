@@ -2,8 +2,6 @@ import traceback
 
 import Rhino
 
-from tack import link
-from tack import metadata
 from tack import runtime
 from tack import scheduler
 from tack import utils
@@ -30,98 +28,22 @@ def _report_handler_error():
         _quit_watcher()
 
 
-def _event_objects(doc, event, object_ids):
-    objects = []
-
-    def add(candidate):
-        if candidate is not None and candidate not in objects:
-            objects.append(candidate)
-
-    add(utils.event_object(doc, event, object_ids))
-    for object_id in object_ids:
-        add(utils.find_object(doc, object_id))
-    return objects
-
-
-def _event_links(doc, event, object_ids):
-    saved_links = {}
-    objects = _event_objects(doc, event, object_ids)
-    for obj in objects:
-        for saved_link in metadata.links_for_object(doc, obj):
-            saved_links[saved_link["link_id"]] = saved_link
-
-    if not saved_links:
-        for saved_link in metadata.all_links(doc):
-            if not object_ids or any(
-                utils.same_id(object_id, saved_link[role + "_id"])
-                for object_id in object_ids
-                for role in ("parent", "child")
-            ):
-                saved_links[saved_link["link_id"]] = saved_link
-    return list(saved_links.values())
-
-
-def _HandleRhinoObjectEvent(label, event):
-    object_ids = []
+def EndCommandHandler(sender, event):
     try:
-        object_ids = utils.event_object_ids(event)
-        doc = getattr(event, "Document", None) or Rhino.RhinoDoc.ActiveDoc
-        if doc is None:
-            return object_ids
-        if label == "DeleteRhinoObject":
-            expired = runtime.mark_object_ids_dirty(doc, object_ids)
-            for saved_link in _event_links(doc, event, object_ids):
-                if not any(
-                    utils.same_id(saved_link["link_id"], link_id)
-                    for link_id in expired
-                ):
-                    expired.append(saved_link["link_id"])
-            if expired:
-                scheduler.expire_link_ids(doc, expired)
-                with _websocket_output():
-                    utils.debug(
-                        "[Tack anchor] DeleteRhinoObject ids={}; scheduled an idle "
-                        "recovery check for {} link(s).".format(
-                            [str(object_id) for object_id in object_ids],
-                            len(expired),
-                        )
-                    )
-            return object_ids
-
-        expired = []
-        for saved_link in _event_links(doc, event, object_ids):
-            state = runtime.state_for_link(doc, saved_link)
-            if state is None or state.get("busy"):
-                continue
-            if not link.event_may_affect_link(
-                doc,
-                state,
-                event,
-                label,
-                object_ids,
-            ):
-                continue
-            runtime.mark_display_dirty(state)
-            expired.append(saved_link["link_id"])
-            with _websocket_output():
-                utils.debug_event(label, event, state)
+        doc = Rhino.RhinoDoc.ActiveDoc
+        if doc is None or scheduler.is_solving():
+            return
+        expired = runtime.mark_changed_links_dirty(doc)
         if expired:
             scheduler.expire_link_ids(doc, expired)
+            with _websocket_output():
+                utils.debug(
+                    "[Tack anchor] EndCommand found {} changed link(s).".format(
+                        len(expired)
+                    )
+                )
     except Exception:
         _report_handler_error()
-    return object_ids
-
-
-def AddRhinoObjectHandler(sender, event):
-    _HandleRhinoObjectEvent("AddRhinoObject", event)
-
-
-def DeleteRhinoObjectHandler(sender, event):
-    _HandleRhinoObjectEvent("DeleteRhinoObject", event)
-
-
-def UndeleteRhinoObjectHandler(sender, event):
-    _HandleRhinoObjectEvent("UndeleteRhinoObject", event)
 
 
 def CloseDocumentHandler(sender, event):
@@ -145,16 +67,9 @@ def subscribe():
     unsubscribe()
     import scriptcontext as sc
 
-    object_handlers = (
-        AddRhinoObjectHandler,
-        DeleteRhinoObjectHandler,
-        UndeleteRhinoObjectHandler,
-        CloseDocumentHandler,
-    )
-    sc.sticky[OBJECT_HANDLER_KEY] = object_handlers
-    Rhino.RhinoDoc.AddRhinoObject += AddRhinoObjectHandler
-    Rhino.RhinoDoc.DeleteRhinoObject += DeleteRhinoObjectHandler
-    Rhino.RhinoDoc.UndeleteRhinoObject += UndeleteRhinoObjectHandler
+    handlers = (EndCommandHandler, CloseDocumentHandler)
+    sc.sticky[OBJECT_HANDLER_KEY] = handlers
+    Rhino.Commands.Command.EndCommand += EndCommandHandler
     Rhino.RhinoDoc.CloseDocument += CloseDocumentHandler
 
 
@@ -164,13 +79,19 @@ def unsubscribe():
     scheduler.disarm()
 
     stored_handlers = sc.sticky.pop(OBJECT_HANDLER_KEY, ())
-    for handler, event in zip(
-        stored_handlers,
-        (
+    if len(stored_handlers) == 4:
+        # Remove callbacks installed by Tack versions from before the
+        # EndCommand-only watcher.
+        events = (
             Rhino.RhinoDoc.AddRhinoObject,
             Rhino.RhinoDoc.DeleteRhinoObject,
             Rhino.RhinoDoc.UndeleteRhinoObject,
             Rhino.RhinoDoc.CloseDocument,
-        ),
-    ):
+        )
+    else:
+        events = (
+            Rhino.Commands.Command.EndCommand,
+            Rhino.RhinoDoc.CloseDocument,
+        )
+    for handler, event in zip(stored_handlers, events):
         _unsubscribe(event, handler)
