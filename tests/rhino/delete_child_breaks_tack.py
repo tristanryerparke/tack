@@ -9,7 +9,7 @@ from common import tack_modules
 
 
 def test_delete_child_breaks_tack():
-    _, _, runtime, _ = tack_modules()
+    handlers, _, runtime, _ = tack_modules()
     from tack import link
     from tack import scheduler
 
@@ -28,6 +28,7 @@ def test_delete_child_breaks_tack():
     link.break_link = record_break
     try:
         assert doc.Objects.Delete(fixture["child_id"], True), "Could not delete child"
+        handlers.EndCommandHandler(None, None)
         scheduler.solve_now(doc)
     finally:
         link.break_link = original_break_link

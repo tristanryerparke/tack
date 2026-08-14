@@ -24,7 +24,7 @@ def _called_attributes(node):
     }
 
 
-def test_tack_subscribes_to_object_lifecycle_and_close_callbacks():
+def test_tack_subscribes_only_to_end_command_and_close_callbacks():
     subscribe = _function(ast.parse(HANDLERS.read_text()), "subscribe")
     subscriptions = {
         node.target.attr
@@ -34,15 +34,13 @@ def test_tack_subscribes_to_object_lifecycle_and_close_callbacks():
     }
 
     assert subscriptions == {
-        "AddRhinoObject",
-        "DeleteRhinoObject",
-        "UndeleteRhinoObject",
+        "EndCommand",
         "CloseDocument",
     }
 
 
-def test_event_handler_defers_maintenance_to_the_idle_scheduler():
-    handler = _function(ast.parse(HANDLERS.read_text()), "_HandleRhinoObjectEvent")
+def test_end_command_handler_defers_maintenance_to_the_idle_scheduler():
+    handler = _function(ast.parse(HANDLERS.read_text()), "EndCommandHandler")
     calls = _called_attributes(handler)
 
     assert "expire_link_ids" in calls

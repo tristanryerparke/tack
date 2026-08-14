@@ -70,6 +70,10 @@ def _ensure_armed():
         sc.sticky[IDLE_HANDLER_KEY] = handler
 
 
+def is_solving():
+    return _solving
+
+
 def disarm():
     """Remove the idle subscription if armed. Safe to call repeatedly."""
     handler = sc.sticky.pop(IDLE_HANDLER_KEY, None)
@@ -137,9 +141,8 @@ def _solve(doc):
     try:
         pending = sorted(schedule, key=str)
         schedule.clear()
-        saved_links = _saved_link_map(doc)
         for link_id in pending:
-            _solve_one(doc, link_id, saved_links)
+            _solve_one(doc, link_id)
         try:
             doc.Views.Redraw()
         except Exception:
@@ -148,21 +151,13 @@ def _solve(doc):
         _solving = False
 
 
-def _saved_link_map(doc):
-    result = {}
-    for saved_link in metadata.all_links(doc):
-        result[saved_link["link_id"]] = saved_link
-    return result
-
-
-def _solve_one(doc, link_id, saved_links):
-    saved_link = _lookup(saved_links, link_id)
+def _solve_one(doc, link_id):
     state = _runtime_state(doc, link_id)
     if state is None:
-        if saved_link is None:
-            return
-        state = runtime.state_for_link(doc, saved_link)
-    elif saved_link is not None:
+        return
+    child = utils.find_object(doc, state.get("child_id"))
+    saved_link = metadata.read_link(child, link_id)
+    if saved_link is not None:
         state = runtime.state_for_link(doc, saved_link)
     if state is None:
         return
@@ -172,27 +167,21 @@ def _solve_one(doc, link_id, saved_links):
         _ensure_armed()
         return
     runtime.mark_display_dirty(state)
-    with _websocket_output():
-        utils.debug("[Tack solve] maintaining link={}".format(link_id))
-        link.maintain_link(
-            doc,
-            state,
-            object_ids=(state.get("parent_id"), state.get("child_id")),
-            quiet=True,
-        )
+    try:
+        with _websocket_output():
+            utils.debug("[Tack solve] maintaining link={}".format(link_id))
+            link.maintain_link(
+                doc,
+                state,
+                object_ids=(state.get("parent_id"), state.get("child_id")),
+                quiet=True,
+            )
+    finally:
+        runtime.refresh_object_runtime_serials(doc, state)
 
 
 def _runtime_state(doc, link_id):
     for saved_id, state in runtime.states(doc, create=False).items():
         if utils.same_id(saved_id, link_id):
             return state
-    return None
-
-
-def _lookup(saved_links, link_id):
-    if link_id in saved_links:
-        return saved_links[link_id]
-    for key, value in saved_links.items():
-        if utils.same_id(key, link_id):
-            return value
     return None

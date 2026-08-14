@@ -39,6 +39,27 @@ def mark_display_dirty(state):
         display["dirty"] = True
 
 
+def _object_runtime_serial(obj):
+    if obj is None:
+        return None
+    return int(obj.RuntimeSerialNumber)
+
+
+def _mark_roles_dirty(state, roles):
+    mark_display_dirty(state)
+    pending_ids = state.setdefault("replacement_pending_ids", [])
+    pending_roles = state.setdefault("replacement_reconcile_roles", [])
+    for role in roles:
+        object_id = state[role + "_id"]
+        if not any(
+            utils.same_id(object_id, pending_id)
+            for pending_id in pending_ids
+        ):
+            pending_ids.append(str(object_id))
+        if role not in pending_roles:
+            pending_roles.append(role)
+
+
 def mark_object_ids_dirty(doc, object_ids):
     link_ids = []
     for state in states(doc, create=False).values():
@@ -51,23 +72,38 @@ def mark_object_ids_dirty(doc, object_ids):
             )
         ]
         if matching_roles:
-            mark_display_dirty(state)
-            pending_ids = state.setdefault("replacement_pending_ids", [])
-            pending_roles = state.setdefault(
-                "replacement_reconcile_roles",
-                [],
-            )
-            for object_id in object_ids:
-                if not any(
-                    utils.same_id(object_id, pending_id)
-                    for pending_id in pending_ids
-                ):
-                    pending_ids.append(str(object_id))
-            for role in matching_roles:
-                if role not in pending_roles:
-                    pending_roles.append(role)
+            _mark_roles_dirty(state, matching_roles)
             link_ids.append(state["link_id"])
     return link_ids
+
+
+def mark_changed_links_dirty(doc):
+    """Expire active links whose stored Rhino objects changed this command."""
+    link_ids = []
+    for state in states(doc, create=False).values():
+        changed_roles = []
+        for role in ("parent", "child"):
+            serial_key = role + "_runtime_serial"
+            current_serial = _object_runtime_serial(
+                utils.find_object(doc, state[role + "_id"])
+            )
+            if serial_key not in state:
+                state[serial_key] = current_serial
+                continue
+            if state[serial_key] != current_serial:
+                changed_roles.append(role)
+                state[serial_key] = current_serial
+        if changed_roles:
+            _mark_roles_dirty(state, changed_roles)
+            link_ids.append(state["link_id"])
+    return link_ids
+
+
+def refresh_object_runtime_serials(doc, state):
+    for role in ("parent", "child"):
+        state[role + "_runtime_serial"] = _object_runtime_serial(
+            utils.find_object(doc, state[role + "_id"])
+        )
 
 
 def clear_replacement_pending(state, role):
@@ -118,6 +154,8 @@ def _new_state(doc, saved_link):
         "link_id": saved_link["link_id"],
         "parent_id": saved_link["parent_id"],
         "child_id": saved_link["child_id"],
+        "parent_runtime_serial": _object_runtime_serial(parent),
+        "child_runtime_serial": _object_runtime_serial(child),
         "busy": False,
         "broken": False,
         "link": saved_link,
