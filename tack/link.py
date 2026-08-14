@@ -196,16 +196,13 @@ def _adopt_candidate(
     return True
 
 
-def _candidate(doc, event, event_name, object_ids):
-    # Replacement reconciliation runs after the event, so do not try to
-    # recover an old object by ID. Only use an object explicitly supplied by
-    # the event; idle reconciliation discovers replacements through metadata.
-    if event_name == "DeleteRhinoObject":
-        return None
-    return utils.event_object(doc, event, object_ids=())
-
-
-def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
+def _adopt_candidate_for_state(
+    doc,
+    state,
+    candidate,
+    parent_obj,
+    child_obj,
+):
     # Same-ID replacements still need anchor validation even when advanced
     # reconciliation is disabled. Only different-ID candidates require the
     # advanced replacement path.
@@ -235,40 +232,15 @@ def _adopt_event_candidate(doc, state, candidate, parent_obj, child_obj):
     return role, parent_obj, child_obj
 
 
-def event_may_affect_link(
-    doc,
-    state,
-    event,
-    event_name,
-    object_ids,
-):
-    if any(
-        utils.same_id(object_id, state[role + "_id"])
-        for object_id in object_ids
-        for role in ("parent", "child")
-    ):
-        return True
-
-    if not utils.get_setting("advanced_reconciliation", doc):
-        return False
-    candidate = _candidate(doc, event, event_name, object_ids)
-    return metadata.candidate_role(state, candidate) is not None
-
-
 def maintain_link(
     doc,
     state,
-    event=None,
-    event_name=None,
     parent_obj=None,
     child_obj=None,
-    object_ids=None,
     quiet=True,
 ):
     if doc is None or state is None or state.get("busy"):
         return None
-
-    object_ids = list(object_ids or utils.event_object_ids(event))
 
     pending_failed_roles = set()
     for pending_role in tuple(
@@ -278,7 +250,7 @@ def maintain_link(
         pending_candidate = utils.find_object(doc, pending_id)
         if pending_candidate is None:
             continue
-        candidate_role, parent_obj, child_obj = _adopt_event_candidate(
+        candidate_role, parent_obj, child_obj = _adopt_candidate_for_state(
             doc,
             state,
             pending_candidate,
@@ -291,24 +263,6 @@ def maintain_link(
             in state.get("replacement_reconcile_roles", ())
         ):
             pending_failed_roles.add(pending_role)
-
-    related = any(
-        utils.same_id(object_id, state[role + "_id"])
-        for object_id in object_ids
-        for role in ("parent", "child")
-    )
-    candidate = _candidate(doc, event, event_name, object_ids)
-    candidate_role, parent_obj, child_obj = _adopt_event_candidate(
-        doc,
-        state,
-        candidate,
-        parent_obj,
-        child_obj,
-    )
-    related = related or candidate_role is not None
-
-    if not related:
-        return None
 
     parent = parent_obj or utils.find_object(doc, state["parent_id"])
     child = child_obj or utils.find_object(doc, state["child_id"])
@@ -330,16 +284,6 @@ def maintain_link(
 
     if parent is None or child is None:
         missing_role = "parent" if parent is None else "child"
-        candidate = _candidate(doc, event, event_name, object_ids)
-        candidate_role, parent_obj, child_obj = _adopt_event_candidate(
-            doc,
-            state,
-            candidate,
-            parent_obj,
-            child_obj,
-        )
-        parent = parent_obj or utils.find_object(doc, state["parent_id"])
-        child = child_obj or utils.find_object(doc, state["child_id"])
 
         # Advanced reconciliation scans metadata-bearing replacement objects;
         # without it, basic reconciliation can only continue with the stored
@@ -349,7 +293,7 @@ def maintain_link(
             and (parent is None or child is None)
         ):
             for candidate in metadata.candidates(doc, state):
-                candidate_role, parent_obj, child_obj = _adopt_event_candidate(
+                candidate_role, parent_obj, child_obj = _adopt_candidate_for_state(
                     doc,
                     state,
                     candidate,
@@ -362,16 +306,10 @@ def maintain_link(
                     break
 
         if parent is None or child is None:
-            # AddRhinoObject fires while a document is still being populated;
-            # the other linked object may arrive in a later callback.
-            if (
-                related
-                and event_name != "AddRhinoObject"
-                and not utils.undo_or_redo(doc)
-            ):
+            if not utils.undo_or_redo(doc):
                 break_link(
                     state,
-                    "A linked {} object could not be recovered from callback data or saved metadata.".format(
+                    "A linked {} object could not be recovered from saved metadata.".format(
                         missing_role
                     ),
                 )
@@ -386,7 +324,7 @@ def maintain_link(
     if result is None:
         if not quiet:
             utils.debug("[Tack anchor] anchors could not be resolved.")
-        if related and event_name != "AddRhinoObject" and not utils.undo_or_redo(doc):
+        if not utils.undo_or_redo(doc):
             break_link(
                 state,
                 "The linked objects no longer expose usable anchor data.",

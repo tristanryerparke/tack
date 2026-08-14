@@ -75,10 +75,20 @@ def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
     assert "solve_now" in names
 
 
-def test_final_shape_maintenance_accepts_no_replace_objects():
+def test_maintenance_has_no_object_event_arguments():
     tree = ast.parse(LINK.read_text())
-    for name in ("event_may_affect_link", "maintain_link"):
-        function = _function(tree, name)
-        arguments = {argument.arg for argument in function.args.args}
-        assert "old_obj" not in arguments
-        assert "new_obj" not in arguments
+    function = _function(tree, "maintain_link")
+    arguments = {argument.arg for argument in function.args.args}
+
+    assert not arguments & {
+        "event",
+        "event_name",
+        "object_ids",
+        "old_obj",
+        "new_obj",
+    }
+    assert not any(
+        isinstance(node, ast.FunctionDef)
+        and node.name == "event_may_affect_link"
+        for node in tree.body
+    )

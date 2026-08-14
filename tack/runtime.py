@@ -60,23 +60,6 @@ def _mark_roles_dirty(state, roles):
             pending_roles.append(role)
 
 
-def mark_object_ids_dirty(doc, object_ids):
-    link_ids = []
-    for state in states(doc, create=False).values():
-        matching_roles = [
-            role
-            for role in ("parent", "child")
-            if any(
-                utils.same_id(object_id, state[role + "_id"])
-                for object_id in object_ids
-            )
-        ]
-        if matching_roles:
-            _mark_roles_dirty(state, matching_roles)
-            link_ids.append(state["link_id"])
-    return link_ids
-
-
 def mark_changed_links_dirty(doc):
     """Expire active links whose stored Rhino objects changed this command."""
     link_ids = []

@@ -180,18 +180,6 @@ def all_links(doc):
     return list(links.values())
 
 
-def links_for_object(doc, obj):
-    if obj is None:
-        return []
-    links = dict(read_links(obj))
-    for link_id, child_id in read_parent_links(obj).items():
-        child = utils.find_object(doc, child_id)
-        saved_link = read_link(child, link_id)
-        if saved_link is not None:
-            links[link_id] = saved_link
-    return list(links.values())
-
-
 def save_link(doc, state, link):
     link["version"] = 3
     link["link_id"] = str(state["link_id"])

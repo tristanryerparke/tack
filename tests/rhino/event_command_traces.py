@@ -198,7 +198,6 @@ def trace_undelete(sender, event):
 def traced_maintain_link(*args, **kwargs):
     state = _state()
     link_state = args[1]
-    event_name = kwargs.get("event_name")
     child_before = state["utils"].find_object(
         state["doc"], link_state.get("child_id")
     )
@@ -217,7 +216,6 @@ def traced_maintain_link(*args, **kwargs):
         "sequence": _next_sequence(state),
         "kind": "maintain",
         "scenario": state["scenario"],
-        "event": event_name,
         "result": result is not None,
         "child_center_before": _point(center_before),
         "child_center_after": _point(center_after),
@@ -254,7 +252,7 @@ def traced_maintain_link(*args, **kwargs):
     }
     state["trace"].append(entry)
     print(
-        "MAINTAIN {scenario} #{sequence} via={event} result={result} "
+        "MAINTAIN {scenario} #{sequence} result={result} "
         "child_updated={child_updated_by_tack} undo={undo_or_redo_before} "
         "correction={correction_length_before} broken={broken_before}->{broken_after} "
         "pending={pending_before}->{pending_after}".format(**entry)
@@ -415,18 +413,18 @@ def _finish_scenario(state, command_result, created_ids):
                 "UndeleteRhinoObject",
             )
         },
-        "child_update_events": [
-            entry["event"]
+        "child_update_count": sum(
+            1
             for entry in entries
             if entry["kind"] == "maintain" and entry["child_updated_by_tack"]
-        ],
+        ),
         "entries": entries,
     }
     state["scenarios"].append(summary)
     state["scenario"] = None
     state["active_scenario"] = None
     print(
-        "SCENARIO {name} END events={event_counts} child_updates={child_update_events} "
+        "SCENARIO {name} END events={event_counts} child_updates={child_update_count} "
         "parent={parent_center_before}->{parent_center_after} "
         "child={child_center_before}->{child_center_after} broken={broken_after}".format(
             **summary

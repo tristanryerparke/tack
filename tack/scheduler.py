@@ -173,7 +173,6 @@ def _solve_one(doc, link_id):
             link.maintain_link(
                 doc,
                 state,
-                object_ids=(state.get("parent_id"), state.get("child_id")),
                 quiet=True,
             )
     finally:

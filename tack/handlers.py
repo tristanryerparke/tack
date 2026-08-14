@@ -8,7 +8,7 @@ from tack import utils
 from tack import watcher
 
 
-OBJECT_HANDLER_KEY = "Tack.AnchorLink.ObjectHandler"
+HANDLER_KEY = "Tack.AnchorLink.Handlers"
 
 
 def _websocket_output():
@@ -68,7 +68,7 @@ def subscribe():
     import scriptcontext as sc
 
     handlers = (EndCommandHandler, CloseDocumentHandler)
-    sc.sticky[OBJECT_HANDLER_KEY] = handlers
+    sc.sticky[HANDLER_KEY] = handlers
     Rhino.Commands.Command.EndCommand += EndCommandHandler
     Rhino.RhinoDoc.CloseDocument += CloseDocumentHandler
 
@@ -78,20 +78,10 @@ def unsubscribe():
 
     scheduler.disarm()
 
-    stored_handlers = sc.sticky.pop(OBJECT_HANDLER_KEY, ())
-    if len(stored_handlers) == 4:
-        # Remove callbacks installed by Tack versions from before the
-        # EndCommand-only watcher.
-        events = (
-            Rhino.RhinoDoc.AddRhinoObject,
-            Rhino.RhinoDoc.DeleteRhinoObject,
-            Rhino.RhinoDoc.UndeleteRhinoObject,
-            Rhino.RhinoDoc.CloseDocument,
-        )
-    else:
-        events = (
-            Rhino.Commands.Command.EndCommand,
-            Rhino.RhinoDoc.CloseDocument,
-        )
+    stored_handlers = sc.sticky.pop(HANDLER_KEY, ())
+    events = (
+        Rhino.Commands.Command.EndCommand,
+        Rhino.RhinoDoc.CloseDocument,
+    )
     for handler, event in zip(stored_handlers, events):
         _unsubscribe(event, handler)
