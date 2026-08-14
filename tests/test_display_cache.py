@@ -50,16 +50,16 @@ def test_conduit_draws_only_from_its_document_runtime_cache():
     assert "RhinoDoc" in ast.unparse(draw)
     assert "display" in CONDUIT.read_text()
 
-    color = next(
-        node.value
+    colors = {
+        target.id: node.value
         for node in ast.parse(CONDUIT.read_text()).body
         if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "DISPLAY_COLOR"
-            for target in node.targets
-        )
-    )
-    assert color.args[0].value == 191
+        for target in node.targets
+        if isinstance(target, ast.Name)
+        and target.id in {"PARENT_COLOR", "CHILD_COLOR", "OFFSET_LINE_COLOR"}
+    }
+    assert set(colors) == {"PARENT_COLOR", "CHILD_COLOR", "OFFSET_LINE_COLOR"}
+    assert all(color.args[0].value == 191 for color in colors.values())
 
     crosshair = _function(CONDUIT, "_draw_crosshair")
     crosshair_calls = _called_attributes(crosshair)
@@ -75,7 +75,7 @@ def test_conduit_draws_only_from_its_document_runtime_cache():
     assert "CROSSHAIR_INNER_RADIUS" in crosshair_source
     assert "horizontal_segments" in crosshair_source
     assert "vertical_segments" in crosshair_source
-    assert "_draw_circle(event, point)" in crosshair_source
+    assert "_draw_circle(event, point, color)" in crosshair_source
 
     circle = _function(CONDUIT, "_draw_circle")
     circle_source = ast.unparse(circle)
@@ -83,8 +83,13 @@ def test_conduit_draws_only_from_its_document_runtime_cache():
     assert "PointStyle.Circle" in circle_source
 
     draw_source = ast.unparse(draw)
-    assert "midpoint" in draw_source
-    assert "_draw_circle(event, midpoint)" in draw_source
+    assert "DrawPatternedLine" in calls
+    assert "OFFSET_LINE_PATTERN" in draw_source
+    assert "OFFSET_LINE_THICKNESS" in draw_source
+    assert "DrawArrowHead" not in calls
+    assert "midpoint" not in draw_source
+    assert "_draw_crosshair(event, parent_anchor, PARENT_COLOR)" in draw_source
+    assert "_draw_crosshair(event, child_anchor, CHILD_COLOR)" in draw_source
 
 
 def test_runtime_builds_clean_cache_and_discards_only_document_values_on_stop():

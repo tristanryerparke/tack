@@ -6,26 +6,38 @@ from tack import utils
 
 
 DISPLAY_TYPE_TOLERANCE = 0.1
-DISPLAY_COLOR = System.Drawing.Color.FromArgb(
+PARENT_COLOR = System.Drawing.Color.FromArgb(
+    191,
+    System.Drawing.Color.Red,
+)
+CHILD_COLOR = System.Drawing.Color.FromArgb(
     191,
     System.Drawing.Color.Orange,
+)
+OFFSET_LINE_COLOR = System.Drawing.Color.FromArgb(
+    191,
+    52,
+    52,
+    52,
 )
 CROSSHAIR_RADIUS = 24.0
 CROSSHAIR_INNER_RADIUS = 3.75
 CROSSHAIR_CIRCLE_SIZE = CROSSHAIR_INNER_RADIUS * 2.0
 CROSSHAIR_THICKNESS = 2.0
+OFFSET_LINE_PATTERN = 0x00001111
+OFFSET_LINE_THICKNESS = 3
 
 
-def _draw_circle(event, point):
+def _draw_circle(event, point, color):
     event.Display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         CROSSHAIR_CIRCLE_SIZE,
-        DISPLAY_COLOR,
+        color,
     )
 
 
-def _draw_crosshair(event, point):
+def _draw_crosshair(event, point, color):
     center = event.Viewport.WorldToClient(point)
     horizontal_segments = (
         (center.X - CROSSHAIR_RADIUS, center.X - CROSSHAIR_INNER_RADIUS),
@@ -35,7 +47,7 @@ def _draw_crosshair(event, point):
         event.Display.Draw2dLine(
             System.Drawing.PointF(start_x, center.Y),
             System.Drawing.PointF(end_x, center.Y),
-            DISPLAY_COLOR,
+            color,
             CROSSHAIR_THICKNESS,
         )
 
@@ -47,11 +59,11 @@ def _draw_crosshair(event, point):
         event.Display.Draw2dLine(
             System.Drawing.PointF(center.X, start_y),
             System.Drawing.PointF(center.X, end_y),
-            DISPLAY_COLOR,
+            color,
             CROSSHAIR_THICKNESS,
         )
 
-    _draw_circle(event, point)
+    _draw_circle(event, point, color)
 
 
 class TackLinkConduit(Rhino.Display.DisplayConduit):
@@ -80,25 +92,15 @@ class TackLinkConduit(Rhino.Display.DisplayConduit):
             parent_anchor = display["parent_anchor"]
             child_anchor = display["child_anchor"]
             if display["setup_offset_length"] <= DISPLAY_TYPE_TOLERANCE:
-                _draw_crosshair(event, parent_anchor)
+                _draw_crosshair(event, parent_anchor, CHILD_COLOR)
                 continue
 
-            event.Display.DrawLine(
+            event.Display.DrawPatternedLine(
                 parent_anchor,
                 child_anchor,
-                DISPLAY_COLOR,
-                3,
+                OFFSET_LINE_COLOR,
+                OFFSET_LINE_PATTERN,
+                OFFSET_LINE_THICKNESS,
             )
-            event.Display.DrawArrowHead(
-                child_anchor,
-                child_anchor - parent_anchor,
-                DISPLAY_COLOR,
-                32.0,
-                0.0,
-            )
-            midpoint = Rhino.Geometry.Point3d(
-                (parent_anchor.X + child_anchor.X) * 0.5,
-                (parent_anchor.Y + child_anchor.Y) * 0.5,
-                (parent_anchor.Z + child_anchor.Z) * 0.5,
-            )
-            _draw_circle(event, midpoint)
+            _draw_crosshair(event, parent_anchor, PARENT_COLOR)
+            _draw_crosshair(event, child_anchor, CHILD_COLOR)

@@ -65,30 +65,36 @@ def _vertex_analyzer(geometry):
 
 
 def _pick_anchor(obj, role):
-    analyzer = bbox_analysis
-    vertex_analyzer = _vertex_analyzer(obj.Geometry)
-    if vertex_analyzer is not None:
-        anchor_type = _pick_anchor_type(role, vertex_analyzer.ANCHOR_TYPE)
-        if anchor_type is None:
-            return None
-        if anchor_type == vertex_analyzer.ANCHOR_TYPE:
-            analyzer = vertex_analyzer
+    doc = Rhino.RhinoDoc.ActiveDoc
+    locked_ids = picking.lock_other_objects(doc, obj.Id)
+    try:
+        analyzer = bbox_analysis
+        vertex_analyzer = _vertex_analyzer(obj.Geometry)
+        if vertex_analyzer is not None:
+            anchor_type = _pick_anchor_type(role, vertex_analyzer.ANCHOR_TYPE)
+            if anchor_type is None:
+                return None
+            if anchor_type == vertex_analyzer.ANCHOR_TYPE:
+                analyzer = vertex_analyzer
 
-    candidate_anchors = analyzer.anchors(obj)
-    if analyzer is bbox_analysis:
-        wire_segments = analyzer.wire_segments(obj)
-        prompt = "Pick a bounding box anchor on the {}".format(role)
-    else:
-        wire_segments = []
-        prompt = "Pick a vertex anchor on the {}".format(role)
+        candidate_anchors = analyzer.anchors(obj)
+        if analyzer is bbox_analysis:
+            wire_segments = analyzer.wire_segments(obj)
+            prompt = "Pick a bounding box anchor on the {}".format(role)
+        else:
+            wire_segments = []
+            prompt = "Pick a vertex anchor on the {}".format(role)
 
-    return picking.pick_anchor(
-        obj,
-        analyzer.ANCHOR_TYPE,
-        candidate_anchors,
-        wire_segments,
-        prompt,
-    )
+        return picking.pick_anchor(
+            obj,
+            analyzer.ANCHOR_TYPE,
+            candidate_anchors,
+            wire_segments,
+            prompt,
+        )
+    finally:
+        picking.unlock_objects(locked_ids)
+        doc.Views.Redraw()
 
 
 def _pick_anchor_type(role, vertex_anchor_type):
