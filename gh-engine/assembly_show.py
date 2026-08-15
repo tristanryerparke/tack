@@ -20,6 +20,15 @@ def RunCommand(is_interactive):
         session = get_active_session(False)
         print(session_summary(session))
         if session is not None:
+            for object_id, body in sorted(session.get("bodies", {}).items()):
+                print(
+                    "  body {} role={} features={} controls={}".format(
+                        object_id[:8],
+                        body.get("role"),
+                        len(body.get("features", {})),
+                        len(body.get("controls", {})),
+                    )
+                )
             for index, mate in enumerate(session.get("mates", []), 1):
                 print("  {}. {} [{}] {}".format(index, mate.get("name"), mate.get("type"), mate.get("id", "")[:8]))
         return Result.Success

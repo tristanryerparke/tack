@@ -101,6 +101,7 @@ def eccentric_joint_record(
     rod_length,
     eccentric_object_id=None,
     rod_object_id=None,
+    driver_mode="live_driver",
     rotator_shaft_edge=None,
     eccentric_pin_edge=None,
     rod_big_edge=None,
@@ -144,7 +145,7 @@ def eccentric_joint_record(
         if rod_object_id is not None:
             references["rod_object"] = object_reference(rod_object_id, role="connecting_rod")
 
-    if eccentric_object_id is not None:
+    if eccentric_object_id is not None and driver_mode == "slider":
         controls.append(
             content_cache_control(
                 eccentric_object_id,
@@ -169,12 +170,13 @@ def eccentric_joint_record(
             )
         )
 
-    return new_mate_record(
+    record = new_mate_record(
         "eccentric_joint",
         name=name,
         references=references,
         parameters={
             "rod_length": float(rod_length),
+            "driver_mode": driver_mode,
             "angle_driver": {
                 "type": "slider",
                 "initial_degrees": 0.0,
@@ -187,3 +189,8 @@ def eccentric_joint_record(
         },
         controls=controls,
     )
+    if rotator_shaft_edge is not None:
+        from assembly.bodies import eccentric_joint_feature_refs
+
+        record["feature_refs"] = eccentric_joint_feature_refs(record)
+    return record

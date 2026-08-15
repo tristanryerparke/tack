@@ -4,19 +4,26 @@ Goal: create SolidWorks-style mate commands that prompt for Rhino objects/sub-ob
 
 ## Current source of truth
 
-Mate records live in the active session:
+Body and mate records live in the active session:
 
 ```python
 scriptcontext.sticky["AssemblyGH.ActiveSession"]
 ```
 
-The generated GH document is an output artifact. Individual commands should not hand-edit existing GH graphs directly. They should:
+A body record is a Rhino object plus feature metadata:
+
+```text
+object_id + circular Brep edge index/indices
+```
+
+A mate record references body features and declares the relationship to maintain. The generated GH document is an output artifact. Individual commands should not hand-edit existing GH graphs directly. They should:
 
 1. get/create the active session
-2. prompt for mate references
+2. prompt for body/sub-object features
 3. append one mate record
-4. rebuild the GH definition from all records
-5. save/solve the generated definition
+4. merge involved bodies/features into the body registry
+5. rebuild the GH definition from body + mate records
+6. save/solve the generated definition
 
 ## Commands
 
@@ -46,10 +53,20 @@ piston pin constrained to slider axis
 Content Cache writes the piston and optionally the rod
 ```
 
-## Next implementation step
+## Tack ethos
 
-Replace the current mate-plan panels in `generate_definition.py` with real per-mate emitters:
+The Brep shape is payload, not source of truth. Mates are defined by metadata and live feature resolution:
 
 ```text
-eccentric_joint record -> Kangaroo goals + solver + Content Cache writeback
+object_id + edge_indices -> current circular edge center/axis -> mate feature
+```
+
+Content Cache should write absolute solved poses derived from live feature locations, not incremental transforms or stale geometry snapshots.
+
+## Next implementation step
+
+Generalize `generate_definition.py` so every mate emits goals against body feature refs instead of bespoke eccentric-joint wiring:
+
+```text
+body feature refs -> mate goals -> shared solver -> per-body absolute transforms -> one Content Cache push
 ```

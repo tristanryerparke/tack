@@ -127,7 +127,7 @@ def _try_edge_circle(edge):
 
 
 def _resolve_edge_circle_reference(edge_reference):
-    doc = Rhino.RhinoDoc.ActiveDoc
+    doc = _active_rhino_doc()
     if doc is None:
         raise AssemblyGenerationError("No active Rhino document for edge resolution.")
     rhino_object = doc.Objects.Find(System.Guid(str(edge_reference["object_id"])))
@@ -175,11 +175,10 @@ def _mechanism_plane_from_record(refs):
     normal = shaft_end - shaft_start
     if not normal.Unitize():
         raise AssemblyGenerationError("Shaft axis is degenerate.")
-    if "eccentric_pin_edge" in refs:
-        origin = _edge_center(refs["eccentric_pin_edge"])
-    else:
-        origin = _point3d(refs["eccentric_pin_start"]["point"])
-    return origin, normal
+    # The mechanism plane is defined only by the fixed shaft axis. Circular edge
+    # centers are resolved live in GH from metadata and should not be baked into
+    # the definition as point inputs.
+    return shaft_start, normal
 
 
 def _add_point_param(api, ghdoc, nick, values, x, y, group_title=None):
@@ -229,6 +228,18 @@ def _geometry_goo(api, geometry):
     return None
 
 
+def _active_rhino_doc():
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is not None:
+        return doc
+    try:
+        import scriptcontext as sc
+
+        return sc.doc
+    except Exception:
+        return None
+
+
 def _add_static_geometry_param(api, ghdoc, nick, object_id, x, y, group_title=None):
     """Snapshot object geometry so Content Cache writeback cannot accumulate.
 
@@ -236,7 +247,7 @@ def _add_static_geometry_param(api, ghdoc, nick, object_id, x, y, group_title=No
     feedback: each solve transforms the already-transformed object again. This
     param stores the base geometry once in the generated GH definition.
     """
-    doc = Rhino.RhinoDoc.ActiveDoc
+    doc = _active_rhino_doc()
     rhino_object = doc.Objects.Find(System.Guid(str(object_id))) if doc is not None else None
     goo = _geometry_goo(api, rhino_object.Geometry if rhino_object is not None else None)
     if goo is None:
@@ -309,6 +320,56 @@ def _make_list_item(api, ghdoc, source, source_index, item_index, x, y, nick):
     return item
 
 
+def _add_value_panel(api, ghdoc, title, source, source_index, x, y):
+    panel = add_panel(api, ghdoc, title, x, y)
+    try:
+        wire(source, source_index, panel, 0)
+    except Exception:
+        pass
+    return panel
+
+
+def _edge_index(edge_reference):
+    indices = edge_reference.get("edge_indices") or [edge_reference.get("edge_index")]
+    return int(indices[0])
+
+
+def _emit_model_object_reader(api, ghdoc, model_object_param, x, y, nick):
+    reader = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", x, y)
+    reader.NickName = nick
+    wire(model_object_param, 0, reader, 0)
+    return reader
+
+
+def _emit_live_edge_center(api, ghdoc, geometry_source, edge_reference, x, y, nick):
+    """Emit native GH components to resolve a circular Brep edge center live.
+
+    object geometry -> Deconstruct Brep -> List Item(edge index) -> Divide Curve
+    -> Circle Fit -> Area centroid.
+    """
+    debrep = emit_named(api, ghdoc, "Deconstruct Brep", x, y)
+    debrep.NickName = nick + " deBrep"
+    item = emit_named(api, ghdoc, "List Item", x + 220, y)
+    item.NickName = nick + " edge"
+    divide = emit_named(api, ghdoc, "Divide Curve", x + 440, y)
+    divide.NickName = nick + " divide"
+    circle_fit = emit_named(api, ghdoc, "Circle Fit", x + 660, y)
+    circle_fit.NickName = nick + " circle fit"
+    area = emit_named(api, ghdoc, "Area", x + 880, y)
+    area.NickName = nick + " center"
+
+    _set_input_integer(api, item, 1, _edge_index(edge_reference))
+    _set_input_integer(api, divide, 1, 8)
+    _set_input_boolean(api, divide, 2, False)
+
+    wire(geometry_source, 1, debrep, 0)
+    wire(debrep, 1, item, 0)
+    wire(item, 0, divide, 0)
+    wire(divide, 0, circle_fit, 0)
+    wire(circle_fit, 0, area, 0)
+    return area, [debrep, item, divide, circle_fit, area]
+
+
 def mate_to_kangaroo_plan(record):
     mate_type = record["type"]
     if mate_type == "eccentric_joint":
@@ -362,14 +423,19 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     refs = record["references"]
     params = record["parameters"]
     strengths = params.get("strengths", {})
+    driver_mode = params.get("driver_mode", "live_driver")
 
     shaft_axis = refs["shaft_axis"]
     piston_axis = refs["piston_axis"]
     plane_origin, plane_normal = _mechanism_plane_from_record(refs)
     edge_based = "rotator_shaft_edge" in refs
-    eccentric_pin_values = _point_tuple(_edge_center(refs["eccentric_pin_edge"])) if edge_based else refs["eccentric_pin_start"]["point"]
-    piston_pin_values = _point_tuple(_edge_center(refs["piston_pin_edge"])) if edge_based else refs["piston_pin_start"]["point"]
-    eccentric_pin_point = _project_point_to_plane(
+    # Live metadata mode: the GH definition resolves mate points from
+    # object_id + edge_index metadata at solve time. Edge-based mates do not get
+    # point params for circular-edge centers.
+    transactional = False
+    eccentric_pin_values = None if edge_based else refs["eccentric_pin_start"]["point"]
+    piston_pin_values = None if edge_based else refs["piston_pin_start"]["point"]
+    eccentric_pin_point = None if edge_based else _project_point_to_plane(
         _point3d(eccentric_pin_values),
         plane_origin,
         plane_normal,
@@ -385,14 +451,14 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         piston_axis_end_point,
         params["rod_length"],
     )
-    piston_pin_point = _project_point_to_plane(
+    piston_pin_point = None if edge_based else _project_point_to_plane(
         _point3d(piston_pin_values),
         plane_origin,
         plane_normal,
     )
-    eccentric_pin = _point_tuple(eccentric_pin_point)
-    piston_pin = _point_tuple(piston_pin_point)
-    actual_piston_pin = _point_tuple(_point3d(piston_pin_values))
+    eccentric_pin = None if edge_based else _point_tuple(eccentric_pin_point)
+    piston_pin = None if edge_based else _point_tuple(piston_pin_point)
+    actual_piston_pin = None if edge_based else _point_tuple(_point3d(piston_pin_values))
     piston_object_id = refs["piston_object"]["object_id"]
     eccentric_object = refs.get("eccentric_object")
     rod_object = refs.get("rod_object")
@@ -400,52 +466,124 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     sx = origin_x
     sy = origin_y
 
-    # Geometry source references must use the actual selected edge centers, not
-    # the projected solver points. This lets transforms snap initially
-    # non-coincident parts into the solved planar mate locations.
-    rod_big = eccentric_pin
-    rod_small = piston_pin
-    if edge_based:
-        rod_big = _point_tuple(_edge_center(refs["rod_big_edge"]))
-        rod_small = _point_tuple(_edge_center(refs["rod_small_edge"]))
-        params["rod_length"] = _point3d(rod_big).DistanceTo(_point3d(rod_small))
+    rod_big = None if edge_based else eccentric_pin
+    rod_small = None if edge_based else piston_pin
 
-    # Base references.
+    # Fixed-axis references. In edge-based mode these are the only point params
+    # allowed into the solver setup.
     shaft_start = _add_point_param(api, ghdoc, "shaft axis start", shaft_axis["start"], sx, sy + 20)
     shaft_end = _add_point_param(api, ghdoc, "shaft axis end", shaft_axis["end"], sx, sy + 95)
-    eccentric_start = _add_point_param(api, ghdoc, "eccentric pin center", eccentric_pin, sx, sy + 190)
-    rod_big_start = _add_point_param(api, ghdoc, "rod eccentric-end center", rod_big, sx, sy + 270)
-    rod_small_start = _add_point_param(api, ghdoc, "rod piston-end center", rod_small, sx, sy + 350)
+    eccentric_start = None if edge_based else _add_point_param(api, ghdoc, "eccentric pin center", eccentric_pin, sx, sy + 190)
+    rod_big_start = None if edge_based else _add_point_param(api, ghdoc, "rod eccentric-end center", rod_big, sx, sy + 270)
+    rod_small_start = None if edge_based else _add_point_param(api, ghdoc, "rod piston-end center", rod_small, sx, sy + 350)
     piston_axis_start = _add_point_param(api, ghdoc, "piston axis start projected/extended", _point_tuple(piston_axis_start_point), sx, sy + 455)
     piston_axis_end = _add_point_param(api, ghdoc, "piston axis end projected/extended", _point_tuple(piston_axis_end_point), sx, sy + 530)
-    piston_pin_start = _add_point_param(api, ghdoc, "piston wrist-pin center projected", piston_pin, sx, sy + 640)
-    piston_pin_actual = _add_point_param(api, ghdoc, "piston wrist-pin actual edge center", actual_piston_pin, sx, sy + 710)
+    piston_pin_start = None if edge_based else _add_point_param(api, ghdoc, "piston wrist-pin center projected", piston_pin, sx, sy + 640)
+    piston_pin_actual = None if edge_based else _add_point_param(api, ghdoc, "piston wrist-pin actual edge center", actual_piston_pin, sx, sy + 710)
     piston_obj = _add_model_object_param(api, ghdoc, "piston object", piston_object_id, sx, sy + 790)
-    base_piston_geometry = _add_static_geometry_param(api, ghdoc, "base piston geometry", piston_object_id, sx, sy + 880)
+    base_piston_geometry = None
+    if transactional:
+        piston_reader = None
+        base_piston_geometry = _add_static_geometry_param(api, ghdoc, "sampled piston geometry", piston_object_id, sx + 240, sy + 790)
+    else:
+        piston_reader = _emit_model_object_reader(api, ghdoc, piston_obj, sx + 240, sy + 790, "live piston geometry")
+    live_piston_center = None
+    live_piston_center_components = []
+    if edge_based and not transactional:
+        live_piston_center, live_piston_center_components = _emit_live_edge_center(
+            api,
+            ghdoc,
+            piston_reader,
+            refs["piston_pin_edge"],
+            sx + 480,
+            sy + 720,
+            "live piston pin",
+        )
 
     eccentric_obj = None
-    base_eccentric_geometry = None
+    eccentric_reader = None
+    live_eccentric_center = None
+    live_eccentric_center_components = []
     if eccentric_object is not None:
         eccentric_obj = _add_model_object_param(api, ghdoc, "eccentric object", eccentric_object["object_id"], sx, sy + 950)
-        base_eccentric_geometry = _add_static_geometry_param(api, ghdoc, "base eccentric geometry", eccentric_object["object_id"], sx, sy + 1040)
+        if transactional:
+            eccentric_reader = None
+        else:
+            eccentric_reader = _emit_model_object_reader(api, ghdoc, eccentric_obj, sx + 240, sy + 950, "live eccentric geometry")
+        if edge_based and not transactional:
+            live_eccentric_center, live_eccentric_center_components = _emit_live_edge_center(
+                api,
+                ghdoc,
+                eccentric_reader,
+                refs["eccentric_pin_edge"],
+                sx + 480,
+                sy + 950,
+                "live eccentric pin",
+            )
 
     rod_obj = None
+    rod_reader = None
     base_rod_geometry = None
+    live_rod_big_center = None
+    live_rod_small_center = None
+    live_rod_center_components = []
     if rod_object is not None:
         rod_obj = _add_model_object_param(api, ghdoc, "rod object", rod_object["object_id"], sx, sy + 1135)
-        base_rod_geometry = _add_static_geometry_param(api, ghdoc, "base rod geometry", rod_object["object_id"], sx, sy + 1225)
+        if transactional:
+            rod_reader = None
+            base_rod_geometry = _add_static_geometry_param(api, ghdoc, "sampled rod geometry", rod_object["object_id"], sx + 240, sy + 1135)
+        else:
+            rod_reader = _emit_model_object_reader(api, ghdoc, rod_obj, sx + 240, sy + 1135, "live rod geometry")
+        if edge_based and not transactional:
+            live_rod_big_center, big_components = _emit_live_edge_center(
+                api,
+                ghdoc,
+                rod_reader,
+                refs["rod_big_edge"],
+                sx + 480,
+                sy + 1115,
+                "live rod eccentric end",
+            )
+            live_rod_small_center, small_components = _emit_live_edge_center(
+                api,
+                ghdoc,
+                rod_reader,
+                refs["rod_small_edge"],
+                sx + 480,
+                sy + 1255,
+                "live rod piston end",
+            )
+            live_rod_center_components = big_components + small_components
 
-    angle_slider = _add_number_slider(
-        api,
-        ghdoc,
-        "shaft angle radians",
-        params.get("angle_driver", {}).get("initial_degrees", 0.0),
-        sx + 240,
-        sy + 20,
-        minimum=-6.283185307179586,
-        maximum=6.283185307179586,
-    )
-    reset_button = _add_button(api, ghdoc, "Reset", sx + 480, sy + 20)
+    if edge_based and (
+        live_eccentric_center is None
+        or live_piston_center is None
+        or live_rod_big_center is None
+        or live_rod_small_center is None
+    ):
+        raise AssemblyGenerationError(
+            "Edge-based eccentric joints require live Brep edge-center extraction for eccentric, piston, and rod features."
+        )
+
+    driver_components = []
+    angle_slider = None
+    angle_radians = None
+    if driver_mode == "slider":
+        angle_slider = _add_number_slider(
+            api,
+            ghdoc,
+            "shaft angle degrees",
+            params.get("angle_driver", {}).get("initial_degrees", 0.0),
+            sx + 240,
+            sy + 20,
+            minimum=0.0,
+            maximum=720.0,
+        )
+        angle_radians = emit_named(api, ghdoc, "Radians", sx + 480, sy + 20)
+        angle_radians.NickName = "degrees to radians"
+        wire(angle_slider, 0, angle_radians, 0)
+        driver_components.extend([angle_slider, angle_radians])
+    reset_button = _add_button(api, ghdoc, "Reset", sx + 700, sy + 20)
 
     # Driven geometry and Kangaroo goals.
     shaft_line = emit_named(api, ghdoc, "Line", sx + 240, sy + 95)
@@ -454,10 +592,19 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     shaft_vector.NickName = "shaft axis vector / plane normal"
     piston_axis_line = emit_named(api, ghdoc, "Line", sx + 240, sy + 365)
     piston_axis_line.NickName = "piston slider line"
-    rotate_ecc = emit_named(api, ghdoc, "Rotate Axis", sx + 480, sy + 120)
-    rotate_ecc.NickName = "rotate eccentric pin"
+    rotate_ecc = None
+    if driver_mode == "slider":
+        rotate_ecc = emit_named(api, ghdoc, "Rotate Axis", sx + 480, sy + 120)
+        rotate_ecc.NickName = "rotate eccentric pin"
+        driver_components.append(rotate_ecc)
     rod_line = emit_named(api, ghdoc, "Line", sx + 480, sy + 285)
     rod_line.NickName = "rod constraint line"
+    live_rod_length = None
+    if live_rod_big_center is not None and live_rod_small_center is not None:
+        live_rod_length = emit_named(api, ghdoc, "Vector 2Pt", sx + 480, sy + 215)
+        live_rod_length.NickName = "live rod length from edge centers"
+        wire(live_rod_big_center, 1, live_rod_length, 0)
+        wire(live_rod_small_center, 1, live_rod_length, 1)
     length_goal = emit_named(api, ghdoc, "Length(Line)", sx + 720, sy + 285)
     length_goal.NickName = "fixed rod length"
     eccentric_anchor = emit_named(api, ghdoc, "Anchor", sx + 720, sy + 120)
@@ -473,22 +620,47 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     wire(shaft_end, 0, shaft_vector, 1)
     wire(piston_axis_start, 0, piston_axis_line, 0)
     wire(piston_axis_end, 0, piston_axis_line, 1)
-    wire(eccentric_start, 0, rotate_ecc, 0)
-    wire(angle_slider, 0, rotate_ecc, 1)
-    wire(shaft_line, 0, rotate_ecc, 2)
-    wire(eccentric_start, 0, rod_line, 0)
-    wire(piston_pin_start, 0, rod_line, 1)
+
+    # Use transaction-sampled metadata points by default. Pure GH-live solver
+    # inputs are possible, but they feed back when Content Cache writes the same
+    # objects in the same solution.
+    if live_eccentric_center is not None:
+        eccentric_particle_source = live_eccentric_center
+        eccentric_particle_output = 1
+    else:
+        eccentric_particle_source = eccentric_start
+        eccentric_particle_output = 0
+
+    wire(eccentric_particle_source, eccentric_particle_output, rod_line, 0)
+    wire(eccentric_particle_source, eccentric_particle_output, eccentric_anchor, 0)
+    if driver_mode == "slider" and rotate_ecc is not None:
+        wire(eccentric_particle_source, eccentric_particle_output, rotate_ecc, 0)
+        wire(angle_radians, 0, rotate_ecc, 1)
+        wire(shaft_line, 0, rotate_ecc, 2)
+        wire(rotate_ecc, 0, eccentric_anchor, 1)
+    else:
+        # Live-driver mode: the eccentric object leads the solve. Its current
+        # edge center is the hard anchor target, and AssemblyGH does not write
+        # the eccentric object back.
+        wire(eccentric_particle_source, eccentric_particle_output, eccentric_anchor, 1)
+
+    if live_piston_center is not None:
+        wire(live_piston_center, 1, rod_line, 1)
+        wire(live_piston_center, 1, piston_on_curve, 0)
+    else:
+        wire(piston_pin_start, 0, rod_line, 1)
+        wire(piston_pin_start, 0, piston_on_curve, 0)
     wire(rod_line, 0, length_goal, 0)
-    wire(eccentric_start, 0, eccentric_anchor, 0)
-    wire(rotate_ecc, 0, eccentric_anchor, 1)
-    wire(piston_pin_start, 0, piston_on_curve, 0)
     wire(piston_axis_line, 0, piston_on_curve, 1)
     wire(length_goal, 0, solver, 0)
     wire(eccentric_anchor, 0, solver, 0)
     wire(piston_on_curve, 0, solver, 0)
     wire(reset_button, 0, solver, 1)
 
-    _set_input_number(api, length_goal, 1, params["rod_length"])
+    if live_rod_length is not None:
+        wire(live_rod_length, 1, length_goal, 1)
+    else:
+        _set_input_number(api, length_goal, 1, params["rod_length"])
     _set_input_number(api, length_goal, 2, strengths.get("rod_length", 1000.0))
     _set_input_number(api, eccentric_anchor, 2, strengths.get("shaft_anchor", 10000.0))
     _set_input_number(api, piston_on_curve, 2, strengths.get("slider_axis", 10000.0))
@@ -503,30 +675,67 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     wire(solved_ecc, 0, solved_line, 0)
     wire(solved_piston, 0, solved_line, 1)
 
+    debug_panels = []
+    if live_eccentric_center is not None:
+        debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG live eccentric pin center", live_eccentric_center, 1, sx + 1220, sy + 520))
+    if live_piston_center is not None:
+        debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG live piston pin center", live_piston_center, 1, sx + 1220, sy + 620))
+    if live_rod_big_center is not None:
+        debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG live rod eccentric-end center", live_rod_big_center, 1, sx + 1220, sy + 720))
+    if live_rod_small_center is not None:
+        debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG live rod piston-end center", live_rod_small_center, 1, sx + 1220, sy + 820))
+    debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG solved eccentric pin", solved_ecc, 0, sx + 1460, sy + 520))
+    debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG solved piston pin", solved_piston, 0, sx + 1460, sy + 620))
+
     eccentric_components = []
-    if eccentric_obj is not None:
-        rotated_eccentric = emit_named(api, ghdoc, "Rotate Axis", sx + 1220, sy + 20)
-        rotated_eccentric.NickName = "rotated eccentric geometry"
-        replacement_eccentric = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", sx + 1460, sy + 20)
+    if eccentric_obj is not None and driver_mode == "slider":
+        current_ecc_dir = emit_named(api, ghdoc, "Vector 2Pt", sx + 1220, sy + 20)
+        current_ecc_dir.NickName = "current eccentric radius direction"
+        target_ecc_dir = emit_named(api, ghdoc, "Vector 2Pt", sx + 1220, sy + 110)
+        target_ecc_dir.NickName = "target eccentric radius direction"
+        current_ecc_plane = emit_named(api, ghdoc, "Construct Plane", sx + 1460, sy + 20)
+        current_ecc_plane.NickName = "current eccentric plane"
+        target_ecc_plane = emit_named(api, ghdoc, "Construct Plane", sx + 1460, sy + 110)
+        target_ecc_plane.NickName = "target eccentric plane"
+        oriented_eccentric = emit_named(api, ghdoc, "Orient", sx + 1700, sy + 65)
+        oriented_eccentric.NickName = "oriented eccentric geometry"
+        replacement_eccentric = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", sx + 1940, sy + 65)
         replacement_eccentric.NickName = "replacement eccentric object"
-        eccentric_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 1740, sy + 20)
+        eccentric_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 2220, sy + 65)
         eccentric_cache.NickName = "Content Cache Push eccentric"
         add_content_cache_push_input(eccentric_cache)
-        wire(base_eccentric_geometry, 0, rotated_eccentric, 0)
-        wire(angle_slider, 0, rotated_eccentric, 1)
-        wire(shaft_line, 0, rotated_eccentric, 2)
-        wire(eccentric_obj, 0, replacement_eccentric, 0)
-        wire(rotated_eccentric, 0, replacement_eccentric, 1)
-        wire(replacement_eccentric, 0, eccentric_cache, 0)
+
+        if live_eccentric_center is not None:
+            wire(shaft_start, 0, current_ecc_dir, 0)
+            wire(live_eccentric_center, 1, current_ecc_dir, 1)
+            wire(shaft_start, 0, current_ecc_plane, 0)
+            wire(current_ecc_dir, 0, current_ecc_plane, 1)
+            wire(shaft_vector, 0, current_ecc_plane, 2)
+            wire(shaft_start, 0, target_ecc_dir, 0)
+            wire(solved_ecc, 0, target_ecc_dir, 1)
+            wire(shaft_start, 0, target_ecc_plane, 0)
+            wire(target_ecc_dir, 0, target_ecc_plane, 1)
+            wire(shaft_vector, 0, target_ecc_plane, 2)
+            wire(eccentric_reader, 1, oriented_eccentric, 0)
+            wire(current_ecc_plane, 0, oriented_eccentric, 1)
+            wire(target_ecc_plane, 0, oriented_eccentric, 2)
+            wire(eccentric_obj, 0, replacement_eccentric, 0)
+            wire(oriented_eccentric, 0, replacement_eccentric, 1)
+            wire(replacement_eccentric, 0, eccentric_cache, 0)
         eccentric_components = [
             eccentric_obj,
-            base_eccentric_geometry,
-            rotated_eccentric,
+            eccentric_reader,
+            live_eccentric_center,
+            current_ecc_dir,
+            target_ecc_dir,
+            current_ecc_plane,
+            target_ecc_plane,
+            oriented_eccentric,
             replacement_eccentric,
             eccentric_cache,
-        ]
+        ] + live_eccentric_center_components
 
-    # Piston writeback: static base geometry + solved pin translation.
+    # Piston writeback: live geometry + live edge-center correction.
     piston_translation = emit_named(api, ghdoc, "Vector 2Pt", sx + 1460, sy + 540)
     piston_translation.NickName = "piston translation"
     moved_piston = emit_named(api, ghdoc, "Move", sx + 1700, sy + 650)
@@ -537,9 +746,15 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     piston_cache.NickName = "Content Cache Push piston"
     add_content_cache_push_input(piston_cache)
 
-    wire(piston_pin_actual, 0, piston_translation, 0)
+    if live_piston_center is not None:
+        wire(live_piston_center, 1, piston_translation, 0)
+    else:
+        wire(piston_pin_actual, 0, piston_translation, 0)
     wire(solved_piston, 0, piston_translation, 1)
-    wire(base_piston_geometry, 0, moved_piston, 0)
+    if piston_reader is not None:
+        wire(piston_reader, 1, moved_piston, 0)
+    else:
+        wire(base_piston_geometry, 0, moved_piston, 0)
     wire(piston_translation, 0, moved_piston, 1)
     wire(piston_obj, 0, replacement_piston, 0)
     wire(moved_piston, 0, replacement_piston, 1)
@@ -563,17 +778,29 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         rod_cache.NickName = "Content Cache Push rod"
         add_content_cache_push_input(rod_cache)
 
-        wire(rod_big_start, 0, initial_rod_dir, 0)
-        wire(rod_small_start, 0, initial_rod_dir, 1)
+        if live_rod_big_center is not None:
+            wire(live_rod_big_center, 1, initial_rod_dir, 0)
+        else:
+            wire(rod_big_start, 0, initial_rod_dir, 0)
+        if live_rod_small_center is not None:
+            wire(live_rod_small_center, 1, initial_rod_dir, 1)
+        else:
+            wire(rod_small_start, 0, initial_rod_dir, 1)
         wire(solved_ecc, 0, solved_rod_dir, 0)
         wire(solved_piston, 0, solved_rod_dir, 1)
-        wire(rod_big_start, 0, initial_rod_plane, 0)
+        if live_rod_big_center is not None:
+            wire(live_rod_big_center, 1, initial_rod_plane, 0)
+        else:
+            wire(rod_big_start, 0, initial_rod_plane, 0)
         wire(initial_rod_dir, 0, initial_rod_plane, 1)
         wire(shaft_vector, 0, initial_rod_plane, 2)
         wire(solved_ecc, 0, solved_rod_plane, 0)
         wire(solved_rod_dir, 0, solved_rod_plane, 1)
         wire(shaft_vector, 0, solved_rod_plane, 2)
-        wire(base_rod_geometry, 0, oriented_rod, 0)
+        if rod_reader is not None:
+            wire(rod_reader, 1, oriented_rod, 0)
+        else:
+            wire(base_rod_geometry, 0, oriented_rod, 0)
         wire(initial_rod_plane, 0, oriented_rod, 1)
         wire(solved_rod_plane, 0, oriented_rod, 2)
         wire(rod_obj, 0, replacement_rod, 0)
@@ -581,7 +808,9 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         wire(replacement_rod, 0, rod_cache, 0)
         rod_components = [
             rod_obj,
-            base_rod_geometry,
+            rod_reader,
+            live_rod_big_center,
+            live_rod_small_center,
             initial_rod_dir,
             solved_rod_dir,
             initial_rod_plane,
@@ -589,24 +818,28 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
             oriented_rod,
             replacement_rod,
             rod_cache,
-        ]
+        ] + live_rod_center_components
 
     note = add_panel(
         api,
         ghdoc,
-        "Eccentric joint / crank-slider.\n\nKangaroo solves projected mate centers in the mechanism plane. Content Cache transforms use the actual selected edge centers, so initially non-coincident Breps should snap into the solved mate locations. The piston slide axis is automatically extended to approximate an infinite linear mate.\n\nChange 'shaft angle radians', click Reset, and Content Cache pushes the eccentric object, piston, and rod if selected.\n\nKangaroo particles:\n0 = solved eccentric pin\n1 = solved piston pin\n\nIf the piston jumps to the wrong branch, move the starting piston pin closer to the desired solution and reset.",
+        "Eccentric joint / crank-slider.\n\nEdge-based mode: Kangaroo goals are driven only by live circular edge centers extracted from Model Object geometry using object_id + edge_index metadata. The only point params are the fixed shaft axis and fixed piston slide axis.\n\nDefault mode is live-driver: the eccentric object leads the solve and is not written by Content Cache. Rotate/edit it in Rhino, then solve/reset to update the piston and rod.\n\nUse the DEBUG panels to compare live edge centers against solved centers. The piston and rod Content Cache transforms are based on these live centers.\n\nKangaroo particles:\n0 = solved eccentric pin\n1 = solved piston pin.",
         sx,
         sy + 900,
     )
 
     add_group(api, ghdoc, "Mate record", [note])
-    add_group(api, ghdoc, "References", [shaft_start, shaft_end, shaft_vector, eccentric_start, rod_big_start, rod_small_start, piston_axis_start, piston_axis_end, piston_pin_start, piston_pin_actual])
-    add_group(api, ghdoc, "Driver", [angle_slider, reset_button, rotate_ecc])
-    add_group(api, ghdoc, "Kangaroo goals", [rod_line, length_goal, eccentric_anchor, piston_on_curve, solver])
+    add_group(api, ghdoc, "Fixed axes", [shaft_start, shaft_end, shaft_vector, piston_axis_start, piston_axis_end])
+    add_group(api, ghdoc, "Driver", driver_components + [reset_button])
+    add_group(api, ghdoc, "Kangaroo goals", [rod_line, live_rod_length, length_goal, eccentric_anchor, piston_on_curve, solver])
     add_group(api, ghdoc, "Solved linkage preview", [solved_ecc, solved_piston, solved_line])
+    if debug_panels:
+        add_group(api, ghdoc, "Live metadata debug output", debug_panels)
     if eccentric_components:
         add_group(api, ghdoc, "Eccentric Content Cache writeback", eccentric_components)
-    add_group(api, ghdoc, "Piston Content Cache writeback", [piston_obj, base_piston_geometry, piston_pin_actual, piston_translation, moved_piston, replacement_piston, piston_cache])
+    elif eccentric_obj is not None:
+        add_group(api, ghdoc, "Eccentric live driver metadata", [eccentric_obj, eccentric_reader, live_eccentric_center] + live_eccentric_center_components)
+    add_group(api, ghdoc, "Piston Content Cache writeback", [piston_obj, piston_reader, live_piston_center, piston_pin_actual, piston_translation, moved_piston, replacement_piston, piston_cache] + live_piston_center_components)
     if rod_components:
         add_group(api, ghdoc, "Rod Content Cache writeback", rod_components)
 
@@ -622,9 +855,10 @@ def rebuild_session_definition(session, *, save=True):
     header = add_panel(
         api,
         ghdoc,
-        "AssemblyGH generated definition\n\nSession: {}\nMates: {}\nControlled objects: {}\n\nThis document is generated from mate records. Do not edit it by hand.".format(
+        "AssemblyGH generated definition\n\nSession: {}\nMates: {}\nBodies: {}\nControlled objects: {}\n\nThis document is generated from body + mate metadata. Do not edit it by hand.".format(
             session.get("id", "")[:8],
             len(session.get("mates", [])),
+            len(session.get("bodies", {})),
             len(session.get("controlled_objects", {})),
         ),
         20,

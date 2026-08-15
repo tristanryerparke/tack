@@ -124,6 +124,7 @@ def RunCommand(is_interactive):
             piston_pin_edge=piston_pin_edge,
             piston_axis=piston_axis,
             rod_length=rod_length,
+            driver_mode="live_driver",
         )
         session = session_module.append_mate(record)
         session_module.recreate_session_document(session)
