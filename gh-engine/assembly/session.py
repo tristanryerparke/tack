@@ -130,6 +130,16 @@ def _new_session(api, rhino_doc=None, *, name=None):
         "controlled_objects": {},
         "dirty": True,
         "object_runtime_serials": {},
+        "busy": False,
+        "debug": {
+            "end_command_count": 0,
+            "scheduled_count": 0,
+            "idle_count": 0,
+            "solve_count": 0,
+            "skip_count": 0,
+            "last_command": None,
+            "last_changed_triggers": [],
+        },
         "version": 1,
     }
     _document_server(api).AddDocument(ghdoc)
@@ -183,6 +193,7 @@ def _serializable_session(session):
         "mates": session.get("mates", []),
         "bodies": session.get("bodies", {}),
         "controlled_objects": session.get("controlled_objects", {}),
+        "debug": session.get("debug", {}),
         "version": session.get("version", 1),
     }
 
@@ -238,6 +249,16 @@ def _load_latest_session_metadata(api, rhino_doc=None):
         "controlled_objects": data.get("controlled_objects", {}),
         "dirty": True,
         "object_runtime_serials": {},
+        "busy": False,
+        "debug": data.get("debug", {
+            "end_command_count": 0,
+            "scheduled_count": 0,
+            "idle_count": 0,
+            "solve_count": 0,
+            "skip_count": 0,
+            "last_command": None,
+            "last_changed_triggers": [],
+        }),
         "version": data.get("version", 1),
     }
     _ensure_session_schema(session)
@@ -287,6 +308,15 @@ def _ensure_session_schema(session):
     session.setdefault("mates", [])
     session["bodies"] = body_registry_from_mates(session.get("mates", []))
     session["controlled_objects"] = _controlled_objects_from_mates(session.get("mates", []))
+    session.setdefault("busy", False)
+    debug = session.setdefault("debug", {})
+    debug.setdefault("end_command_count", 0)
+    debug.setdefault("scheduled_count", 0)
+    debug.setdefault("idle_count", 0)
+    debug.setdefault("solve_count", 0)
+    debug.setdefault("skip_count", 0)
+    debug.setdefault("last_command", None)
+    debug.setdefault("last_changed_triggers", [])
     return session
 
 
@@ -330,6 +360,28 @@ def _referenced_object_ids(session):
     return sorted(object_ids)
 
 
+def _trigger_object_ids(session):
+    """Objects whose user edits should trigger a solve.
+
+    Content Cache controlled objects are intentionally excluded to avoid
+    solve/write/solve feedback and giant undo stacks. In the current live-driver
+    eccentric workflow this leaves the eccentric driver object as the trigger.
+    """
+    _ensure_session_schema(session)
+    body_ids = set(session.get("bodies", {}).keys())
+    controlled_ids = set(session.get("controlled_objects", {}).keys())
+    return sorted(body_ids - controlled_ids)
+
+
+def _short_id(object_id):
+    return str(object_id).split("-", 1)[0]
+
+
+def _debug(session, message):
+    session_id = (session or {}).get("id", "")[:8]
+    print("[AssemblyGH debug {}] {}".format(session_id, message))
+
+
 def _refresh_runtime_serials(session):
     session["object_runtime_serials"] = {
         object_id: _object_runtime_serial(object_id)
@@ -338,12 +390,20 @@ def _refresh_runtime_serials(session):
     return session["object_runtime_serials"]
 
 
-def _referenced_objects_changed(session):
+def _changed_object_ids(session, object_ids):
     previous = session.get("object_runtime_serials", {})
-    for object_id in _referenced_object_ids(session):
-        if _object_runtime_serial(object_id) != previous.get(object_id):
-            return True
-    return False
+    changed = []
+    for object_id in object_ids:
+        current = _object_runtime_serial(object_id)
+        if current != previous.get(object_id):
+            changed.append(object_id)
+    return changed
+
+
+def _trigger_objects_changed(session):
+    changed = _changed_object_ids(session, _trigger_object_ids(session))
+    session["debug"]["last_changed_triggers"] = changed
+    return changed
 
 
 def save_session_definition():
@@ -361,21 +421,48 @@ def save_session_definition():
 
 
 def solve_session():
-    session = get_active_session(required=True)
+    session = _ensure_session_schema(get_active_session(required=True))
+    if session.get("busy"):
+        session["debug"]["skip_count"] += 1
+        _debug(session, "solve skipped; session is busy")
+        return session
     ghdoc = session.get("ghdoc")
     if ghdoc is None:
         raise AssemblySessionError("Active session has no GH document.")
-    ghdoc.ExpireSolution()
-    ghdoc.NewSolution(True)
-    _refresh_runtime_serials(session)
-    return session
+    session["busy"] = True
+    try:
+        ghdoc.ExpireSolution()
+        ghdoc.NewSolution(True)
+        _refresh_runtime_serials(session)
+        session["debug"]["solve_count"] += 1
+        _debug(session, "solve #{} complete; tracking {} object(s), trigger object(s)={}".format(
+            session["debug"]["solve_count"],
+            len(_referenced_object_ids(session)),
+            ",".join(_short_id(object_id) for object_id in _trigger_object_ids(session)) or "none",
+        ))
+        return session
+    finally:
+        session["busy"] = False
 
 
-def _schedule_changed_session_solve():
+def _schedule_changed_session_solve(command_name=None):
     import Rhino
 
     sticky = _sticky()
+    session = get_active_session(False)
+    if session is not None:
+        _ensure_session_schema(session)
+        session["debug"]["scheduled_count"] += 1
+        session["debug"]["last_command"] = command_name
+        _debug(session, "schedule request #{} after command={!r}; trigger object(s)={}".format(
+            session["debug"]["scheduled_count"],
+            command_name,
+            ",".join(_short_id(object_id) for object_id in _trigger_object_ids(session)) or "none",
+        ))
     if sticky.get(IDLE_SOLVE_HANDLER_KEY) is not None:
+        if session is not None:
+            session["debug"]["skip_count"] += 1
+            _debug(session, "idle solve already scheduled; skipping duplicate schedule")
         return
 
     def on_idle(sender, event):
@@ -387,28 +474,60 @@ def _schedule_changed_session_solve():
         session = get_active_session(False)
         if session is None:
             return
-        if not _referenced_objects_changed(session):
+        _ensure_session_schema(session)
+        session["debug"]["idle_count"] += 1
+        if session.get("busy"):
+            session["debug"]["skip_count"] += 1
+            _debug(session, "idle #{} skipped; session busy".format(session["debug"]["idle_count"]))
             return
+        changed = _trigger_objects_changed(session)
+        if not changed:
+            session["debug"]["skip_count"] += 1
+            ignored = _changed_object_ids(session, session.get("controlled_objects", {}).keys())
+            _debug(session, "idle #{} skipped; no trigger object changed; controlled changes ignored={}".format(
+                session["debug"]["idle_count"],
+                ",".join(_short_id(object_id) for object_id in ignored) or "none",
+            ))
+            _refresh_runtime_serials(session)
+            return
+        _debug(session, "idle #{} solving; changed trigger object(s)={}".format(
+            session["debug"]["idle_count"],
+            ",".join(_short_id(object_id) for object_id in changed),
+        ))
         try:
-            # Transactional solve: rebuild the generated GH document from current
-            # metadata/live geometry snapshots, then solve/write once. This is
-            # the analogue of Tack resolving current anchors before applying a
-            # relationship.
             from assembly import generate_definition
 
             recreate_session_document(session)
             generate_definition.rebuild_session_definition(session, save=True)
             solve_session()
-            print("[AssemblyGH] rebuilt and solved after Rhino object change")
+            _debug(session, "rebuilt and solved after Rhino object change")
         except Exception as error:
-            print("[AssemblyGH] solve after object change failed: {}".format(error))
+            session["debug"]["skip_count"] += 1
+            _debug(session, "solve after object change failed: {}".format(error))
 
     sticky[IDLE_SOLVE_HANDLER_KEY] = on_idle
     Rhino.RhinoApp.Idle += on_idle
 
 
+def _command_name(event):
+    for name in ("CommandEnglishName", "CommandName"):
+        try:
+            value = getattr(event, name)
+            if value:
+                return str(value)
+        except Exception:
+            pass
+    return None
+
+
 def _end_command_handler(sender, event):
-    _schedule_changed_session_solve()
+    session = get_active_session(False)
+    command_name = _command_name(event)
+    if session is not None:
+        _ensure_session_schema(session)
+        session["debug"]["end_command_count"] += 1
+        _debug(session, "EndCommand #{} command={!r}".format(session["debug"]["end_command_count"], command_name))
+    _schedule_changed_session_solve(command_name)
 
 
 def _close_document_handler(sender, event):

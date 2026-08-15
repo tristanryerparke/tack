@@ -20,6 +20,18 @@ def RunCommand(is_interactive):
         session = get_active_session(False)
         print(session_summary(session))
         if session is not None:
+            debug = session.get("debug", {})
+            print(
+                "  debug end_commands={} scheduled={} idle={} solves={} skips={} last_command={} last_changed_triggers={}".format(
+                    debug.get("end_command_count", 0),
+                    debug.get("scheduled_count", 0),
+                    debug.get("idle_count", 0),
+                    debug.get("solve_count", 0),
+                    debug.get("skip_count", 0),
+                    debug.get("last_command"),
+                    [str(value)[:8] for value in debug.get("last_changed_triggers", [])],
+                )
+            )
             for object_id, body in sorted(session.get("bodies", {}).items()):
                 print(
                     "  body {} role={} features={} controls={}".format(
