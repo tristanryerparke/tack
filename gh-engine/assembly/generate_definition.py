@@ -21,6 +21,7 @@ from assembly.component_io import (
     wire,
 )
 from assembly.content_cache import add_content_cache_push_input
+from assembly.mate_records import eccentric_joint_record
 from assembly.session import save_session_definition
 
 
@@ -400,6 +401,155 @@ def mate_to_kangaroo_plan(record):
     ]
 
 
+def _feature_from_joint_ref(joint, ref_key):
+    reference = joint.get("references", {}).get(ref_key)
+    if reference is None:
+        return None
+    return joint.get("references", {}).get("features", {}).get(reference.get("feature_id"))
+
+
+def _edge_reference_from_feature(feature, role=None):
+    fingerprint = feature.get("fingerprint", {})
+    reference = {
+        "role": role or feature.get("role"),
+        "object_id": str(feature["object_id"]),
+        "edge_indices": [int(index) for index in feature.get("edge_indices", [])],
+    }
+    if reference["edge_indices"]:
+        reference["edge_index"] = reference["edge_indices"][0]
+    for key in ("center", "radius", "normal", "circle_kind", "adjacent_face_indices"):
+        if key in fingerprint:
+            reference[key] = fingerprint[key]
+    return reference
+
+
+def _feature_object_id(feature):
+    return str(feature.get("object_id")) if feature else None
+
+
+def _feature_pair_for_body_joint(joint):
+    feature_a = _feature_from_joint_ref(joint, "a")
+    feature_b = _feature_from_joint_ref(joint, "b")
+    if feature_a is None or feature_b is None:
+        return None
+    return feature_a, feature_b
+
+
+def _joint_mode(joint):
+    return joint.get("parameters", {}).get("mode")
+
+
+def _synthesize_crank_slider_mate_from_joints(joints):
+    """Detect the current 4-joint crank-slider and reuse the proven emitter.
+
+    The saved source of truth stays Fusion-style joints. This function is only a
+    generation adapter while the fully generic 6DOF joint solver is being built.
+    """
+    fixed_revolutes = [
+        joint for joint in joints
+        if joint.get("type") == "revolute" and _joint_mode(joint) == "body_to_world_axis"
+    ]
+    sliders = [
+        joint for joint in joints
+        if joint.get("type") == "slider" and _joint_mode(joint) == "body_to_world_axis"
+    ]
+    body_revolutes = [
+        joint for joint in joints
+        if joint.get("type") == "revolute" and _joint_mode(joint) == "body_to_body"
+    ]
+    if len(fixed_revolutes) != 1 or len(sliders) != 1 or len(body_revolutes) != 2:
+        return None
+
+    shaft_joint = fixed_revolutes[0]
+    slider_joint = sliders[0]
+    shaft_feature = _feature_from_joint_ref(shaft_joint, "body")
+    piston_slider_feature = _feature_from_joint_ref(slider_joint, "body")
+    shaft_axis = shaft_joint.get("references", {}).get("axis")
+    piston_axis = slider_joint.get("references", {}).get("axis")
+    if shaft_feature is None or piston_slider_feature is None or shaft_axis is None or piston_axis is None:
+        return None
+
+    eccentric_object_id = _feature_object_id(shaft_feature)
+    piston_object_id = _feature_object_id(piston_slider_feature)
+
+    eccentric_pin_feature = None
+    rod_big_feature = None
+    rod_small_feature = None
+    piston_pin_feature = None
+    rod_object_id = None
+
+    for joint in body_revolutes:
+        pair = _feature_pair_for_body_joint(joint)
+        if pair is None:
+            return None
+        feature_a, feature_b = pair
+        object_a = _feature_object_id(feature_a)
+        object_b = _feature_object_id(feature_b)
+        if object_a == eccentric_object_id and object_b != piston_object_id:
+            eccentric_pin_feature = feature_a
+            rod_big_feature = feature_b
+            rod_object_id = object_b
+        elif object_b == eccentric_object_id and object_a != piston_object_id:
+            eccentric_pin_feature = feature_b
+            rod_big_feature = feature_a
+            rod_object_id = object_a
+
+    if rod_object_id is None:
+        return None
+
+    for joint in body_revolutes:
+        pair = _feature_pair_for_body_joint(joint)
+        if pair is None:
+            return None
+        feature_a, feature_b = pair
+        object_a = _feature_object_id(feature_a)
+        object_b = _feature_object_id(feature_b)
+        if object_a == rod_object_id and object_b == piston_object_id:
+            rod_small_feature = feature_a
+            piston_pin_feature = feature_b
+        elif object_b == rod_object_id and object_a == piston_object_id:
+            rod_small_feature = feature_b
+            piston_pin_feature = feature_a
+
+    if not all((eccentric_pin_feature, rod_big_feature, rod_small_feature, piston_pin_feature)):
+        return None
+
+    rod_big_edge = _edge_reference_from_feature(rod_big_feature, role="rod_big_edge")
+    rod_small_edge = _edge_reference_from_feature(rod_small_feature, role="rod_small_edge")
+    try:
+        rod_length = _edge_center(rod_big_edge).DistanceTo(_edge_center(rod_small_edge))
+    except Exception:
+        big_center = rod_big_feature.get("fingerprint", {}).get("center")
+        small_center = rod_small_feature.get("fingerprint", {}).get("center")
+        if big_center is None or small_center is None:
+            raise
+        rod_length = _point3d(big_center).DistanceTo(_point3d(small_center))
+
+    record = eccentric_joint_record(
+        shaft_axis=shaft_axis,
+        piston_axis=piston_axis,
+        rod_length=rod_length,
+        driver_mode="live_driver",
+        rotator_shaft_edge=_edge_reference_from_feature(shaft_feature, role="rotator_shaft_edge"),
+        eccentric_pin_edge=_edge_reference_from_feature(eccentric_pin_feature, role="eccentric_pin_edge"),
+        rod_big_edge=rod_big_edge,
+        rod_small_edge=rod_small_edge,
+        piston_pin_edge=_edge_reference_from_feature(piston_pin_feature, role="piston_pin_edge"),
+        name="Crank-slider from Fusion-style joints",
+    )
+    record["source_joint_ids"] = [joint.get("id") for joint in [shaft_joint] + body_revolutes + [slider_joint]]
+    return record
+
+
+def _joint_summary_text(joint):
+    return "Joint: {}\nType: {}\nID: {}\n\nRecord:\n{}".format(
+        joint.get("name"),
+        joint.get("type"),
+        joint.get("id"),
+        json.dumps(joint, indent=2, sort_keys=True),
+    )
+
+
 def _mate_summary_text(record):
     plan = mate_to_kangaroo_plan(record)
     return "\n".join(
@@ -440,15 +590,12 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         plane_origin,
         plane_normal,
     )
-    piston_axis_start_point, piston_axis_end_point = _project_line_to_plane(
-        piston_axis["start"],
-        piston_axis["end"],
-        plane_origin,
-        plane_normal,
-    )
+    # Use the exact user-picked slider axis. Earlier POC code projected this
+    # axis into the mechanism plane, which made the visible slider line drift
+    # away from the axis the user actually specified.
     piston_axis_start_point, piston_axis_end_point = _extended_axis_points(
-        piston_axis_start_point,
-        piston_axis_end_point,
+        _point3d(piston_axis["start"]),
+        _point3d(piston_axis["end"]),
         params["rod_length"],
     )
     piston_pin_point = None if edge_based else _project_point_to_plane(
@@ -476,8 +623,8 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     eccentric_start = None if edge_based else _add_point_param(api, ghdoc, "eccentric pin center", eccentric_pin, sx, sy + 190)
     rod_big_start = None if edge_based else _add_point_param(api, ghdoc, "rod eccentric-end center", rod_big, sx, sy + 270)
     rod_small_start = None if edge_based else _add_point_param(api, ghdoc, "rod piston-end center", rod_small, sx, sy + 350)
-    piston_axis_start = _add_point_param(api, ghdoc, "piston axis start projected/extended", _point_tuple(piston_axis_start_point), sx, sy + 455)
-    piston_axis_end = _add_point_param(api, ghdoc, "piston axis end projected/extended", _point_tuple(piston_axis_end_point), sx, sy + 530)
+    piston_axis_start = _add_point_param(api, ghdoc, "piston axis start exact/extended", _point_tuple(piston_axis_start_point), sx, sy + 455)
+    piston_axis_end = _add_point_param(api, ghdoc, "piston axis end exact/extended", _point_tuple(piston_axis_end_point), sx, sy + 530)
     piston_pin_start = None if edge_based else _add_point_param(api, ghdoc, "piston wrist-pin center projected", piston_pin, sx, sy + 640)
     piston_pin_actual = None if edge_based else _add_point_param(api, ghdoc, "piston wrist-pin actual edge center", actual_piston_pin, sx, sy + 710)
     piston_obj = _add_model_object_param(api, ghdoc, "piston object", piston_object_id, sx, sy + 790)
@@ -687,6 +834,8 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG solved eccentric pin", solved_ecc, 0, sx + 1460, sy + 520))
     debug_panels.append(_add_value_panel(api, ghdoc, "DEBUG solved piston pin", solved_piston, 0, sx + 1460, sy + 620))
 
+    writeback_sources = []
+
     eccentric_components = []
     if eccentric_obj is not None and driver_mode == "slider":
         current_ecc_dir = emit_named(api, ghdoc, "Vector 2Pt", sx + 1220, sy + 20)
@@ -701,9 +850,6 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         oriented_eccentric.NickName = "oriented eccentric geometry"
         replacement_eccentric = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", sx + 1940, sy + 65)
         replacement_eccentric.NickName = "replacement eccentric object"
-        eccentric_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 2220, sy + 65)
-        eccentric_cache.NickName = "Content Cache Push eccentric"
-        add_content_cache_push_input(eccentric_cache)
 
         if live_eccentric_center is not None:
             wire(shaft_start, 0, current_ecc_dir, 0)
@@ -721,7 +867,7 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
             wire(target_ecc_plane, 0, oriented_eccentric, 2)
             wire(eccentric_obj, 0, replacement_eccentric, 0)
             wire(oriented_eccentric, 0, replacement_eccentric, 1)
-            wire(replacement_eccentric, 0, eccentric_cache, 0)
+            writeback_sources.append(replacement_eccentric)
         eccentric_components = [
             eccentric_obj,
             eccentric_reader,
@@ -732,7 +878,6 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
             target_ecc_plane,
             oriented_eccentric,
             replacement_eccentric,
-            eccentric_cache,
         ] + live_eccentric_center_components
 
     # Piston writeback: live geometry + live edge-center correction.
@@ -742,9 +887,6 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     moved_piston.NickName = "moved piston geometry"
     replacement_piston = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", sx + 1940, sy + 650)
     replacement_piston.NickName = "replacement piston object"
-    piston_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 2220, sy + 650)
-    piston_cache.NickName = "Content Cache Push piston"
-    add_content_cache_push_input(piston_cache)
 
     if live_piston_center is not None:
         wire(live_piston_center, 1, piston_translation, 0)
@@ -758,7 +900,7 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
     wire(piston_translation, 0, moved_piston, 1)
     wire(piston_obj, 0, replacement_piston, 0)
     wire(moved_piston, 0, replacement_piston, 1)
-    wire(replacement_piston, 0, piston_cache, 0)
+    writeback_sources.append(replacement_piston)
 
     rod_components = []
     if rod_obj is not None:
@@ -774,9 +916,6 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         oriented_rod.NickName = "oriented rod geometry in mechanism plane"
         replacement_rod = emit_guid(api, ghdoc, "d7071c97-bc7f-4966-beba-b7110064eebf", sx + 2180, sy + 815)
         replacement_rod.NickName = "replacement rod object"
-        rod_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 2460, sy + 815)
-        rod_cache.NickName = "Content Cache Push rod"
-        add_content_cache_push_input(rod_cache)
 
         if live_rod_big_center is not None:
             wire(live_rod_big_center, 1, initial_rod_dir, 0)
@@ -805,7 +944,7 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         wire(solved_rod_plane, 0, oriented_rod, 2)
         wire(rod_obj, 0, replacement_rod, 0)
         wire(oriented_rod, 0, replacement_rod, 1)
-        wire(replacement_rod, 0, rod_cache, 0)
+        writeback_sources.append(replacement_rod)
         rod_components = [
             rod_obj,
             rod_reader,
@@ -817,8 +956,16 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
             solved_rod_plane,
             oriented_rod,
             replacement_rod,
-            rod_cache,
         ] + live_rod_center_components
+
+    final_cache_components = []
+    if writeback_sources:
+        final_cache = emit_guid(api, ghdoc, "1fae4c7a-d84a-4f04-8400-179e13193381", sx + 2760, sy + 650)
+        final_cache.NickName = "Content Cache Push assembly writeback"
+        add_content_cache_push_input(final_cache)
+        for source in writeback_sources:
+            wire(source, 0, final_cache, 0)
+        final_cache_components = [final_cache]
 
     note = add_panel(
         api,
@@ -839,9 +986,11 @@ def _emit_eccentric_joint(api, ghdoc, record, origin_x, origin_y):
         add_group(api, ghdoc, "Eccentric Content Cache writeback", eccentric_components)
     elif eccentric_obj is not None:
         add_group(api, ghdoc, "Eccentric live driver metadata", [eccentric_obj, eccentric_reader, live_eccentric_center] + live_eccentric_center_components)
-    add_group(api, ghdoc, "Piston Content Cache writeback", [piston_obj, piston_reader, live_piston_center, piston_pin_actual, piston_translation, moved_piston, replacement_piston, piston_cache] + live_piston_center_components)
+    add_group(api, ghdoc, "Piston writeback object", [piston_obj, piston_reader, live_piston_center, piston_pin_actual, piston_translation, moved_piston, replacement_piston] + live_piston_center_components)
     if rod_components:
-        add_group(api, ghdoc, "Rod Content Cache writeback", rod_components)
+        add_group(api, ghdoc, "Rod writeback object", rod_components)
+    if final_cache_components:
+        add_group(api, ghdoc, "Single final Content Cache writeback", final_cache_components)
 
 
 def rebuild_session_definition(session, *, save=True):
@@ -855,9 +1004,10 @@ def rebuild_session_definition(session, *, save=True):
     header = add_panel(
         api,
         ghdoc,
-        "AssemblyGH generated definition\n\nSession: {}\nMates: {}\nBodies: {}\nControlled objects: {}\n\nThis document is generated from body + mate metadata. Do not edit it by hand.".format(
+        "AssemblyGH generated definition\n\nSession: {}\nMates: {}\nJoints: {}\nBodies: {}\nControlled objects: {}\n\nThis document is generated from body + joint/mate metadata. Do not edit it by hand.".format(
             session.get("id", "")[:8],
             len(session.get("mates", [])),
+            len(session.get("joints", [])),
             len(session.get("bodies", {})),
             len(session.get("controlled_objects", {})),
         ),
@@ -867,6 +1017,29 @@ def rebuild_session_definition(session, *, save=True):
     add_group(api, ghdoc, "AssemblyGH session", [header])
 
     y = 180
+    joints = session.get("joints", [])
+    synthesized_record = _synthesize_crank_slider_mate_from_joints(joints) if joints else None
+    if synthesized_record is not None:
+        source_panel = add_panel(
+            api,
+            ghdoc,
+            "Fusion-style joint graph detected: crank-slider\n\nGenerated Kangaroo graph from {} joint records.\n\nSource joint IDs:\n{}".format(
+                len(synthesized_record.get("source_joint_ids", [])),
+                "\n".join("- {}".format(value) for value in synthesized_record.get("source_joint_ids", [])),
+            ),
+            20,
+            y,
+        )
+        add_group(api, ghdoc, "Fusion joint graph adapter", [source_panel])
+        y += 220
+        _emit_eccentric_joint(api, ghdoc, synthesized_record, 20, y)
+        y += 1100
+    else:
+        for index, joint in enumerate(joints):
+            panel = add_panel(api, ghdoc, _joint_summary_text(joint), 20, y)
+            add_group(api, ghdoc, "Joint {}: {}".format(index + 1, joint["name"]), [panel])
+            y += 320
+
     for index, record in enumerate(session.get("mates", [])):
         if record["type"] == "eccentric_joint":
             _emit_eccentric_joint(api, ghdoc, record, 20, y)

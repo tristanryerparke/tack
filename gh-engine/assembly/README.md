@@ -27,10 +27,13 @@ A mate record references body features and declares the relationship to maintain
 
 ## Commands
 
-Run only when ready to test in Rhino:
+Run only when ready to test in Rhino. `assembly_start.py` shows Grasshopper so the generated graph is visible while commands add records.
 
 ```bash
 uv run rhino-watch gh-engine/assembly_start.py --debug
+uv run rhino-watch gh-engine/assembly_add_revolute_axis_joint.py --debug
+uv run rhino-watch gh-engine/assembly_add_revolute_joint.py --debug
+uv run rhino-watch gh-engine/assembly_add_slider_joint.py --debug
 uv run rhino-watch gh-engine/assembly_add_eccentric_joint.py --debug
 uv run rhino-watch gh-engine/assembly_show.py --debug
 uv run rhino-watch gh-engine/assembly_solve.py --debug
@@ -63,10 +66,25 @@ object_id + edge_indices -> current circular edge center/axis -> mate feature
 
 Content Cache should write absolute solved poses derived from live feature locations, not incremental transforms or stale geometry snapshots.
 
-## Next implementation step
+## Fusion-style joint direction
 
-Generalize `generate_definition.py` so every mate emits goals against body feature refs instead of bespoke eccentric-joint wiring:
+New public API commands should prefer Fusion-style joints over low-level SolidWorks mates:
 
 ```text
-body feature refs -> mate goals -> shared solver -> per-body absolute transforms -> one Content Cache push
+revolute body ↔ fixed axis
+revolute body ↔ body
+slider body ↔ fixed axis
+rigid / cylindrical / planar / ball later
 ```
+
+Internally these records still resolve live metadata-backed features and eventually emit low-level Kangaroo goals.
+
+## Next implementation step
+
+Teach `generate_definition.py` to emit real goals for `session["joints"]`:
+
+```text
+body feature refs -> joint goals -> shared solver -> per-body absolute transforms -> one Content Cache push
+```
+
+The current eccentric emitter remains as a transitional proof while the joint graph emitter is built.

@@ -29,16 +29,23 @@ from assembly.prompts import PromptCancelled, pick_axis_by_two_points
 
 
 def _reload_assembly_modules():
+    importlib.invalidate_caches()
+    import assembly.features as features
+    import assembly.bodies as bodies
     import assembly.component_io as component_io
     import assembly.content_cache as content_cache
     import assembly.edge_refs as edge_refs
+    import assembly.joint_records as joint_records
     import assembly.mate_records as mate_records
     import assembly.session as session_module
     import assembly.generate_definition as generate_definition
 
+    importlib.reload(features)
+    importlib.reload(bodies)
     importlib.reload(component_io)
     importlib.reload(content_cache)
     importlib.reload(edge_refs)
+    importlib.reload(joint_records)
     importlib.reload(mate_records)
     importlib.reload(session_module)
     importlib.reload(generate_definition)

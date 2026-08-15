@@ -91,6 +91,23 @@ def eccentric_joint_feature_refs(record):
     return feature_refs
 
 
+def _apply_feature_map_to_registry(registry, features):
+    for feature in (features or {}).values():
+        body = ensure_body(registry, feature["object_id"], role=feature.get("role"))
+        add_feature(body, feature)
+
+
+def _apply_controls_to_registry(registry, record):
+    driver_mode = record.get("parameters", {}).get("driver_mode", "live_driver")
+    for control in record.get("controls", []):
+        if record.get("type") == "eccentric_joint" and control.get("role") == "eccentric_rotator" and driver_mode != "slider":
+            continue
+        object_id = control.get("object_id")
+        if object_id:
+            body = ensure_body(registry, object_id, role=control.get("role"))
+            add_control(body, control)
+
+
 def apply_mate_to_registry(registry, record):
     """Merge one mate's bodies/features/controls into the session registry."""
     refs = record.get("references", {})
@@ -108,20 +125,25 @@ def apply_mate_to_registry(registry, record):
                 role=refs[key].get("role", key),
                 body_role=body_role,
             )
+    _apply_controls_to_registry(registry, record)
+    return registry
 
-    driver_mode = record.get("parameters", {}).get("driver_mode", "live_driver")
-    for control in record.get("controls", []):
-        if record.get("type") == "eccentric_joint" and control.get("role") == "eccentric_rotator" and driver_mode != "slider":
-            continue
-        object_id = control.get("object_id")
-        if object_id:
-            body = ensure_body(registry, object_id, role=control.get("role"))
-            add_control(body, control)
+
+def apply_joint_to_registry(registry, record):
+    """Merge one Fusion-style joint's bodies/features/controls."""
+    _apply_feature_map_to_registry(registry, record.get("references", {}).get("features", {}))
+    _apply_controls_to_registry(registry, record)
+    return registry
+
+
+def body_registry_from_records(mates=None, joints=None):
+    registry = {}
+    for record in mates or []:
+        apply_mate_to_registry(registry, record)
+    for record in joints or []:
+        apply_joint_to_registry(registry, record)
     return registry
 
 
 def body_registry_from_mates(records):
-    registry = {}
-    for record in records:
-        apply_mate_to_registry(registry, record)
-    return registry
+    return body_registry_from_records(mates=records, joints=[])

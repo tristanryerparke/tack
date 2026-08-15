@@ -9,8 +9,9 @@ import json
 import os
 import uuid
 
-from assembly.bodies import body_registry_from_mates
+from assembly.bodies import body_registry_from_records
 from assembly.constants import GENERATED_DIR_NAME, GENERATED_PROJECT_PREFIX, STICKY_KEY
+from assembly.joint_records import validate_joint_record
 from assembly.mate_records import validate_mate_record
 
 HANDLERS_KEY = STICKY_KEY + ".Handlers"
@@ -85,9 +86,67 @@ def _document_server(api):
     return api["Instances"].DocumentServer
 
 
+def show_session_document(session):
+    """Make the generated GH document the visible Grasshopper canvas document."""
+    ghdoc = session.get("ghdoc") if session else None
+    if ghdoc is None:
+        return False
+    api = _load_grasshopper()
+    try:
+        api["Instances"].DocumentServer.PromoteDocument(ghdoc)
+    except Exception:
+        pass
+    canvas = getattr(api["Instances"], "ActiveCanvas", None)
+    if canvas is None:
+        return False
+    try:
+        canvas.Document = ghdoc
+    except Exception:
+        try:
+            canvas.set_Document(ghdoc)
+        except Exception:
+            return False
+    try:
+        api["Instances"].RedrawCanvas()
+    except Exception:
+        pass
+    try:
+        canvas.Refresh()
+    except Exception:
+        pass
+    return True
+
+
 def _metadata_path(definition_path):
     root, _ = os.path.splitext(definition_path)
     return root + ".assembly.json"
+
+
+def _bind_grasshopper_document_path(ghdoc, path):
+    try:
+        ghdoc.FilePath = path
+    except Exception:
+        pass
+    try:
+        ghdoc.Properties.ProjectFileName = os.path.basename(path)
+    except Exception:
+        pass
+
+
+def _delete_file_if_exists(path):
+    if path and os.path.isfile(path):
+        os.remove(path)
+        return True
+    return False
+
+
+def _delete_session_files(session):
+    removed = []
+    definition_path = session.get("path") if session else None
+    for path in (definition_path, _metadata_path(definition_path) if definition_path else None):
+        if _delete_file_if_exists(path):
+            removed.append(path)
+    return removed
 
 
 def _generated_definition_path(rhino_doc, session_id):
@@ -117,15 +176,17 @@ def _new_session(api, rhino_doc=None, *, name=None):
 
     session_id = str(uuid.uuid4())
     display_name = name or "{} {}".format(GENERATED_PROJECT_PREFIX, session_id.split("-", 1)[0])
-    ghdoc.Properties.ProjectFileName = display_name
+    definition_path = _generated_definition_path(rhino_doc, session_id)
+    ghdoc.Properties.ProjectFileName = os.path.basename(definition_path)
 
     session = {
         "id": session_id,
         "name": display_name,
         "rhino_doc_id": str(getattr(rhino_doc, "DocumentId", "")),
         "ghdoc": ghdoc,
-        "path": _generated_definition_path(rhino_doc, session_id),
+        "path": definition_path,
         "mates": [],
+        "joints": [],
         "bodies": {},
         "controlled_objects": {},
         "dirty": True,
@@ -144,6 +205,7 @@ def _new_session(api, rhino_doc=None, *, name=None):
     }
     _document_server(api).AddDocument(ghdoc)
     _document_server(api).PromoteDocument(ghdoc)
+    show_session_document(session)
     return session
 
 
@@ -175,10 +237,11 @@ def recreate_session_document(session):
     ghdoc = api["GH_Document"]()
     ghdoc.Enabled = True
     ghdoc.ActiveDoc = True
-    ghdoc.Properties.ProjectFileName = session.get("name") or GENERATED_PROJECT_PREFIX
+    ghdoc.Properties.ProjectFileName = os.path.basename(session.get("path") or session.get("name") or GENERATED_PROJECT_PREFIX)
     api["Instances"].DocumentServer.AddDocument(ghdoc)
     api["Instances"].DocumentServer.PromoteDocument(ghdoc)
     session["ghdoc"] = ghdoc
+    show_session_document(session)
     session["dirty"] = True
     return session
 
@@ -191,6 +254,7 @@ def _serializable_session(session):
         "rhino_doc_id": session.get("rhino_doc_id"),
         "path": session.get("path"),
         "mates": session.get("mates", []),
+        "joints": session.get("joints", []),
         "bodies": session.get("bodies", {}),
         "controlled_objects": session.get("controlled_objects", {}),
         "debug": session.get("debug", {}),
@@ -234,7 +298,8 @@ def _load_latest_session_metadata(api, rhino_doc=None):
     ghdoc = api["GH_Document"]()
     ghdoc.Enabled = True
     ghdoc.ActiveDoc = True
-    ghdoc.Properties.ProjectFileName = data.get("name") or GENERATED_PROJECT_PREFIX
+    definition_path = data.get("path") or path.replace(".assembly.json", ".ghx")
+    ghdoc.Properties.ProjectFileName = os.path.basename(definition_path)
     api["Instances"].DocumentServer.AddDocument(ghdoc)
     api["Instances"].DocumentServer.PromoteDocument(ghdoc)
 
@@ -243,8 +308,9 @@ def _load_latest_session_metadata(api, rhino_doc=None):
         "name": data.get("name") or GENERATED_PROJECT_PREFIX,
         "rhino_doc_id": data.get("rhino_doc_id", ""),
         "ghdoc": ghdoc,
-        "path": data.get("path") or path.replace(".assembly.json", ".ghx"),
+        "path": definition_path,
         "mates": data.get("mates", []),
+        "joints": data.get("joints", []),
         "bodies": data.get("bodies", {}),
         "controlled_objects": data.get("controlled_objects", {}),
         "dirty": True,
@@ -262,6 +328,7 @@ def _load_latest_session_metadata(api, rhino_doc=None):
         "version": data.get("version", 1),
     }
     _ensure_session_schema(session)
+    show_session_document(session)
     return session
 
 
@@ -271,6 +338,7 @@ def get_or_create_session(*, name=None):
         _ensure_session_schema(session)
         _refresh_runtime_serials(session)
         _subscribe_updates()
+        show_session_document(session)
         return session
 
     api = _load_grasshopper()
@@ -294,9 +362,9 @@ def _effective_controls(record):
     return controls
 
 
-def _controlled_objects_from_mates(records):
+def _controlled_objects_from_records(mates, joints):
     controlled = {}
-    for record in records:
+    for record in list(mates or []) + list(joints or []):
         for control in _effective_controls(record):
             object_id = control.get("object_id")
             if object_id:
@@ -306,8 +374,15 @@ def _controlled_objects_from_mates(records):
 
 def _ensure_session_schema(session):
     session.setdefault("mates", [])
-    session["bodies"] = body_registry_from_mates(session.get("mates", []))
-    session["controlled_objects"] = _controlled_objects_from_mates(session.get("mates", []))
+    session.setdefault("joints", [])
+    session["bodies"] = body_registry_from_records(
+        mates=session.get("mates", []),
+        joints=session.get("joints", []),
+    )
+    session["controlled_objects"] = _controlled_objects_from_records(
+        session.get("mates", []),
+        session.get("joints", []),
+    )
     session.setdefault("busy", False)
     debug = session.setdefault("debug", {})
     debug.setdefault("end_command_count", 0)
@@ -329,12 +404,32 @@ def append_mate(record):
     return session
 
 
+def append_joint(record):
+    validate_joint_record(record)
+    session = _ensure_session_schema(get_or_create_session())
+    session["joints"].append(record)
+    _ensure_session_schema(session)
+    session["dirty"] = True
+    return session
+
+
 def replace_mates(records):
     session = _ensure_session_schema(get_or_create_session())
     session["mates"] = []
     for record in records:
         validate_mate_record(record)
         session["mates"].append(record)
+    _ensure_session_schema(session)
+    session["dirty"] = True
+    return session
+
+
+def replace_joints(records):
+    session = _ensure_session_schema(get_or_create_session())
+    session["joints"] = []
+    for record in records:
+        validate_joint_record(record)
+        session["joints"].append(record)
     _ensure_session_schema(session)
     session["dirty"] = True
     return session
@@ -360,14 +455,35 @@ def _referenced_object_ids(session):
     return sorted(object_ids)
 
 
-def _trigger_object_ids(session):
-    """Objects whose user edits should trigger a solve.
+def _joint_ref_body_id(joint, ref_key):
+    reference = joint.get("references", {}).get(ref_key)
+    if reference is None:
+        return None
+    return reference.get("body_id")
 
-    Content Cache controlled objects are intentionally excluded to avoid
-    solve/write/solve feedback and giant undo stacks. In the current live-driver
-    eccentric workflow this leaves the eccentric driver object as the trigger.
+
+def _joint_live_driver_object_ids(session):
+    """First-pass joint-graph drivers.
+
+    Until the bidirectional temporary-driver solver is implemented, the generated
+    crank-slider adapter is live-driver: the body in a fixed-axis revolute joint
+    drives the graph, just like the original eccentric proof.
     """
+    drivers = []
+    for joint in session.get("joints", []):
+        if joint.get("type") == "revolute" and joint.get("parameters", {}).get("mode") == "body_to_world_axis":
+            object_id = _joint_ref_body_id(joint, "body")
+            if object_id:
+                drivers.append(object_id)
+    return sorted(set(drivers))
+
+
+def _trigger_object_ids(session):
+    """Objects whose user edits should trigger a solve."""
     _ensure_session_schema(session)
+    joint_drivers = _joint_live_driver_object_ids(session)
+    if joint_drivers:
+        return joint_drivers
     body_ids = set(session.get("bodies", {}).keys())
     controlled_ids = set(session.get("controlled_objects", {}).keys())
     return sorted(body_ids - controlled_ids)
@@ -415,6 +531,7 @@ def save_session_definition():
     io = api["GH_DocumentIO"](ghdoc)
     if not io.SaveQuiet(session["path"]):
         raise AssemblySessionError("Could not save generated definition: {}".format(session["path"]))
+    _bind_grasshopper_document_path(ghdoc, session["path"])
     save_session_metadata(session)
     session["dirty"] = False
     return session["path"]
@@ -538,8 +655,17 @@ def _subscribe_updates():
     import Rhino
 
     sticky = _sticky()
-    if sticky.get(HANDLERS_KEY):
-        return
+    old_handlers = sticky.pop(HANDLERS_KEY, ())
+    if len(old_handlers) >= 1:
+        try:
+            Rhino.Commands.Command.EndCommand -= old_handlers[0]
+        except Exception:
+            pass
+    if len(old_handlers) >= 2:
+        try:
+            Rhino.RhinoDoc.CloseDocument -= old_handlers[1]
+        except Exception:
+            pass
     Rhino.Commands.Command.EndCommand += _end_command_handler
     Rhino.RhinoDoc.CloseDocument += _close_document_handler
     sticky[HANDLERS_KEY] = (_end_command_handler, _close_document_handler)
@@ -568,10 +694,25 @@ def _unsubscribe_updates():
             pass
 
 
-def reset_session(*, remove_document=True):
+def clear_saved_sessions(rhino_doc=None):
+    removed = []
+    for metadata_path in _candidate_metadata_paths(rhino_doc or _active_rhino_doc()):
+        definition_path = metadata_path.replace(".assembly.json", ".ghx")
+        for path in (metadata_path, definition_path):
+            if _delete_file_if_exists(path):
+                removed.append(path)
+    return removed
+
+
+def reset_session(*, remove_document=True, remove_metadata=False):
     _unsubscribe_updates()
     session = _sticky().pop(STICKY_KEY, None)
+    removed_files = []
+    if session is not None and remove_metadata:
+        removed_files.extend(_delete_session_files(session))
     if session is None:
+        if remove_metadata:
+            removed_files.extend(clear_saved_sessions())
         return False
 
     ghdoc = session.get("ghdoc")
@@ -599,9 +740,10 @@ def session_summary(session=None):
     if session is None:
         return "No active AssemblyGH session."
     _ensure_session_schema(session)
-    return "AssemblyGH session {}: {} mate(s), {} body(s), {} controlled object(s), path={}".format(
+    return "AssemblyGH session {}: {} mate(s), {} joint(s), {} body(s), {} controlled object(s), path={}".format(
         session.get("id", "")[:8],
         len(session.get("mates", [])),
+        len(session.get("joints", [])),
         len(session.get("bodies", {})),
         len(session.get("controlled_objects", {})),
         session.get("path"),

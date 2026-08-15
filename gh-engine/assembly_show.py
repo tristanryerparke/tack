@@ -41,8 +41,10 @@ def RunCommand(is_interactive):
                         len(body.get("controls", {})),
                     )
                 )
+            for index, joint in enumerate(session.get("joints", []), 1):
+                print("  joint {}. {} [{}] {}".format(index, joint.get("name"), joint.get("type"), joint.get("id", "")[:8]))
             for index, mate in enumerate(session.get("mates", []), 1):
-                print("  {}. {} [{}] {}".format(index, mate.get("name"), mate.get("type"), mate.get("id", "")[:8]))
+                print("  mate {}. {} [{}] {}".format(index, mate.get("name"), mate.get("type"), mate.get("id", "")[:8]))
         return Result.Success
     except Exception:
         traceback.print_exc()
