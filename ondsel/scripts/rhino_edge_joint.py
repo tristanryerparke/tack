@@ -19,6 +19,7 @@ import sys
 
 import Rhino
 import scriptcontext as sc
+import System.Drawing
 
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.env import install_sticky_environment
@@ -190,15 +191,6 @@ def quaternion_from_axes(x_axis, y_axis, z_axis):
     return (w, x, y, z)
 
 
-def flipped_plane(plane):
-    """Rotate a plane 180 degrees about its own X axis."""
-    return Rhino.Geometry.Plane(
-        plane.Origin,
-        plane.XAxis,
-        -plane.YAxis,
-    )
-
-
 def plane_from_pose(position, quaternion):
     """Ondsel (w, x, y, z) quaternion + position -> Rhino plane."""
     w, x, y, z = quaternion
@@ -217,9 +209,8 @@ def plane_from_pose(position, quaternion):
 def solve_child_transform(parent_circle, child_circle, invert):
     """Solve revolute joint; return the world transform for the child.
 
-    Both parts start at the identity pose (part frame == world frame), with
-    markers at their world-space circle centers, so the solved child pose is
-    exactly the rigid motion to apply to the Rhino object.
+    With invert, the solved pose is rotated 180 degrees about the joint's
+    radial axis so the child approaches from the opposite side.
     """
     assembly = ondselsolver.Assembly("Assembly1")
     assembly.add_part("parent", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))
@@ -227,7 +218,7 @@ def solve_child_transform(parent_circle, child_circle, invert):
     assembly.set_fixed("parent", True)
 
     parent_plane = parent_circle.Plane
-    child_plane = flipped_plane(child_circle.Plane) if invert else child_circle.Plane
+    child_plane = child_circle.Plane
 
     assembly.add_marker(
         "parent",
@@ -256,16 +247,54 @@ def solve_child_transform(parent_circle, child_circle, invert):
     )
 
     solved_plane = plane_from_pose(position, quaternion)
-    return Rhino.Geometry.Transform.PlaneToPlane(
+    base_transform = Rhino.Geometry.Transform.PlaneToPlane(
         Rhino.Geometry.Plane.WorldXY, solved_plane
     )
+    if not invert:
+        return base_transform
+    # Ondsel's revolute joint constrains the axes to be collinear (sign-blind),
+    # so flipping the child marker cannot change the solve. Instead rotate the
+    # solved pose 180 degrees about the joint's radial axis: the child
+    # approaches the joint from the opposite side (bolt from under the plate).
+    flip = Rhino.Geometry.Transform.Rotation(
+        math.pi, parent_plane.XAxis, parent_circle.Center
+    )
+    return Rhino.Geometry.Transform.Multiply(flip, base_transform)
+
+
+class _PreviewConduit(Rhino.Display.DisplayConduit):
+    """Draws the child brep at the solved pose while the user toggles invert."""
+
+    def __init__(self, brep):
+        super(_PreviewConduit, self).__init__()
+        self.brep = brep
+        self.display_brep = brep
+        self.material = Rhino.Display.DisplayMaterial()
+        self.material.Diffuse = System.Drawing.Color.FromArgb(
+            160, System.Drawing.Color.Orange
+        )
+        self.material.Transparency = 0.45
+
+    def set_transform(self, transform):
+        display_brep = self.brep.DuplicateBrep()
+        display_brep.Transform(transform)
+        self.display_brep = display_brep
+
+    def CalculateBoundingBox(self, event):
+        event.IncludeBoundingBox(self.display_brep.GetBoundingBox(True))
+
+    def DrawOverlay(self, event):
+        event.Display.DrawBrepShaded(self.display_brep, self.material)
+        event.Display.DrawBrepWires(
+            self.display_brep, System.Drawing.Color.Black
+        )
 
 
 def prompt_for_invert_option():
     """Offer an Invert toggle in the command prompt until Enter or Esc.
 
-    Yields the invert state each time the user toggles the option. Returns
-    (StopIteration) when the user accepts with Enter or cancels.
+    Yields the current invert state after any user input (each toggle
+    re-solves); returns when the user accepts with Enter or cancels.
     """
     getter = Rhino.Input.Custom.GetOption()
     getter.SetCommandPrompt(
@@ -273,16 +302,15 @@ def prompt_for_invert_option():
     )
     getter.AcceptNothing(True)
     invert_toggle = Rhino.Input.Custom.OptionToggle(False, "No", "Yes")
-    invert_index = getter.AddOptionToggle("Invert", invert_toggle)
+    getter.AddOptionToggle("Invert", invert_toggle)
 
     while True:
         result = getter.Get()
-        if result == Rhino.Input.GetResult.Option:
-            option = getter.Option()
-            if option is not None and option.Index == invert_index:
-                yield bool(invert_toggle.CurrentValue)
-            continue
-        return
+        if result == Rhino.Input.GetResult.Cancel:
+            return
+        yield bool(invert_toggle.CurrentValue)
+        if result == Rhino.Input.GetResult.Nothing:
+            return
 
 
 def main():
@@ -319,27 +347,50 @@ def main():
     )
 
     child_id = child_data["object_id"]
+    child_object = sc.doc.Objects.FindId(child_id)
+    child_geometry = child_object.Geometry
+    child_brep = (
+        child_geometry.DuplicateBrep()
+        if isinstance(child_geometry, Rhino.Geometry.Brep)
+        else child_geometry.ToBrep().DuplicateBrep()
+    )
 
-    def apply(invert):
-        """Move the child object for the given invert setting."""
+    # Preview with a conduit; the document object only moves on accept.
+    sc.doc.Objects.Hide(child_id, True)
+    conduit = _PreviewConduit(child_brep)
+    conduit.Enabled = True
+    sc.doc.Views.Redraw()
+
+    def update(invert):
         transform = solve_child_transform(parent_circle, child_circle, invert)
-        sc.doc.Objects.Transform(child_id, transform, True)
+        conduit.set_transform(transform)
         sc.doc.Views.Redraw()
+        return transform
 
-    apply(False)
-
+    final_transform = update(False)
     inverted = False
     for invert_state in prompt_for_invert_option():
         inverted = invert_state
         try:
-            apply(inverted)
+            final_transform = update(inverted)
         except Exception as error:
             print("Re-solve failed: {}".format(error))
+
+    conduit.Enabled = False
+    child_attributes = sc.doc.Objects.FindId(child_id).Attributes
+    child_attributes.Visible = True
+    sc.doc.Objects.ModifyAttributes(child_id, child_attributes, True)
+
+    accepted = final_transform is not None
+    if accepted:
+        sc.doc.Objects.Transform(child_id, final_transform, True)
+    sc.doc.Views.Redraw()
 
     result = {
         "parent_id": str(parent_data["object_id"]),
         "child_id": str(child_id),
         "inverted": inverted,
+        "accepted": accepted,
     }
     print("DEBUG result={!r}".format(result))
     return result
