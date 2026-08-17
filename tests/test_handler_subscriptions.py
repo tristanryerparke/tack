@@ -39,11 +39,12 @@ def test_tack_subscribes_only_to_end_command_and_close_callbacks():
     }
 
 
-def test_end_command_handler_defers_maintenance_to_the_idle_scheduler():
+def test_end_command_handler_expires_and_solves_via_scheduler():
     handler = _function(ast.parse(HANDLERS.read_text()), "EndCommandHandler")
     calls = _called_attributes(handler)
 
     assert "expire_link_ids" in calls
+    assert "solve_now" in calls
     assert "maintain_link" not in calls
 
 
@@ -54,16 +55,8 @@ def test_unsubscribe_disarms_the_idle_scheduler():
     assert "disarm" in calls
 
 
-def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
+def test_scheduler_exposes_synchronous_drain_without_idle_subscription():
     tree = ast.parse(SCHEDULER.read_text())
-
-    ensure_armed = _function(tree, "_ensure_armed")
-    targets = {
-        node.target.attr
-        for node in ast.walk(ensure_armed)
-        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Attribute)
-    }
-    assert "Idle" in targets
 
     assert hasattr(ast, "FunctionDef")
     names = {
@@ -73,6 +66,8 @@ def test_scheduler_pumps_on_rhino_app_idle_and_exposes_synchronous_drain():
     }
     assert "expire_link_ids" in names
     assert "solve_now" in names
+    assert "_ensure_armed" not in names
+    assert "_on_idle" not in names
 
 
 def test_maintenance_has_no_object_event_arguments():

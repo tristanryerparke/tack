@@ -36,6 +36,7 @@ def EndCommandHandler(sender, event):
         expired = runtime.mark_changed_links_dirty(doc)
         if expired:
             scheduler.expire_link_ids(doc, expired)
+            scheduler.solve_now(doc)
             with _websocket_output():
                 utils.debug(
                     "[Tack anchor] EndCommand found {} changed link(s).".format(
