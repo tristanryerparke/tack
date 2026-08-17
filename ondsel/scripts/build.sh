@@ -28,15 +28,19 @@ cmake -S "$HERE/OndselSolver" -B "$HERE/build/ondselsolver" \
     -DCMAKE_INSTALL_PREFIX="$HERE/build/install"
 cmake --build "$HERE/build/ondselsolver" --target install --parallel "$(sysctl -n hw.ncpu)"
 
-echo "==> Building ondselsolver python module (universal, Rhino CPython 3.9)"
+MODULE="ondsel_v$(date +%Y%m%d%H%M)"
+
+echo "==> Building python module ${MODULE} (universal, Rhino CPython 3.9)"
 cmake -S "$HERE/wrapper" -B "$HERE/build/wrapper" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPython_EXECUTABLE="$RHINO_PY" \
+    -DMODULE_NAME="$MODULE" \
     -DONDSELSOLVER_INSTALL="$HERE/build/install"
 cmake --build "$HERE/build/wrapper" --parallel "$(sysctl -n hw.ncpu)"
 
 mkdir -p "$HERE/rhino_modules"
-cp "$HERE/build/wrapper/ondselsolver.cpython-39-darwin.so" "$HERE/rhino_modules/"
+rm -f "$HERE/rhino_modules"/ondsel_v*.so
+cp "$HERE/build/wrapper/${MODULE}.cpython-39-darwin.so" "$HERE/rhino_modules/"
 
 echo "==> Done:"
 ls -la "$HERE/rhino_modules/"

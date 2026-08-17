@@ -9,17 +9,20 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/pybind11 pybind11_bu
 
 find_package(Python 3.9 EXACT REQUIRED COMPONENTS Interpreter Development.Module)
 
-pybind11_add_module(ondselsolver ondselsolver_wrapper.cpp)
+set(MODULE_NAME "ondsel_v1" CACHE STRING "Python module name (bump per build to dodge import caches)")
 
-target_include_directories(ondselsolver PRIVATE
+pybind11_add_module(${MODULE_NAME} ondselsolver_wrapper.cpp)
+target_compile_definitions(${MODULE_NAME} PRIVATE MOD_NAME=${MODULE_NAME})
+
+target_include_directories(${MODULE_NAME} PRIVATE
     ${ONDSELSOLVER_INSTALL}/include/OndselSolver
 )
 
-target_link_libraries(ondselsolver PRIVATE
+target_link_libraries(${MODULE_NAME} PRIVATE
     ${ONDSELSOLVER_INSTALL}/lib/libOndselSolver.a
 )
 
 # Universal binary so the module loads in either arm64 or x86_64 Rhino.
-set_target_properties(ondselsolver PROPERTIES
+set_target_properties(${MODULE_NAME} PROPERTIES
     OSX_ARCHITECTURES "arm64;x86_64"
 )

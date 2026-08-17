@@ -24,6 +24,7 @@
 #include "ASMTMarker.h"
 #include "ASMTRevoluteJoint.h"
 #include "ASMTFixedJoint.h"
+#include "ASMTPointInLineJoint.h"
 
 namespace py = pybind11;
 using namespace MbD;
@@ -117,9 +118,56 @@ public:
         assembly->addJoint(joint);
     }
 
+    void add_point_in_line_joint(
+        const std::string& name,
+        const std::string& partI,
+        const std::string& markerI,
+        const std::string& partJ,
+        const std::string& markerJ)
+    {
+        partNamed(partI);
+        partNamed(partJ);
+
+        auto joint = ASMTPointInLineJoint::With();
+        joint->setName(name);
+        joint->setMarkerI(assemblyName + "/" + partI + "/" + markerI);
+        joint->setMarkerJ(assemblyName + "/" + partJ + "/" + markerJ);
+        assembly->addJoint(joint);
+    }
+
     void solve()
     {
         assembly->solve();
+    }
+
+    void begin_drag()
+    {
+        assembly->runPreDrag();
+    }
+
+    void drag_step(
+        const std::vector<std::string>& names,
+        const std::vector<std::array<double, 3>>& positions,
+        const std::vector<std::array<double, 4>>& quaternions)
+    {
+        auto dragParts = std::make_shared<std::vector<std::shared_ptr<ASMTPart>>>();
+        for (size_t i = 0; i < names.size(); i++) {
+            auto& part = partNamed(names[i]);
+            part->setPosition3D(
+                positions[i][0], positions[i][1], positions[i][2]);
+            part->setQuarternions(
+                quaternions[i][0],
+                quaternions[i][1],
+                quaternions[i][2],
+                quaternions[i][3]);
+            dragParts->push_back(part);
+        }
+        assembly->runDragStep(dragParts);
+    }
+
+    void end_drag()
+    {
+        assembly->runPostDrag();
     }
 
     std::pair<std::array<double, 3>, std::array<double, 4>> get_pose(
@@ -179,7 +227,7 @@ private:
 
 } // namespace
 
-PYBIND11_MODULE(ondselsolver, m)
+PYBIND11_MODULE(MOD_NAME, m)
 {
     m.doc() = "Minimal OndselSolver assembly-constraint API for Rhino.";
 
@@ -219,7 +267,23 @@ PYBIND11_MODULE(ondselsolver, m)
             py::arg("marker_i"),
             py::arg("part_j"),
             py::arg("marker_j"))
+        .def(
+            "add_point_in_line_joint",
+            &PyAssembly::add_point_in_line_joint,
+            py::arg("name"),
+            py::arg("part_i"),
+            py::arg("marker_i"),
+            py::arg("part_j"),
+            py::arg("marker_j"))
         .def("solve", &PyAssembly::solve)
+        .def("begin_drag", &PyAssembly::begin_drag)
+        .def(
+            "drag_step",
+            &PyAssembly::drag_step,
+            py::arg("names"),
+            py::arg("positions"),
+            py::arg("quaternions"))
+        .def("end_drag", &PyAssembly::end_drag)
         .def("get_pose", &PyAssembly::get_pose, py::arg("name"))
         .def("part_names", &PyAssembly::part_names);
 }
