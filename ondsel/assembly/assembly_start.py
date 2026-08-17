@@ -10,8 +10,10 @@ if TACK_ROOT not in sys.path:
     sys.path.insert(0, TACK_ROOT)
 
 from ondsel.assembly import assembly_model
+from ondsel.assembly import assembly_scheduler
 
 assembly_model = importlib.reload(assembly_model)
+assembly_scheduler = importlib.reload(assembly_scheduler)
 
 
 def RunCommand(is_interactive):

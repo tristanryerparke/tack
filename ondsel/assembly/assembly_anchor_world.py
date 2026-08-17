@@ -11,11 +11,11 @@ if TACK_ROOT not in sys.path:
 
 from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_model
-
-assembly_model = importlib.reload(assembly_model)
+from ondsel.assembly import assembly_scheduler
 
 assembly_common = importlib.reload(assembly_common) if "assembly_common" in globals() else assembly_common
 assembly_model = importlib.reload(assembly_model)
+assembly_scheduler = importlib.reload(assembly_scheduler)
 
 
 def RunCommand(is_interactive):
@@ -30,8 +30,8 @@ def RunCommand(is_interactive):
     part = assembly_model.add_world_anchor(doc, obj)
     if part is None:
         return Result.Failure
-    result = assembly_model.solve_and_propagate(doc)
-    print("[Ondsel assembly] anchored {} moved {} object(s).".format(str(obj.Id)[:8], len(result["moved"])))
+    assembly_scheduler.expire_document(doc, reason="anchor {}".format(str(obj.Id)[:8]))
+    print("[Ondsel assembly] anchored {} and queued solve.".format(str(obj.Id)[:8]))
     return Result.Success
 
 

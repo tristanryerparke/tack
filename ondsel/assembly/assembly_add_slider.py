@@ -11,11 +11,11 @@ if TACK_ROOT not in sys.path:
 
 from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_model
-
-assembly_model = importlib.reload(assembly_model)
+from ondsel.assembly import assembly_scheduler
 
 assembly_common = importlib.reload(assembly_common) if "assembly_common" in globals() else assembly_common
 assembly_model = importlib.reload(assembly_model)
+assembly_scheduler = importlib.reload(assembly_scheduler)
 
 
 def RunCommand(is_interactive):
@@ -23,29 +23,50 @@ def RunCommand(is_interactive):
     if doc is None:
         return Result.Cancel
 
-    side = assembly_common.prompt_for_one_brep_edge(
-        "Select circular edge on the piston head (reference point for slider)"
-    )
-    if side is None:
-        return Result.Cancel
-    if assembly_common.circle_from_edge(side["edge"], doc.ModelAbsoluteTolerance) is None:
-        print("Selected edge is not circular.")
+    obj = assembly_common.prompt_for_one_object("Select object to constrain as a slider")
+    if obj is None:
         return Result.Cancel
 
-    axis = assembly_common.prompt_for_axis(
-        "Pick first point on fixed slider axis",
-        "Pick second point on fixed slider axis",
+    part_axis = assembly_common.prompt_for_axis(
+        "Pick first point on the slider axis on the selected object",
+        "Pick second point on the slider axis on the selected object",
     )
-    if axis is None:
+    if part_axis is None:
         return Result.Cancel
-    axis_origin, axis_direction = axis
+    part_axis_origin, part_axis_direction = part_axis
 
-    assembly_model.prealign_slider_child(doc, side, axis_origin, axis_direction)
-    part = assembly_model.add_slider_axis(doc, side, axis_origin, axis_direction)
+    world_axis = assembly_common.prompt_for_axis(
+        "Pick first point on fixed world slider axis",
+        "Pick second point on fixed world slider axis",
+    )
+    if world_axis is None:
+        return Result.Cancel
+    world_axis_origin, world_axis_direction = world_axis
+
+    assembly_model._set_command_busy(doc, True)
+    try:
+        assembly_model.prealign_slider_child(
+            doc,
+            obj,
+            part_axis_origin,
+            part_axis_direction,
+            world_axis_origin,
+            world_axis_direction,
+        )
+        part = assembly_model.add_slider_axis(
+            doc,
+            obj,
+            world_axis_origin,
+            world_axis_direction,
+            world_axis_origin,
+            world_axis_direction,
+        )
+    finally:
+        assembly_model._set_command_busy(doc, False)
     if part is None:
         return Result.Failure
-    result = assembly_model.solve_and_propagate(doc)
-    print("[Ondsel assembly] slider set for {} moved {} object(s).".format(str(side["object_id"])[:8], len(result["moved"])))
+    assembly_scheduler.expire_document(doc, reason="add slider {}".format(str(obj.Id)[:8]))
+    print("[Ondsel assembly] slider set for {} and queued solve.".format(str(obj.Id)[:8]))
     return Result.Success
 
 

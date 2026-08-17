@@ -25,6 +25,8 @@
 #include "ASMTRevoluteJoint.h"
 #include "ASMTFixedJoint.h"
 #include "ASMTPointInLineJoint.h"
+#include "ASMTParallelAxesJoint.h"
+#include "ASMTTranslationalJoint.h"
 
 namespace py = pybind11;
 using namespace MbD;
@@ -135,6 +137,40 @@ public:
         assembly->addJoint(joint);
     }
 
+    void add_translational_joint(
+        const std::string& name,
+        const std::string& partI,
+        const std::string& markerI,
+        const std::string& partJ,
+        const std::string& markerJ)
+    {
+        partNamed(partI);
+        partNamed(partJ);
+
+        auto joint = ASMTTranslationalJoint::With();
+        joint->setName(name);
+        joint->setMarkerI(assemblyName + "/" + partI + "/" + markerI);
+        joint->setMarkerJ(assemblyName + "/" + partJ + "/" + markerJ);
+        assembly->addJoint(joint);
+    }
+
+    void add_parallel_axes_joint(
+        const std::string& name,
+        const std::string& partI,
+        const std::string& markerI,
+        const std::string& partJ,
+        const std::string& markerJ)
+    {
+        partNamed(partI);
+        partNamed(partJ);
+
+        auto joint = ASMTParallelAxesJoint::With();
+        joint->setName(name);
+        joint->setMarkerI(assemblyName + "/" + partI + "/" + markerI);
+        joint->setMarkerJ(assemblyName + "/" + partJ + "/" + markerJ);
+        assembly->addJoint(joint);
+    }
+
     void solve()
     {
         assembly->solve();
@@ -231,7 +267,7 @@ PYBIND11_MODULE(MOD_NAME, m)
 {
     m.doc() = "Minimal OndselSolver assembly-constraint API for Rhino.";
 
-    py::class_<PyAssembly>(m, "Assembly")
+    py::class_<PyAssembly>(m, "Assembly", py::module_local())
         .def(py::init<const std::string&>(), py::arg("name"))
         .def(
             "add_part",
@@ -270,6 +306,22 @@ PYBIND11_MODULE(MOD_NAME, m)
         .def(
             "add_point_in_line_joint",
             &PyAssembly::add_point_in_line_joint,
+            py::arg("name"),
+            py::arg("part_i"),
+            py::arg("marker_i"),
+            py::arg("part_j"),
+            py::arg("marker_j"))
+        .def(
+            "add_translational_joint",
+            &PyAssembly::add_translational_joint,
+            py::arg("name"),
+            py::arg("part_i"),
+            py::arg("marker_i"),
+            py::arg("part_j"),
+            py::arg("marker_j"))
+        .def(
+            "add_parallel_axes_joint",
+            &PyAssembly::add_parallel_axes_joint,
             py::arg("name"),
             py::arg("part_i"),
             py::arg("marker_i"),

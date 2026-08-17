@@ -11,11 +11,11 @@ if TACK_ROOT not in sys.path:
 
 from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_model
-
-assembly_model = importlib.reload(assembly_model)
+from ondsel.assembly import assembly_scheduler
 
 assembly_common = importlib.reload(assembly_common) if "assembly_common" in globals() else assembly_common
 assembly_model = importlib.reload(assembly_model)
+assembly_scheduler = importlib.reload(assembly_scheduler)
 
 
 def RunCommand(is_interactive):
@@ -46,12 +46,11 @@ def RunCommand(is_interactive):
         print("Second edge is not circular.")
         return Result.Cancel
 
-    assembly_model._align_revolute_child(doc, side_a, side_b)
     joint = assembly_model.add_revolute(doc, side_a, side_b)
     if joint is None:
         return Result.Failure
-    result = assembly_model.solve_and_propagate(doc)
-    print("[Ondsel assembly] added revolute {} moved {} object(s).".format(joint["id"][:8], len(result["moved"])))
+    assembly_scheduler.expire_document(doc, reason="add revolute {}".format(joint["id"][:8]))
+    print("[Ondsel assembly] added revolute {} and queued solve.".format(joint["id"][:8]))
     return Result.Success
 
 

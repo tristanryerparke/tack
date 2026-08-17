@@ -221,6 +221,19 @@ def plane_from_axis(origin, direction):
     return Rhino.Geometry.Plane(origin, x_axis, y_axis)
 
 
+def plane_from_x_axis(origin, direction):
+    x_axis = Rhino.Geometry.Vector3d(direction)
+    x_axis.Unitize()
+    y_axis = Rhino.Geometry.Vector3d.YAxis
+    if abs(x_axis * y_axis) > 0.999:
+        y_axis = Rhino.Geometry.Vector3d.ZAxis
+    z_axis = Rhino.Geometry.Vector3d.CrossProduct(x_axis, y_axis)
+    z_axis.Unitize()
+    y_axis = Rhino.Geometry.Vector3d.CrossProduct(z_axis, x_axis)
+    y_axis.Unitize()
+    return Rhino.Geometry.Plane(origin, x_axis, y_axis)
+
+
 def transform_between_planes(from_plane, to_plane):
     return Rhino.Geometry.Transform.PlaneToPlane(from_plane, to_plane)
 
