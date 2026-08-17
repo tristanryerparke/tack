@@ -20,8 +20,6 @@ import sys
 import Rhino
 import scriptcontext as sc
 
-import Eto.Forms as forms
-
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.env import install_sticky_environment
 from run_in_rhino.rhino_env.parasite import OutputParasite
@@ -263,6 +261,30 @@ def solve_child_transform(parent_circle, child_circle, invert):
     )
 
 
+def prompt_for_invert_option():
+    """Offer an Invert toggle in the command prompt until Enter or Esc.
+
+    Yields the invert state each time the user toggles the option. Returns
+    (StopIteration) when the user accepts with Enter or cancels.
+    """
+    getter = Rhino.Input.Custom.GetOption()
+    getter.SetCommandPrompt(
+        "Joint solved. Toggle Invert to flip approach; press Enter to accept"
+    )
+    getter.AcceptNothing(True)
+    invert_toggle = Rhino.Input.Custom.OptionToggle(False, "No", "Yes")
+    invert_index = getter.AddOptionToggle("Invert", invert_toggle)
+
+    while True:
+        result = getter.Get()
+        if result == Rhino.Input.GetResult.Option:
+            option = getter.Option()
+            if option is not None and option.Index == invert_index:
+                yield bool(invert_toggle.CurrentValue)
+            continue
+        return
+
+
 def main():
     parent_data = prompt_for_one_brep_edge(
         "Select circular edge on FIXED object (hole)"
@@ -297,63 +319,27 @@ def main():
     )
 
     child_id = child_data["object_id"]
-    state = {"transform": None}
 
     def apply(invert):
-        if state["transform"] is not None:
-            restore = state["transform"].Inverse()
-            sc.doc.Objects.Transform(child_id, restore, True)
-            state["transform"] = None
+        """Move the child object for the given invert setting."""
         transform = solve_child_transform(parent_circle, child_circle, invert)
         sc.doc.Objects.Transform(child_id, transform, True)
-        state["transform"] = transform
         sc.doc.Views.Redraw()
 
     apply(False)
 
-    class _JointDialog(forms.Dialog[bool]):
-        def __init__(self):
-            super(_JointDialog, self).__init__()
-            self.Title = "Ondsel joint solve"
-            self.Resizable = False
-            self.accepted = False
-
-            self.invert_checkbox = forms.CheckBox()
-            self.invert_checkbox.Text = "Invert child plane (flip approach)"
-            self.invert_checkbox.CheckedChanged += self._invert_changed
-
-            done_button = forms.Button()
-            done_button.Text = "Done"
-            done_button.Click += self._done
-
-            layout = forms.TableLayout()
-            layout.Rows.Add(forms.TableRow(forms.TableCell(self.invert_checkbox, True)))
-            layout.Rows.Add(
-                forms.TableRow(
-                    forms.TableCell(forms.Panel(), True),
-                    forms.TableCell(done_button),
-                )
-            )
-            self.Content = layout
-
-        def _invert_changed(self, sender, event):
-            try:
-                apply(bool(self.invert_checkbox.Checked))
-            except Exception as error:
-                print("Re-solve failed: {}".format(error))
-
-        def _done(self, sender, event):
-            self.accepted = True
-            self.Close()
-
-    dialog = _JointDialog()
-    dialog.ShowModal(Rhino.UI.RhinoEtoApp.MainWindow)
+    inverted = False
+    for invert_state in prompt_for_invert_option():
+        inverted = invert_state
+        try:
+            apply(inverted)
+        except Exception as error:
+            print("Re-solve failed: {}".format(error))
 
     result = {
         "parent_id": str(parent_data["object_id"]),
         "child_id": str(child_id),
-        "final_transform_applied": state["transform"] is not None,
-        "inverted": bool(dialog.invert_checkbox.Checked),
+        "inverted": inverted,
     }
     print("DEBUG result={!r}".format(result))
     return result
