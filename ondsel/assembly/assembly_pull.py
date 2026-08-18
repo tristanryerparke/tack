@@ -1,6 +1,7 @@
 import System.Drawing
 
 import Rhino
+import rhinoscriptsyntax as rs
 import scriptcontext as sc
 from Rhino.Commands import Result
 
@@ -193,8 +194,31 @@ def _pull(doc, part):
         if callable(final_point):
             final_point = final_point()
         update_preview(final_point)
-        assembly_model.apply_pose_solution(doc, state["poses"])
-        assembly_model._debug("pull committed solved pose set")
+        final_pose = state["poses"].get(part_id, source_poses[part_id])
+        start_position = Rhino.Geometry.Point3d(*source_poses[part_id]["position"])
+        target_position = Rhino.Geometry.Point3d(*final_pose["position"])
+        if start_position.DistanceTo(target_position) < 1e-6:
+            return Result.Success
+
+        rs.UnselectAllObjects()
+        if not rs.SelectObject(assembly_common.parse_guid(part_id)):
+            return Result.Failure
+        command = "_Move {},{},{} {},{},{} _Enter".format(
+            start_position.X,
+            start_position.Y,
+            start_position.Z,
+            target_position.X,
+            target_position.Y,
+            target_position.Z,
+        )
+        assembly_model._set_command_busy(doc, False)
+        try:
+            if not rs.Command(command, echo=False):
+                return Result.Failure
+        finally:
+            assembly_model._set_command_busy(doc, True)
+            rs.UnselectAllObjects()
+        assembly_model._debug("pull committed native Move driver={}".format(part_id[:8]))
         return Result.Success
     finally:
         conduit.Enabled = False

@@ -783,40 +783,6 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
     return {"moved": moved}
 
 
-def apply_pose_solution(doc, poses):
-    """Apply a previously solved pose map without running another solve."""
-    data = read_data(doc)
-    moved = []
-    settled_poses = {}
-    metadata_dirty = False
-    for part in list(data["parts"].values()):
-        old_object_id = part["object_id"]
-        solved_pose = poses.get(old_object_id)
-        if solved_pose is None:
-            continue
-        current_pose = _current_pose_from_home(doc, part)
-        settled_poses[old_object_id] = _copy_pose(solved_pose)
-        if _pose_motion_metric(current_pose, solved_pose) < 1e-6:
-            continue
-        delta = _pose_delta(current_pose, solved_pose)
-        if delta.IsIdentity:
-            continue
-        _debug("pull applying part {} id={}".format(part["name"], old_object_id[:8]))
-        new_object_id, replaced = _transform_part_with_replacement(doc, data, part, delta)
-        if replaced:
-            metadata_dirty = True
-            settled_poses[new_object_id] = settled_poses.pop(old_object_id)
-        moved.append(new_object_id)
-
-    if metadata_dirty:
-        write_data(doc, data)
-    _store_serials(doc, data["parts"].keys())
-    _store_settled_poses(doc, data, settled_poses)
-    doc.Views.Redraw()
-    _debug("pull apply end: moved {} object(s)".format(len(moved)))
-    return {"moved": moved}
-
-
 def _report_error():
     traceback.print_exc()
     _log_line(traceback.format_exc())
