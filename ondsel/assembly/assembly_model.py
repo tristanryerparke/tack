@@ -718,7 +718,7 @@ def solve_and_propagate(doc, driver_part_id=None):
         )
         keep_driver = (
             driver_translation_error <= max(doc.ModelAbsoluteTolerance * 10.0, 0.1)
-            and driver_rotation_error <= 0.01
+            and driver_rotation_error <= 0.05
         )
         if keep_driver:
             _debug(
