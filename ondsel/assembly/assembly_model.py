@@ -581,7 +581,7 @@ def prealign_slider_child(doc, rhino_object, part_axis_origin, part_axis_directi
     return True
 
 
-def solve_and_propagate(doc, driver_part_id=None):
+def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
     data = read_data(doc)
     if not data["constraints"] or not data["parts"]:
         _debug("solve skipped: no constraints or no parts")
@@ -613,8 +613,14 @@ def solve_and_propagate(doc, driver_part_id=None):
 
     parts_in_order = list(data["parts"].values())
     current_poses = {}
+    requested_driver_pose = _copy_pose(driver_pose) if driver_pose is not None else None
     for part in parts_in_order:
         current_pose, input_pose = _pose_of_part_for_solver(doc, data, part)
+        if (
+            requested_driver_pose is not None
+            and part["object_id"] == driver_part_id
+        ):
+            current_pose = _copy_pose(requested_driver_pose)
         current_poses[part["object_id"]] = current_pose
         assembly.add_part(part["name"], input_pose["position"], input_pose["quaternion"])
         _debug(
@@ -727,6 +733,18 @@ def solve_and_propagate(doc, driver_part_id=None):
             )
         )
 
+    if not apply:
+        preview_poses = {
+            object_id: _copy_pose(pose)
+            for object_id, pose in solved_poses.items()
+        }
+        _debug("preview solve end: poses={}".format(len(preview_poses)))
+        return {
+            "moved": [],
+            "poses": preview_poses,
+            "driver_part_id": driver_part_id,
+        }
+
     moved = []
     settled_poses = {}
     metadata_dirty = False
@@ -762,6 +780,40 @@ def solve_and_propagate(doc, driver_part_id=None):
     _store_settled_poses(doc, data, settled_poses)
     doc.Views.Redraw()
     _debug("solve end: moved {} object(s)".format(len(moved)))
+    return {"moved": moved}
+
+
+def apply_pose_solution(doc, poses):
+    """Apply a previously solved pose map without running another solve."""
+    data = read_data(doc)
+    moved = []
+    settled_poses = {}
+    metadata_dirty = False
+    for part in list(data["parts"].values()):
+        old_object_id = part["object_id"]
+        solved_pose = poses.get(old_object_id)
+        if solved_pose is None:
+            continue
+        current_pose = _current_pose_from_home(doc, part)
+        settled_poses[old_object_id] = _copy_pose(solved_pose)
+        if _pose_motion_metric(current_pose, solved_pose) < 1e-6:
+            continue
+        delta = _pose_delta(current_pose, solved_pose)
+        if delta.IsIdentity:
+            continue
+        _debug("pull applying part {} id={}".format(part["name"], old_object_id[:8]))
+        new_object_id, replaced = _transform_part_with_replacement(doc, data, part, delta)
+        if replaced:
+            metadata_dirty = True
+            settled_poses[new_object_id] = settled_poses.pop(old_object_id)
+        moved.append(new_object_id)
+
+    if metadata_dirty:
+        write_data(doc, data)
+    _store_serials(doc, data["parts"].keys())
+    _store_settled_poses(doc, data, settled_poses)
+    doc.Views.Redraw()
+    _debug("pull apply end: moved {} object(s)".format(len(moved)))
     return {"moved": moved}
 
 
