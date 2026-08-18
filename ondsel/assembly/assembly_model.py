@@ -140,6 +140,15 @@ def changed_part_ids(doc):
     return changed
 
 
+def dynamically_transformed_part_ids(doc, data):
+    changed = []
+    for object_id in data["parts"]:
+        rhino_object = doc.Objects.FindId(assembly_common.parse_guid(object_id))
+        if _dynamic_transform(rhino_object, debug=True) is not None:
+            changed.append(object_id)
+    return changed
+
+
 def _copy_pose(pose):
     return {
         "position": list(pose["position"]),
@@ -262,6 +271,34 @@ def _identity_pose():
     return {"position": [0.0, 0.0, 0.0], "quaternion": [1.0, 0.0, 0.0, 0.0]}
 
 
+def _dynamic_transform(rhino_object, debug=False):
+    object_id = "<none>" if rhino_object is None else str(rhino_object.Id)[:8]
+    if rhino_object is None:
+        if debug:
+            _debug("GetDynamicTransform object={} available=False".format(object_id))
+        return None
+    try:
+        result = rhino_object.GetDynamicTransform()
+        available = bool(result[0])
+        transform = result[1]
+    except Exception as error:
+        if debug:
+            _debug("GetDynamicTransform object={} error={}".format(object_id, error))
+        return None
+    identity = transform is None or transform.IsIdentity
+    if debug:
+        _debug(
+            "GetDynamicTransform object={} available={} identity={}".format(
+                object_id,
+                available,
+                identity,
+            )
+        )
+    if not available or identity:
+        return None
+    return transform
+
+
 def _object_home_pose(doc, object_id):
     obj = doc.Objects.FindId(assembly_common.parse_guid(object_id))
     if obj is None or obj.Geometry is None:
@@ -278,23 +315,26 @@ def _object_home_pose(doc, object_id):
     )
 
 
-def _current_pose_from_home(doc, part_meta):
-    """Current part pose from its registered home frame.
-
-    If a part was registered from an edge, that edge defines the live body pose.
-    If a part was anchored before it had a home edge, it keeps a stored static
-    body frame instead.
-    """
+def _current_pose_from_home(doc, part_meta, include_dynamic=True):
+    """Current part pose, optionally including Rhino's live dynamic transform."""
     home = part_meta.get("home")
     if home is None:
-        return _identity_pose()
-    edge_index = home.get("edge_index")
-    if edge_index is None:
-        return home.get("pose", _identity_pose())
-    live_plane = _edge_plane(doc, part_meta["object_id"], edge_index)
-    if live_plane is None:
-        return home.get("pose", _identity_pose())
-    return _plane_to_pose(live_plane)
+        pose = _identity_pose()
+    else:
+        edge_index = home.get("edge_index")
+        if edge_index is None:
+            pose = home.get("pose", _identity_pose())
+        else:
+            live_plane = _edge_plane(doc, part_meta["object_id"], edge_index)
+            pose = home.get("pose", _identity_pose()) if live_plane is None else _plane_to_pose(live_plane)
+
+    rhino_object = doc.Objects.FindId(assembly_common.parse_guid(part_meta["object_id"]))
+    dynamic_transform = _dynamic_transform(rhino_object) if include_dynamic else None
+    if dynamic_transform is None:
+        return pose
+    plane = _pose_to_plane(pose)
+    plane.Transform(dynamic_transform)
+    return _plane_to_pose(plane)
 
 
 def _register_part_from_edge(doc, data, object_id, edge_index):
@@ -328,8 +368,8 @@ def _ensure_part(doc, data, object_id):
     return part
 
 
-def _local_pose_from_world_plane(doc, part_meta, world_plane):
-    current_pose = _current_pose_from_home(doc, part_meta)
+def _local_pose_from_world_plane(doc, part_meta, world_plane, include_dynamic=True):
+    current_pose = _current_pose_from_home(doc, part_meta, include_dynamic=include_dynamic)
     current_plane = _pose_to_plane(current_pose)
     to_local = assembly_common.transform_between_planes(current_plane, Rhino.Geometry.Plane.WorldXY)
     local_plane = assembly_common.transformed_plane(world_plane, to_local)
@@ -340,7 +380,12 @@ def _local_marker_pose(doc, part_meta, edge_index):
     edge_plane = _edge_plane(doc, part_meta["object_id"], edge_index)
     if edge_plane is None:
         return None
-    return _local_pose_from_world_plane(doc, part_meta, edge_plane)
+    return _local_pose_from_world_plane(
+        doc,
+        part_meta,
+        edge_plane,
+        include_dynamic=False,
+    )
 
 
 def add_revolute(doc, side_a, side_b):
@@ -431,9 +476,13 @@ def add_slider_axis(doc, rhino_object, part_axis_origin, part_axis_direction, wo
     return part
 
 
-def _pose_of_part_for_solver(doc, data, part_meta):
-    current_pose = _current_pose_from_home(doc, part_meta)
-    return current_pose, current_pose
+def _pose_of_part_for_solver(doc, data, part_meta, initial_pose=None):
+    current_pose = (
+        _copy_pose(initial_pose)
+        if initial_pose is not None
+        else _current_pose_from_home(doc, part_meta, include_dynamic=False)
+    )
+    return current_pose, _copy_pose(current_pose)
 
 
 def _compose_pose(part_pose, local_marker_pose):
@@ -581,7 +630,7 @@ def prealign_slider_child(doc, rhino_object, part_axis_origin, part_axis_directi
     return True
 
 
-def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
+def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True, initial_poses=None):
     debug_log = _debug if apply else (lambda message: None)
     data = read_data(doc)
     if not data["constraints"] or not data["parts"]:
@@ -616,7 +665,8 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
     current_poses = {}
     requested_driver_pose = _copy_pose(driver_pose) if driver_pose is not None else None
     for part in parts_in_order:
-        current_pose, input_pose = _pose_of_part_for_solver(doc, data, part)
+        initial_pose = None if initial_poses is None else initial_poses.get(part["object_id"])
+        current_pose, input_pose = _pose_of_part_for_solver(doc, data, part, initial_pose)
         if (
             requested_driver_pose is not None
             and part["object_id"] == driver_part_id
@@ -676,7 +726,9 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
     if driver_part_id is not None:
         driver_part = data["parts"][driver_part_id]
         driver_pose = current_poses[driver_part_id]
-        start_pose = _settled_pose(doc, driver_part_id) or driver_pose
+        start_pose = (
+            None if initial_poses is None else initial_poses.get(driver_part_id)
+        ) or _settled_pose(doc, driver_part_id) or driver_pose
         step_count = _drag_substep_count(start_pose, driver_pose)
         debug_log(
             "assembly.drag() driver={} pos={} quat={} steps={}".format(
@@ -814,6 +866,9 @@ def EndCommandHandler(sender, event):
             _set_driver_part_id(doc, None)
             return
         changed = changed_part_ids(doc)
+        for object_id in dynamically_transformed_part_ids(doc, data):
+            if object_id not in changed:
+                changed.append(object_id)
         if not changed:
             _debug("EndCommand no-op: no changed parts ({})".format(command_name))
             return
@@ -842,6 +897,8 @@ def CloseDocumentHandler(sender, event):
 
 def subscribe():
     unsubscribe()
+    from ondsel.assembly import assembly_dynamic_conduit
+    assembly_dynamic_conduit.start()
     drop_watcher_connection()  # drop any connection from a previous watcher
     get_watcher_connection()  # establish the feedback socket for this watcher
     handlers = (EndCommandHandler, CloseDocumentHandler)
@@ -852,6 +909,11 @@ def subscribe():
 
 def unsubscribe():
     assembly_scheduler.disarm()
+    try:
+        from ondsel.assembly import assembly_dynamic_conduit
+        assembly_dynamic_conduit.stop()
+    except Exception:
+        pass
     stored_handlers = sc.sticky.pop(HANDLER_KEY, ())
     events = (
         Rhino.Commands.Command.EndCommand,

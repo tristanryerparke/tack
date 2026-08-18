@@ -43,6 +43,16 @@ def _rotation_angle(point, axis_origin, axis_direction, start_radial):
     return math.atan2(sine, cosine)
 
 
+def _unwrap_angle(angle, previous_angle):
+    if previous_angle is None:
+        return angle
+    while angle - previous_angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle - previous_angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
 def _rotated_pose(pose, axis_origin, axis_direction, angle):
     plane = assembly_model._pose_to_plane(pose)
     transform = Rhino.Geometry.Transform.Rotation(
@@ -74,7 +84,7 @@ def _rotate(doc, part, axis_origin, axis_direction, start_point):
         print("Rotation start point must not lie on the rotation axis.")
         return Result.Cancel
 
-    state = {"poses": dict(source_poses), "error": None}
+    state = {"poses": dict(source_poses), "error": None, "angle": None}
     conduit = _AssemblyPreviewConduit(source_geometries, source_poses)
     conduit.update(state["poses"], part_id)
 
@@ -87,6 +97,8 @@ def _rotate(doc, part, axis_origin, axis_direction, start_point):
         )
         if angle is None:
             return
+        angle = _unwrap_angle(angle, state["angle"])
+        state["angle"] = angle
         driver_pose = _rotated_pose(
             source_poses[part_id],
             axis_origin,
@@ -101,7 +113,6 @@ def _rotate(doc, part, axis_origin, axis_direction, start_point):
                 apply=False,
             )
             state["poses"] = result["poses"]
-            state["angle"] = angle
             conduit.update(state["poses"], part_id)
         except Exception as error:
             state["error"] = error
@@ -123,13 +134,8 @@ def _rotate(doc, part, axis_origin, axis_direction, start_point):
         final_point = getter.Point
         if callable(final_point):
             final_point = final_point()
-        requested_angle = _rotation_angle(
-            final_point,
-            axis_origin,
-            axis_direction,
-            start_radial,
-        )
-        if requested_angle is None:
+        update_preview(final_point)
+        if state["angle"] is None:
             return Result.Cancel
         final_pose = state["poses"].get(part_id, source_poses[part_id])
         solved_delta = assembly_model._pose_delta(

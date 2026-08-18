@@ -11,9 +11,13 @@ if TACK_ROOT not in sys.path:
 
 from ondsel.assembly import assembly_model
 from ondsel.assembly import assembly_scheduler
+from ondsel.assembly import assembly_pull
+from ondsel.assembly import assembly_dynamic_conduit
 
 assembly_model = importlib.reload(assembly_model)
 assembly_scheduler = importlib.reload(assembly_scheduler)
+assembly_pull = importlib.reload(assembly_pull)
+assembly_dynamic_conduit = importlib.reload(assembly_dynamic_conduit)
 
 
 def RunCommand(is_interactive):

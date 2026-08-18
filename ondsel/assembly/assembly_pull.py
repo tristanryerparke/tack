@@ -50,7 +50,7 @@ class _AssemblyPreviewConduit(Rhino.Display.DisplayConduit):
     def CalculateBoundingBoxZoomExtents(self, event):
         self.CalculateBoundingBox(event)
 
-    def DrawForeground(self, event):
+    def PostDrawObjects(self, event):
         for object_id in self.source_geometries:
             brep = self._preview_brep(object_id)
             if brep is None:
