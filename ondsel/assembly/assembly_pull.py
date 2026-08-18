@@ -9,8 +9,8 @@ from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_model
 
 
-PREVIEW_COLOR = System.Drawing.Color.FromArgb(230, 80, 220, 255)
-DRIVER_COLOR = System.Drawing.Color.FromArgb(255, 255, 220, 80)
+PREVIEW_COLOR = System.Drawing.Color.FromArgb(230, 80, 160, 220)
+DRIVER_COLOR = System.Drawing.Color.FromArgb(255, 255, 190, 70)
 
 
 class _AssemblyPreviewConduit(Rhino.Display.DisplayConduit):
@@ -20,6 +20,10 @@ class _AssemblyPreviewConduit(Rhino.Display.DisplayConduit):
         self.source_poses = source_poses
         self.poses = dict(source_poses)
         self.driver_part_id = None
+        self.preview_material = Rhino.Display.DisplayMaterial()
+        self.preview_material.Diffuse = PREVIEW_COLOR
+        self.driver_material = Rhino.Display.DisplayMaterial()
+        self.driver_material.Diffuse = DRIVER_COLOR
 
     def update(self, poses, driver_part_id):
         self.poses = dict(poses)
@@ -51,8 +55,12 @@ class _AssemblyPreviewConduit(Rhino.Display.DisplayConduit):
             brep = self._preview_brep(object_id)
             if brep is None:
                 continue
-            color = DRIVER_COLOR if object_id == self.driver_part_id else PREVIEW_COLOR
-            event.Display.DrawBrepWires(brep, color, 2)
+            material = (
+                self.driver_material
+                if object_id == self.driver_part_id
+                else self.preview_material
+            )
+            event.Display.DrawBrepShaded(brep, material)
 
 
 class _PullGetPoint(Rhino.Input.Custom.GetPoint):
@@ -93,12 +101,6 @@ class _PullGetPoint(Rhino.Input.Custom.GetPoint):
 
     def OnDynamicDraw(self, event):
         self._update(getattr(event, "CurrentPoint", None))
-        event.Display.DrawLine(
-            self.start_point,
-            self.last_point or self.start_point,
-            DRIVER_COLOR,
-            2,
-        )
         super(_PullGetPoint, self).OnDynamicDraw(event)
 
 
@@ -135,7 +137,7 @@ def _select_part(doc, data):
     return part
 
 
-def _pull(doc, part):
+def _pull(doc, part, base_point):
     data = assembly_model.read_data(doc)
     part_id = part["object_id"]
     source_poses = {
@@ -150,7 +152,6 @@ def _pull(doc, part):
             return Result.Failure
         source_geometries[object_id] = _source_geometry(rhino_object)
 
-    start_point = doc.Objects.FindId(assembly_common.parse_guid(part_id)).Geometry.GetBoundingBox(True).Center
     state = {"poses": dict(source_poses), "error": None}
     conduit = _AssemblyPreviewConduit(source_geometries, source_poses)
     conduit.update(source_poses, part_id)
@@ -161,7 +162,7 @@ def _pull(doc, part):
             for start_value, point_value, start_value_point in zip(
                 source_poses[part_id]["position"],
                 assembly_common.point_tuple(point),
-                assembly_common.point_tuple(start_point),
+                assembly_common.point_tuple(base_point),
             )
         ]
         try:
@@ -181,9 +182,9 @@ def _pull(doc, part):
     try:
         conduit.Enabled = True
         doc.Views.Redraw()
-        getter = _PullGetPoint(update_preview, start_point)
-        getter.SetCommandPrompt("Pull the assembly; click to commit")
-        getter.SetBasePoint(start_point, True)
+        getter = _PullGetPoint(update_preview, base_point)
+        getter.SetCommandPrompt("Move the constrained assembly; click to commit")
+        getter.SetBasePoint(base_point, True)
         getter.AcceptNothing(False)
         getter.FullFrameRedrawDuringGet = True
         result = getter.Get()
@@ -195,18 +196,20 @@ def _pull(doc, part):
             final_point = final_point()
         update_preview(final_point)
         final_pose = state["poses"].get(part_id, source_poses[part_id])
-        start_position = Rhino.Geometry.Point3d(*source_poses[part_id]["position"])
-        target_position = Rhino.Geometry.Point3d(*final_pose["position"])
-        if start_position.DistanceTo(target_position) < 1e-6:
+        source_position = Rhino.Geometry.Point3d(*source_poses[part_id]["position"])
+        solved_position = Rhino.Geometry.Point3d(*final_pose["position"])
+        solved_delta = solved_position - source_position
+        if solved_delta.IsTiny():
             return Result.Success
+        target_position = base_point + solved_delta
 
         rs.UnselectAllObjects()
         if not rs.SelectObject(assembly_common.parse_guid(part_id)):
             return Result.Failure
         command = "_Move {},{},{} {},{},{} _Enter".format(
-            start_position.X,
-            start_position.Y,
-            start_position.Z,
+            base_point.X,
+            base_point.Y,
+            base_point.Z,
             target_position.X,
             target_position.Y,
             target_position.Z,
@@ -237,7 +240,13 @@ def RunCommand(is_interactive):
     part = _select_part(doc, data)
     if part is None:
         return Result.Cancel
-    return _pull(doc, part)
+    base_result, base_point = Rhino.Input.RhinoGet.GetPoint(
+        "Move point from",
+        False,
+    )
+    if base_result != Rhino.Commands.Result.Success:
+        return Result.Cancel
+    return _pull(doc, part, base_point)
 
 
 if __name__ == "__main__":

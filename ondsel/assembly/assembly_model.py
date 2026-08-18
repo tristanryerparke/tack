@@ -582,14 +582,15 @@ def prealign_slider_child(doc, rhino_object, part_axis_origin, part_axis_directi
 
 
 def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
+    debug_log = _debug if apply else (lambda message: None)
     data = read_data(doc)
     if not data["constraints"] or not data["parts"]:
-        _debug("solve skipped: no constraints or no parts")
+        debug_log("solve skipped: no constraints or no parts")
         return {"moved": []}
 
     has_anchor = any(c.get("type") == "world_anchor" for c in data["constraints"])
     if not has_anchor:
-        _debug("solve skipped: no world anchor yet")
+        debug_log("solve skipped: no world anchor yet")
         return {"moved": []}
 
     if driver_part_id is None:
@@ -599,7 +600,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
         if driver_part_id not in data["parts"]:
             driver_part_id = None
 
-    _debug(
+    debug_log(
         "solve start: parts={} constraints={} driver={}".format(
             len(data["parts"]), len(data["constraints"]),
             str(driver_part_id)[:8] if driver_part_id else "<none>"
@@ -623,7 +624,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
             current_pose = _copy_pose(requested_driver_pose)
         current_poses[part["object_id"]] = current_pose
         assembly.add_part(part["name"], input_pose["position"], input_pose["quaternion"])
-        _debug(
+        debug_log(
             "part {} input pose pos={} quat={}".format(
                 part["name"],
                 [round(v, 6) for v in input_pose["position"]],
@@ -643,7 +644,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
                 else:
                     local_marker = side.get("marker")
                 if local_marker is None:
-                    _debug("revolute {} skipped: missing live edge/marker for side {}".format(constraint["id"][:8], side_name))
+                    debug_log("revolute {} skipped: missing live edge/marker for side {}".format(constraint["id"][:8], side_name))
                     skip_constraint = True
                     break
                 assembly.add_marker(part["name"], constraint["id"] + "_" + side_name, local_marker["position"], local_marker["quaternion"])
@@ -677,7 +678,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
         driver_pose = current_poses[driver_part_id]
         start_pose = _settled_pose(doc, driver_part_id) or driver_pose
         step_count = _drag_substep_count(start_pose, driver_pose)
-        _debug(
+        debug_log(
             "assembly.drag() driver={} pos={} quat={} steps={}".format(
                 driver_part["name"],
                 [round(v, 6) for v in driver_pose["position"]],
@@ -694,11 +695,11 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
                 [step_pose["quaternion"]],
             )
         assembly.end_drag()
-        _debug("assembly.drag() complete")
+        debug_log("assembly.drag() complete")
     else:
-        _debug("assembly.solve()")
+        debug_log("assembly.solve()")
         assembly.solve()
-        _debug("assembly.solve() complete")
+        debug_log("assembly.solve() complete")
 
     solved_poses = {}
     for part in parts_in_order:
@@ -708,7 +709,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
             "quaternion": list(solved_quaternion),
         }
         solved_poses[part["object_id"]] = solved_pose
-        _debug(
+        debug_log(
             "part {} solved pose pos={} quat={}".format(
                 part["name"],
                 [round(v, 6) for v in solved_pose["position"]],
@@ -726,7 +727,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
         # pose and let the solver move the other parts as far as constraints
         # permit; a residual is not a reason to snap the user's part back.
         keep_driver = driver_part_id is not None
-        _debug(
+        debug_log(
             "driver preserved: translation_error={} rotation_error={}".format(
                 round(driver_translation_error, 6),
                 round(driver_rotation_error, 6),
@@ -738,7 +739,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
             object_id: _copy_pose(pose)
             for object_id, pose in solved_poses.items()
         }
-        _debug("preview solve end: poses={}".format(len(preview_poses)))
+        debug_log("preview solve end: poses={}".format(len(preview_poses)))
         return {
             "moved": [],
             "poses": preview_poses,
@@ -753,17 +754,17 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
         solved_pose = solved_poses[old_object_id]
         if driver_part_id == old_object_id and keep_driver:
             settled_poses[old_object_id] = _copy_pose(current_poses[old_object_id])
-            _debug("part {} kept as driver".format(part["name"]))
+            debug_log("part {} kept as driver".format(part["name"]))
             continue
         settled_poses[old_object_id] = _copy_pose(solved_pose)
         if _pose_motion_metric(current_poses[old_object_id], solved_pose) < 1e-6:
-            _debug("part {} delta is tiny".format(part["name"]))
+            debug_log("part {} delta is tiny".format(part["name"]))
             continue
         delta = _pose_delta(current_poses[old_object_id], solved_pose)
         if delta.IsIdentity:
-            _debug("part {} delta is identity".format(part["name"]))
+            debug_log("part {} delta is identity".format(part["name"]))
             continue
-        _debug("transforming part {} id={}".format(part["name"], old_object_id[:8]))
+        debug_log("transforming part {} id={}".format(part["name"], old_object_id[:8]))
         new_object_id, replaced = _transform_part_with_replacement(doc, data, part, delta)
         if replaced:
             metadata_dirty = True
@@ -779,7 +780,7 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True):
     _store_serials(doc, data["parts"].keys())
     _store_settled_poses(doc, data, settled_poses)
     doc.Views.Redraw()
-    _debug("solve end: moved {} object(s)".format(len(moved)))
+    debug_log("solve end: moved {} object(s)".format(len(moved)))
     return {"moved": moved}
 
 
