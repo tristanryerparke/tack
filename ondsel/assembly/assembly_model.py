@@ -716,24 +716,16 @@ def solve_and_propagate(doc, driver_part_id=None):
             current_poses[driver_part_id],
             solved_poses[driver_part_id],
         )
-        keep_driver = (
-            driver_translation_error <= max(doc.ModelAbsoluteTolerance * 10.0, 0.1)
-            and driver_rotation_error <= 0.05
+        # The user-changed part is the drag driver. Preserve its requested
+        # pose and let the solver move the other parts as far as constraints
+        # permit; a residual is not a reason to snap the user's part back.
+        keep_driver = driver_part_id is not None
+        _debug(
+            "driver preserved: translation_error={} rotation_error={}".format(
+                round(driver_translation_error, 6),
+                round(driver_rotation_error, 6),
+            )
         )
-        if keep_driver:
-            _debug(
-                "driver feasible: translation_error={} rotation_error={}".format(
-                    round(driver_translation_error, 6),
-                    round(driver_rotation_error, 6),
-                )
-            )
-        else:
-            _debug(
-                "driver infeasible: translation_error={} rotation_error={} -> snapping to solved pose".format(
-                    round(driver_translation_error, 6),
-                    round(driver_rotation_error, 6),
-                )
-            )
 
     moved = []
     settled_poses = {}
