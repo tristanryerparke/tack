@@ -31,7 +31,7 @@ def RunCommand(is_interactive):
     if part is None:
         return Result.Failure
     assembly_scheduler.expire_document(doc, reason="anchor {}".format(str(obj.Id)[:8]))
-    print("[Ondsel assembly] anchored {} and queued solve.".format(str(obj.Id)[:8]))
+    print("[Ondsel assembly] anchored {} and solved.".format(str(obj.Id)[:8]))
     return Result.Success
 
 

@@ -50,7 +50,7 @@ def RunCommand(is_interactive):
     if joint is None:
         return Result.Failure
     assembly_scheduler.expire_document(doc, reason="add revolute {}".format(joint["id"][:8]))
-    print("[Ondsel assembly] added revolute {} and queued solve.".format(joint["id"][:8]))
+    print("[Ondsel assembly] added revolute {} and solved.".format(joint["id"][:8]))
     return Result.Success
 
 

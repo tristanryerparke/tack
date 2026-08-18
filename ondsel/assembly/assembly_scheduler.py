@@ -1,95 +1,74 @@
+"""Synchronous solve trigger for Ondsel assembly relationships.
+
+Solves run inside the command that changed the parts (EndCommand), so the
+resulting object transforms share that command's undo record. There is no
+idle handler: every expire_document call solves immediately.
+"""
+
 import traceback
 
-import Rhino
 import scriptcontext as sc
 
-from ondsel.assembly import assembly_common
 
-IDLE_HANDLER_KEY = "Ondsel.Assembly.IdleHandler.v1"
-_pending_docs = {}
+LOG_PATH = "/tmp/ondsel_handler.log"
+WATCHER_CONNECTION_KEY = "Ondsel.Assembly.WatcherConnection.v1"
 _solving = False
+
+
+def _log_line(text):
+    try:
+        with open(LOG_PATH, "a") as log:
+            log.write(text.rstrip("\n") + "\n")
+    except Exception:
+        pass
+
+
+def _send_terminal(text):
+    connection = sc.sticky.get(WATCHER_CONNECTION_KEY)
+    if connection is None:
+        return
+    try:
+        connection.send_terminal(text)
+    except Exception:
+        sc.sticky.pop(WATCHER_CONNECTION_KEY, None)
 
 
 def _debug(message):
     text = "[Ondsel assembly] " + str(message)
     print(text)
-    try:
-        from tack import watcher
-
-        with watcher.output(True):
-            print(text)
-    except Exception:
-        pass
+    _log_line(text)
+    _send_terminal(text)
 
 
 def _report_error():
     traceback.print_exc()
-    try:
-        from tack import watcher
-
-        with watcher.output(True):
-            traceback.print_exc()
-    except Exception:
-        pass
+    text = traceback.format_exc()
+    _log_line(text)
+    _send_terminal(text)
 
 
 def is_solving():
     return _solving
 
 
-def _ensure_armed():
-    if sc.sticky.get(IDLE_HANDLER_KEY) is None:
-        handler = _on_idle
-        Rhino.RhinoApp.Idle += handler
-        sc.sticky[IDLE_HANDLER_KEY] = handler
-
-
 def disarm():
-    handler = sc.sticky.pop(IDLE_HANDLER_KEY, None)
-    if handler is not None:
-        try:
-            Rhino.RhinoApp.Idle -= handler
-        except Exception:
-            _report_error()
+    """Compatibility no-op now that solves do not use RhinoApp.Idle."""
 
 
 def expire_document(doc, reason=None):
+    """Solve *doc* now, inside the current command's undo scope."""
     if doc is None:
         return
-    key = int(doc.RuntimeSerialNumber)
-    _pending_docs[key] = doc
-    _ensure_armed()
     if reason:
-        _debug("scheduled solve on idle ({})".format(reason))
+        _debug("solving now ({})".format(reason))
+    solve_now(doc)
 
 
 def drop_document(doc):
-    if doc is None:
-        return
-    _pending_docs.pop(int(doc.RuntimeSerialNumber), None)
+    """Compatibility no-op (no pending-work registry without idle)."""
 
 
 def solve_now(doc):
-    _solve(doc)
-
-
-def _on_idle(sender, args):
-    if _solving or not _pending_docs:
-        return
-    for key, doc in list(_pending_docs.items()):
-        if doc is None:
-            _pending_docs.pop(key, None)
-            continue
-        try:
-            _solve(doc)
-        except Exception:
-            _report_error()
-        _pending_docs.pop(key, None)
-    if not _pending_docs:
-        disarm()
-
-
-def _solve(doc):
     global _solving
     _solving = True
     try:

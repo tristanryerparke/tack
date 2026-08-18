@@ -10,16 +10,56 @@ from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_scheduler
 
 
+LOG_PATH = "/tmp/ondsel_handler.log"
+WATCHER_CONNECTION_KEY = "Ondsel.Assembly.WatcherConnection.v1"
+
+
+def get_watcher_connection():
+    """Return a sticky-stored watcher connection, creating it on first use.
+
+    Handlers reuse this single socket so their feedback streams to the
+    server for the lifetime of the watcher that subscribed them.
+    """
+    connection = sc.sticky.get(WATCHER_CONNECTION_KEY)
+    if connection is not None:
+        return connection
+    try:
+        from run_in_rhino.rhino_env.client import SocketConnection
+
+        connection = SocketConnection()
+    except Exception:
+        return None
+    sc.sticky[WATCHER_CONNECTION_KEY] = connection
+    return connection
+
+
+def drop_watcher_connection():
+    sc.sticky.pop(WATCHER_CONNECTION_KEY, None)
+
+
+def _send_terminal(text):
+    connection = get_watcher_connection()
+    if connection is None:
+        return
+    try:
+        connection.send_terminal(text)
+    except Exception:
+        drop_watcher_connection()
+
+
+def _log_line(text):
+    try:
+        with open(LOG_PATH, "a") as log:
+            log.write(text.rstrip("\n") + "\n")
+    except Exception:
+        pass
+
+
 def _debug(message):
     text = "[Ondsel assembly] " + str(message)
     print(text)
-    try:
-        from tack import watcher
-
-        with watcher.output(True):
-            print(text)
-    except Exception:
-        pass
+    _log_line(text)
+    _send_terminal(text)
 
 DATA_KEY = "Ondsel.Assembly.v1"
 RUNTIME_KEY = "Ondsel.Assembly.Runtime.v1"
@@ -456,7 +496,7 @@ def _drag_substep_count(start_pose, end_pose):
         Rhino.Geometry.Point3d(*end_pose["position"])
     )
     rotation = _quaternion_distance(start_pose["quaternion"], end_pose["quaternion"])
-    return max(1, min(40, int(max(math.ceil(translation / 2.0), math.ceil(rotation / 0.05)))))
+    return max(1, min(60, int(max(math.ceil(translation / 2.0), math.ceil(rotation / 0.02)))))
 
 
 def _driver_pose_error(current_pose, solved_pose):
@@ -735,13 +775,8 @@ def solve_and_propagate(doc, driver_part_id=None):
 
 def _report_error():
     traceback.print_exc()
-    try:
-        from tack import watcher
-
-        with watcher.output(True):
-            traceback.print_exc()
-    except Exception:
-        pass
+    _log_line(traceback.format_exc())
+    _send_terminal(traceback.format_exc())
 
 
 def EndCommandHandler(sender, event):
@@ -796,6 +831,8 @@ def CloseDocumentHandler(sender, event):
 
 def subscribe():
     unsubscribe()
+    drop_watcher_connection()  # drop any connection from a previous watcher
+    get_watcher_connection()  # establish the feedback socket for this watcher
     handlers = (EndCommandHandler, CloseDocumentHandler)
     sc.sticky[HANDLER_KEY] = handlers
     Rhino.Commands.Command.EndCommand += EndCommandHandler
