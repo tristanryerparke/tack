@@ -13,6 +13,12 @@ from ondsel.assembly import assembly_common
 from ondsel.assembly import assembly_model
 from ondsel.assembly import assembly_scheduler
 
+
+def _send_setup_record(record):
+    from run_in_rhino.rhino_env.client import SocketConnection
+
+    SocketConnection().send_data(record)
+
 assembly_common = importlib.reload(assembly_common) if "assembly_common" in globals() else assembly_common
 assembly_model = importlib.reload(assembly_model)
 assembly_scheduler = importlib.reload(assembly_scheduler)
@@ -49,6 +55,19 @@ def RunCommand(is_interactive):
     joint = assembly_model.add_revolute(doc, side_a, side_b)
     if joint is None:
         return Result.Failure
+    _send_setup_record(
+        {
+            "type": "revolute",
+            "a": {
+                "object_id": str(side_a["object_id"]),
+                "edge_index": int(side_a["edge_index"]),
+            },
+            "b": {
+                "object_id": str(side_b["object_id"]),
+                "edge_index": int(side_b["edge_index"]),
+            },
+        }
+    )
     assembly_scheduler.expire_document(doc, reason="add revolute {}".format(joint["id"][:8]))
     print("[Ondsel assembly] added revolute {} and solved.".format(joint["id"][:8]))
     return Result.Success

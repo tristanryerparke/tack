@@ -849,6 +849,11 @@ def EndCommandHandler(sender, event):
         if doc is None:
             _debug("EndCommand ignored: no active doc")
             return
+        try:
+            from ondsel.assembly import assembly_dynamic_conduit
+            assembly_dynamic_conduit.command_ended(doc)
+        except Exception:
+            pass
         if is_command_busy(doc):
             _debug("EndCommand ignored during command edit: {}".format(command_name))
             return
