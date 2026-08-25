@@ -3,6 +3,7 @@ import System.Windows.Forms
 
 import tack.analysis.bbox as bbox_analysis
 import tack.analysis.polyline_vertex as polyline_vertex_analysis
+import tack.analysis.smart as smart_analysis
 import tack.analysis.vertex as vertex_analysis
 from tack import metadata
 from tack import runtime
@@ -12,8 +13,23 @@ from tack import utils
 _ANCHOR_ANALYZERS = {
     bbox_analysis.ANCHOR_TYPE: bbox_analysis,
     polyline_vertex_analysis.ANCHOR_TYPE: polyline_vertex_analysis,
+    smart_analysis.ANCHOR_TYPE: smart_analysis,
     vertex_analysis.ANCHOR_TYPE: vertex_analysis,
 }
+
+
+def _analyzer_anchors(analyzer, obj, anchor):
+    anchors_for = getattr(analyzer, "anchors_for", None)
+    if anchors_for is not None:
+        return anchors_for(obj, anchor)
+    return analyzer.anchors(obj)
+
+
+def _anchor_key(analyzer, anchor):
+    key = getattr(analyzer, "anchor_key", None)
+    if key is not None:
+        return key(anchor)
+    return int(anchor["index"])
 
 
 def break_link(state, reason):
@@ -91,7 +107,11 @@ def _refresh_anchor_snapshots(state, result):
         anchor = result["link"][role + "_anchor"]
         analyzer = _ANCHOR_ANALYZERS.get(anchor["anchor_type"])
         if analyzer is not None:
-            state[role + "_anchors"] = analyzer.anchors(result[role])
+            state[role + "_anchors"] = _analyzer_anchors(
+                analyzer,
+                result[role],
+                anchor,
+            )
 
 
 def _stored_link(doc, state, child_obj=None):
@@ -136,7 +156,7 @@ def _adopt_candidate(
         and len(new_anchors) == len(old_anchors)
     ):
         candidate_indexes = dict(new_anchors)
-        saved_index = int(anchor["index"])
+        saved_index = _anchor_key(analyzer, anchor)
         if saved_index in candidate_indexes:
             new_index = saved_index
             if utils.DEBUG:
@@ -148,7 +168,7 @@ def _adopt_candidate(
                 )
 
     if utils.DEBUG:
-        old_index = int(anchor["index"])
+        old_index = _anchor_key(analyzer, anchor)
         old_points = dict(old_anchors)
         new_points = dict(new_anchors)
         print(

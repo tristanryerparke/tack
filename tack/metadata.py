@@ -6,7 +6,7 @@ from tack import utils
 
 LINKS_KEY = "Tack.AnchorLinks.v3"
 PARENT_LINKS_KEY = "Tack.AnchorParentLinks.v3"
-_ANCHOR_TYPES = ("BoundingBox", "BrepVertex", "PolylineVertex")
+_ANCHOR_TYPES = ("BoundingBox", "BrepVertex", "PolylineVertex", "Smart")
 
 
 def _set_user_value(doc, object_id, key, value):
@@ -53,10 +53,16 @@ def _parse_anchor(data):
         return None
     if index < 0:
         return None
-    return {
+    parsed = {
         "anchor_type": anchor_type,
         "index": index,
     }
+    if anchor_type == "Smart":
+        kind = data.get("kind")
+        if not isinstance(kind, str) or not kind:
+            return None
+        parsed["kind"] = kind
+    return parsed
 
 
 def _parse_link(data, expected_link_id=None):
@@ -142,23 +148,31 @@ def _write_parent_link(doc, link):
     )
 
 
+def _anchor_data(anchor_type, anchor_key):
+    if anchor_type == "Smart":
+        kind, index = anchor_key
+        return {
+            "anchor_type": anchor_type,
+            "kind": str(kind),
+            "index": int(index),
+        }
+    return {
+        "anchor_type": anchor_type,
+        "index": int(anchor_key),
+    }
+
+
 def write_link(doc, parent_id, child_id, parent_anchor, child_anchor):
-    parent_type, parent_index, parent_location = parent_anchor
-    child_type, child_index, child_location = child_anchor
+    parent_type, parent_key, parent_location = parent_anchor
+    child_type, child_key, child_location = child_anchor
     link_id = str(uuid.uuid4())
     link = {
         "version": 3,
         "link_id": link_id,
         "parent_id": str(parent_id),
         "child_id": str(child_id),
-        "parent_anchor": {
-            "anchor_type": parent_type,
-            "index": int(parent_index),
-        },
-        "child_anchor": {
-            "anchor_type": child_type,
-            "index": int(child_index),
-        },
+        "parent_anchor": _anchor_data(parent_type, parent_key),
+        "child_anchor": _anchor_data(child_type, child_key),
         "offset": _point_data(child_location - parent_location),
     }
     if not _write_child_link(doc, link):
@@ -197,7 +211,7 @@ def update_anchor(
     link,
     role,
     anchor_type,
-    anchor_index,
+    anchor_key,
     anchor_location,
 ):
     link["version"] = 3
@@ -205,8 +219,8 @@ def update_anchor(
     link["parent_id"] = str(state["parent_id"])
     link["child_id"] = str(state["child_id"])
     anchor = link[role + "_anchor"]
-    anchor["anchor_type"] = anchor_type
-    anchor["index"] = int(anchor_index)
+    anchor.clear()
+    anchor.update(_anchor_data(anchor_type, anchor_key))
     state["link"] = link
 
     child_saved = _write_child_link(doc, link)
@@ -217,7 +231,7 @@ def update_anchor(
                 link["link_id"],
                 role,
                 anchor_type,
-                anchor_index,
+                anchor_key,
                 utils.debug_point(anchor_location),
                 child_saved,
                 parent_saved,

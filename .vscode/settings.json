@@ -1,3 +1,6 @@
 {
-    "pendant.autoGenerateSessionNames": true
+    "pendant.autoGenerateSessionNames": true,
+    "pendant.chat.promptSuggestionsEnabled": true,
+    "pendant.chat.promptSuggestions": {},
+    "pendant.chat.promptSuggestionLanguage": ""
 }

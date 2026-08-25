@@ -2,7 +2,9 @@ import Rhino
 import rhinoscriptsyntax as rs
 
 import tack.analysis.bbox as bbox_analysis
-from tack.prompting.anchor_pick_conduit import AnchorPickConduit
+import tack.analysis.smart as smart_analysis
+from tack import utils
+from tack.prompting.bbox_center_conduit import BoundingBoxCenterConduit
 
 
 def pick_object(doc, prompt):
@@ -42,98 +44,81 @@ def unlock_objects(object_ids):
             pass
 
 
-class AnchorGetPoint(Rhino.Input.Custom.GetPoint):
-    def __init__(self, points, state):
-        super(AnchorGetPoint, self).__init__()
-        self.points = points
-        self.state = state
-
-    def _hit_test(self, event):
-        picker = Rhino.Input.Custom.PickContext()
-        picker.View = event.Viewport.ParentView
-        picker.PickStyle = Rhino.Input.Custom.PickStyle.PointPick
-        picker.SetPickTransform(
-            event.Viewport.GetPickTransform(event.WindowPoint)
+def _debug_anchor(role, anchor):
+    utils.debug(
+        "[Tack pick] role={} kind={} index={}".format(
+            role,
+            anchor[1][0],
+            anchor[1][1],
         )
-
-        best = None
-        try:
-            for index, point in enumerate(self.points):
-                hit, depth, distance = picker.PickFrustumTest(point)
-                if not hit:
-                    continue
-                candidate = (distance, -depth, index)
-                if best is None or candidate < best:
-                    best = candidate
-        finally:
-            picker.Dispose()
-
-        return None if best is None else best[2]
-
-    def OnMouseMove(self, event):
-        self.state["hover"] = self._hit_test(event)
-        if self.state["hover"] is None:
-            self.state["hover"] = -1
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-        super(AnchorGetPoint, self).OnMouseMove(event)
-
-    def OnMouseDown(self, event):
-        if event.RightButtonDown:
-            super(AnchorGetPoint, self).OnMouseDown(event)
-            return
-        if not event.LeftButtonDown:
-            return
-
-        index = self._hit_test(event)
-        if index is None:
-            self.state["reject_mouse_up"] = True
-            return
-
-        self.state["result"] = index
-        super(AnchorGetPoint, self).OnMouseDown(event)
-
-    def OnMouseUp(self, event):
-        if self.state["reject_mouse_up"]:
-            self.state["reject_mouse_up"] = False
-            return
-        super(AnchorGetPoint, self).OnMouseUp(event)
+    )
 
 
-def pick_anchor(obj, anchor_type, candidate_anchors, wire_segments, prompt):
-    if not candidate_anchors:
-        print("The selected object has no usable anchors.")
+def pick_smart_anchor(obj, role):
+    bbox_anchor = smart_analysis.bounding_box_center_anchor(obj)
+    if bbox_anchor is None:
+        print("The selected object has no usable bounding box center.")
         return None
 
-    points = [point for _, point in candidate_anchors]
-    state = {"hover": -1, "result": None, "reject_mouse_up": False}
-    conduit = AnchorPickConduit(points, state, wire_segments)
+    _, _, bbox_center = bbox_anchor
     doc = Rhino.RhinoDoc.ActiveDoc
-    locked_ids = lock_other_objects(doc, obj.Id)
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    conduit = BoundingBoxCenterConduit(bbox_center)
+    osnap_was_enabled = Rhino.ApplicationSettings.ModelAidSettings.Osnap
+    project_was_enabled = (
+        Rhino.ApplicationSettings.ModelAidSettings.ProjectSnapToCPlane
+    )
+    Rhino.ApplicationSettings.ModelAidSettings.Osnap = True
+    Rhino.ApplicationSettings.ModelAidSettings.ProjectSnapToCPlane = False
     conduit.Enabled = True
     doc.Views.Redraw()
 
     try:
         while True:
-            state["hover"] = -1
-            state["result"] = None
-            state["reject_mouse_up"] = False
-            picker = AnchorGetPoint(points, state)
-            picker.SetCommandPrompt(prompt)
-            picker.AcceptNothing(False)
-            picker.AddConstructionPoints(points)
-            picker.AddSnapPoints(points)
+            picker = Rhino.Input.Custom.GetPoint()
+            picker.SetCommandPrompt(
+                "Pick a Tack point on the {}".format(role)
+            )
+            picker.PermitObjectSnap(True)
+            picker.AddConstructionPoint(bbox_center)
+            picker.AddSnapPoint(bbox_center)
             picker.FullFrameRedrawDuringGet = True
 
-            result = picker.Get()
-            if result != Rhino.Input.GetResult.Point:
+            if picker.Get() != Rhino.Input.GetResult.Point:
                 return None
-            position = state["result"]
-            if position is None and state["hover"] >= 0:
-                position = state["hover"]
-            if position is not None:
-                anchor_index, point = candidate_anchors[position]
-                return anchor_type, anchor_index, point
+
+            point = picker.Point()
+            if point.DistanceTo(bbox_center) <= tolerance:
+                _debug_anchor(role, bbox_anchor)
+                return bbox_anchor
+
+            obj_ref = picker.PointOnObject()
+            if obj_ref is None or str(obj_ref.ObjectId).lower() != str(obj.Id).lower():
+                print(
+                    "Pick an object snap or bounding box center on the {}.".format(
+                        role
+                    )
+                )
+                continue
+
+            anchor = smart_analysis.derive(
+                obj_ref,
+                point,
+                picker.OsnapEventType,
+                tolerance,
+            )
+            if anchor is not None:
+                _debug_anchor(role, anchor)
+                return anchor
+            print(
+                "That snap cannot be consistently derived from the {}.".format(
+                    role
+                )
+            )
     finally:
         conduit.Enabled = False
-        unlock_objects(locked_ids)
+        Rhino.ApplicationSettings.ModelAidSettings.Osnap = osnap_was_enabled
+        Rhino.ApplicationSettings.ModelAidSettings.ProjectSnapToCPlane = (
+            project_was_enabled
+        )
         doc.Views.Redraw()
