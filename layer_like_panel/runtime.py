@@ -1,6 +1,5 @@
 """Rhino-session lifetime for the standalone layer-panel mock."""
 
-import Rhino
 import scriptcontext as sc
 
 from layer_like_panel.panel import LayerLikePanel
@@ -25,5 +24,5 @@ def open_panel():
 
     window = LayerLikePanel(state)
     sc.sticky[_WINDOW_KEY] = window
-    window.Show(Rhino.UI.RhinoEtoApp.MainWindow)
+    window.Show()
     return window

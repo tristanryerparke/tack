@@ -81,11 +81,12 @@ class LayerLikePanel(forms.Form):
             self._root_items.append(item)
             root.Children.Add(item)
         self._tree.DataStore = root
-        self._tree.SelectedItem = self._items.get(self._state.selected_key)
 
     def _selected_node(self):
         item = self._tree.SelectedItem
-        return None if item is None else item.Tag
+        if item is not None:
+            return item.Tag
+        return self._state.find(self._state.selected_key)
 
     def _selection_changed(self, sender, event):
         node = self._selected_node()
