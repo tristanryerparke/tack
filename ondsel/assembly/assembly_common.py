@@ -4,7 +4,9 @@ import sys
 
 import Rhino
 import System
+import System.Drawing
 import rhinoscriptsyntax as rs
+import scriptcontext as sc
 
 from ondsel.assembly import ondsel_module
 
@@ -14,6 +16,7 @@ if MODULES_DIR not in sys.path:
     sys.path.insert(0, MODULES_DIR)
 
 BREP_EDGE_COMPONENT_TYPE = Rhino.Geometry.ComponentIndexType.BrepEdge
+BREP_FACE_COMPONENT_TYPE = Rhino.Geometry.ComponentIndexType.BrepFace
 BREP_TRIM_COMPONENT_TYPE = Rhino.Geometry.ComponentIndexType.BrepTrim
 
 
@@ -108,6 +111,161 @@ def prompt_for_one_brep_edge(prompt):
     return edge_data[0]
 
 
+def _brep_face_only_filter(_rhino_object, geometry, component_index):
+    return (
+        component_index.ComponentIndexType == BREP_FACE_COMPONENT_TYPE
+        or isinstance(geometry, Rhino.Geometry.BrepFace)
+    )
+
+
+class _PlanarFaceConduit(Rhino.Display.DisplayConduit):
+    def __init__(self, candidates, state):
+        super(_PlanarFaceConduit, self).__init__()
+        self.candidates = candidates
+        self.state = state
+        self.material = Rhino.Display.DisplayMaterial(
+            System.Drawing.Color.FromArgb(255, 255, 215, 0)
+        )
+        self.material.Transparency = 0.45
+
+    def DrawForeground(self, event):
+        index = self.state["hover"]
+        if index < 0:
+            return
+        face_brep = self.candidates[index]["face_brep"]
+        event.Display.DrawBrepShaded(face_brep, self.material)
+        event.Display.DrawBrepWires(face_brep, System.Drawing.Color.Black, 6)
+
+
+class _PlanarFaceGetPoint(Rhino.Input.Custom.GetPoint):
+    def __init__(self, candidates, state):
+        super(_PlanarFaceGetPoint, self).__init__()
+        self.candidates = candidates
+        self.state = state
+
+    def _hit_test(self, event):
+        picker = Rhino.Input.Custom.PickContext()
+        picker.View = event.Viewport.ParentView
+        picker.PickStyle = Rhino.Input.Custom.PickStyle.PointPick
+        picker.SetPickTransform(event.Viewport.GetPickTransform(event.WindowPoint))
+        best = None
+        try:
+            for index, candidate in enumerate(self.candidates):
+                for mesh in candidate["meshes"]:
+                    result = picker.PickFrustumTest(
+                        mesh,
+                        Rhino.Input.Custom.PickContext.MeshPickStyle.ShadedModePicking,
+                    )
+                    if not result[0]:
+                        continue
+                    candidate_rank = (result[-3], -result[-4], index)
+                    if best is None or candidate_rank < best:
+                        best = candidate_rank
+        finally:
+            picker.Dispose()
+        return None if best is None else best[2]
+
+    def OnMouseMove(self, event):
+        index = self._hit_test(event)
+        self.state["hover"] = -1 if index is None else index
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+        super(_PlanarFaceGetPoint, self).OnMouseMove(event)
+
+    def OnMouseDown(self, event):
+        if event.RightButtonDown:
+            super(_PlanarFaceGetPoint, self).OnMouseDown(event)
+            return
+        if not event.LeftButtonDown:
+            return
+        index = self._hit_test(event)
+        if index is None:
+            self.state["reject_mouse_up"] = True
+            return
+        self.state["result"] = index
+        super(_PlanarFaceGetPoint, self).OnMouseDown(event)
+
+    def OnMouseUp(self, event):
+        if self.state["reject_mouse_up"]:
+            self.state["reject_mouse_up"] = False
+            return
+        super(_PlanarFaceGetPoint, self).OnMouseUp(event)
+
+
+def _planar_face_candidates(doc):
+    candidates = []
+    for rhino_object in doc.Objects:
+        if (
+            rhino_object is None
+            or rhino_object.IsDeleted
+            or rhino_object.IsHidden
+            or rhino_object.IsLocked
+        ):
+            continue
+        geometry = rhino_object.Geometry
+        if isinstance(geometry, Rhino.Geometry.Brep):
+            brep = geometry
+        elif isinstance(geometry, Rhino.Geometry.Extrusion):
+            brep = geometry.ToBrep()
+        else:
+            continue
+        if brep is None:
+            continue
+        for face in brep.Faces:
+            plane = plane_from_brep_face(face, doc.ModelAbsoluteTolerance)
+            if plane is None:
+                continue
+            face_brep = face.DuplicateFace(False)
+            if face_brep is None:
+                continue
+            meshes = Rhino.Geometry.Mesh.CreateFromBrep(face_brep)
+            if meshes is None:
+                continue
+            meshes = list(meshes)
+            if not meshes:
+                continue
+            candidates.append(
+                {
+                    "object_id": rhino_object.Id,
+                    "face_index": int(face.FaceIndex),
+                    "face": face,
+                    "plane": plane,
+                    "brep": brep,
+                    "object": rhino_object,
+                    "face_brep": face_brep,
+                    "meshes": meshes,
+                }
+            )
+    return candidates
+
+
+def prompt_for_one_planar_brep_face(prompt):
+    candidates = _planar_face_candidates(sc.doc)
+    if not candidates:
+        print("No visible, unlocked planar Brep or extrusion faces are available to select.")
+        return None
+
+    state = {"hover": -1, "result": None, "reject_mouse_up": False}
+    conduit = _PlanarFaceConduit(candidates, state)
+    conduit.Enabled = True
+    sc.doc.Views.Redraw()
+
+    picker = _PlanarFaceGetPoint(candidates, state)
+    picker.SetCommandPrompt(prompt)
+    picker.AcceptNothing(False)
+    picker.PermitObjectSnap(False)
+    picker.FullFrameRedrawDuringGet = True
+    try:
+        if picker.Get() != Rhino.Input.GetResult.Point:
+            return None
+        index = state["result"]
+        if index is None and state["hover"] >= 0:
+            index = state["hover"]
+        return None if index is None else candidates[index]
+    finally:
+        conduit.Enabled = False
+        sc.doc.Views.Redraw()
+
+
 def prompt_for_one_object(prompt):
     getter = Rhino.Input.Custom.GetObject()
     getter.SetCommandPrompt(prompt)
@@ -159,6 +317,23 @@ def circle_from_edge(edge, tolerance):
             if isinstance(result, tuple) and len(result) == 2 and result[0]:
                 arc = result[1]
                 return Rhino.Geometry.Circle(arc.Plane, arc.Radius)
+    return None
+
+
+def plane_from_brep_face(face, tolerance):
+    """Return a planar BrepFace frame with its Brep orientation, else None."""
+    if face is None:
+        return None
+    for args in ((tolerance,), ()):
+        try:
+            result = face.TryGetPlane(*args)
+        except TypeError:
+            continue
+        if isinstance(result, tuple) and len(result) == 2 and result[0]:
+            plane = Rhino.Geometry.Plane(result[1])
+            if face.OrientationIsReversed:
+                plane.Flip()
+            return plane
     return None
 
 

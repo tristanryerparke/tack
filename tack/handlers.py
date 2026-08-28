@@ -19,6 +19,20 @@ def _quit_watcher():
     watcher.send_quit(utils.DEBUG)
 
 
+def _command_name(event):
+    return (
+        getattr(event, "EnglishName", None)
+        or getattr(event, "CommandEnglishName", None)
+        or getattr(event, "CommandName", None)
+        or "<unknown>"
+    )
+
+
+def _debug(message):
+    with _websocket_output():
+        utils.debug("[Tack anchor] " + message)
+
+
 def _report_handler_error():
     try:
         if utils.DEBUG:
@@ -29,19 +43,35 @@ def _report_handler_error():
 
 
 def EndCommandHandler(sender, event):
+    command_name = _command_name(event)
     try:
         doc = Rhino.RhinoDoc.ActiveDoc
-        if doc is None or scheduler.is_solving():
+        if doc is None:
+            _debug("EndCommand {} ignored: no active document.".format(command_name))
             return
+        if scheduler.is_solving():
+            _debug("EndCommand {} ignored: Tack is solving.".format(command_name))
+            return
+
+        states = runtime.states(doc, create=False)
+        _debug(
+            "EndCommand {} received: tracking {} link(s).".format(
+                command_name,
+                len(states),
+            )
+        )
         expired = runtime.mark_changed_links_dirty(doc)
-        if expired:
-            scheduler.expire_link_ids(doc, expired)
-            with _websocket_output():
-                utils.debug(
-                    "[Tack anchor] EndCommand found {} changed link(s).".format(
-                        len(expired)
-                    )
-                )
+        if not expired:
+            _debug("EndCommand {}: no tracked links changed.".format(command_name))
+            return
+
+        _debug(
+            "EndCommand {}: changed link ids={}.".format(
+                command_name,
+                [str(link_id)[:8] for link_id in expired],
+            )
+        )
+        scheduler.expire_link_ids(doc, expired)
     except Exception:
         _report_handler_error()
 

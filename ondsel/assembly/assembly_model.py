@@ -34,7 +34,20 @@ def get_watcher_connection():
 
 
 def drop_watcher_connection():
-    sc.sticky.pop(WATCHER_CONNECTION_KEY, None)
+    """Close the persistent watcher socket before removing its sticky value."""
+    connection = sc.sticky.pop(WATCHER_CONNECTION_KEY, None)
+    websocket = getattr(connection, "ws", None)
+    if websocket is not None:
+        try:
+            websocket.close()
+        except Exception:
+            pass
+        socket = getattr(websocket, "sock", None)
+        if socket is not None:
+            try:
+                socket.close()
+            except Exception:
+                pass
 
 
 def _send_terminal(text):
@@ -258,6 +271,20 @@ def _edge_plane(doc, object_id, edge_index):
     return circle.Plane
 
 
+def _face_plane(doc, object_id, face_index):
+    obj = doc.Objects.FindId(assembly_common.parse_guid(object_id))
+    if obj is None or obj.Geometry is None:
+        return None
+    geometry = obj.Geometry
+    brep = geometry if isinstance(geometry, Rhino.Geometry.Brep) else geometry.ToBrep()
+    if brep is None or face_index < 0 or face_index >= brep.Faces.Count:
+        return None
+    return assembly_common.plane_from_brep_face(
+        brep.Faces[face_index],
+        doc.ModelAbsoluteTolerance,
+    )
+
+
 def _pose_to_plane(pose):
     return assembly_common.plane_from_pose(pose["position"], pose["quaternion"])
 
@@ -322,11 +349,15 @@ def _current_pose_from_home(doc, part_meta, include_dynamic=True):
         pose = _identity_pose()
     else:
         edge_index = home.get("edge_index")
-        if edge_index is None:
-            pose = home.get("pose", _identity_pose())
-        else:
+        face_index = home.get("face_index")
+        if edge_index is not None:
             live_plane = _edge_plane(doc, part_meta["object_id"], edge_index)
             pose = home.get("pose", _identity_pose()) if live_plane is None else _plane_to_pose(live_plane)
+        elif face_index is not None:
+            live_plane = _face_plane(doc, part_meta["object_id"], face_index)
+            pose = home.get("pose", _identity_pose()) if live_plane is None else _plane_to_pose(live_plane)
+        else:
+            pose = home.get("pose", _identity_pose())
 
     rhino_object = doc.Objects.FindId(assembly_common.parse_guid(part_meta["object_id"]))
     dynamic_transform = _dynamic_transform(rhino_object) if include_dynamic else None
@@ -351,6 +382,25 @@ def _register_part_from_edge(doc, data, object_id, edge_index):
         if plane is not None:
             part["home"] = {
                 "edge_index": int(edge_index),
+                "pose": _plane_to_pose(plane),
+            }
+    return part
+
+
+def _register_part_from_face(doc, data, object_id, face_index):
+    key = assembly_common.guid_string(object_id)
+    part = data["parts"].get(key)
+    if part is None:
+        part = {
+            "object_id": key,
+            "name": _new_part_name(data),
+        }
+        data["parts"][key] = part
+    if part.get("home") is None:
+        plane = _face_plane(doc, object_id, face_index)
+        if plane is not None:
+            part["home"] = {
+                "face_index": int(face_index),
                 "pose": _plane_to_pose(plane),
             }
     return part
@@ -388,6 +438,18 @@ def _local_marker_pose(doc, part_meta, edge_index):
     )
 
 
+def _local_face_marker_pose(doc, part_meta, face_index):
+    face_plane = _face_plane(doc, part_meta["object_id"], face_index)
+    if face_plane is None:
+        return None
+    return _local_pose_from_world_plane(
+        doc,
+        part_meta,
+        face_plane,
+        include_dynamic=False,
+    )
+
+
 def add_revolute(doc, side_a, side_b):
     data = read_data(doc)
     part_a = _register_part_from_edge(doc, data, side_a["object_id"], side_a["edge_index"])
@@ -412,6 +474,69 @@ def add_revolute(doc, side_a, side_b):
     write_data(doc, data)
     _store_serials(doc, data["parts"].keys())
     _store_settled_poses(doc, data, {part["object_id"]: _current_pose_from_home(doc, part) for part in data["parts"].values()})
+    return constraint
+
+
+def add_planar_offset(doc, side_a, side_b, offset):
+    """Persist a planar face joint and fix its first part in world space."""
+    data = read_data(doc)
+    part_a = _register_part_from_face(doc, data, side_a["object_id"], side_a["face_index"])
+    part_b = _register_part_from_face(doc, data, side_b["object_id"], side_b["face_index"])
+    marker_a = _local_face_marker_pose(doc, part_a, side_a["face_index"])
+    marker_b = _local_face_marker_pose(doc, part_b, side_b["face_index"])
+    if marker_a is None or marker_b is None:
+        return None
+
+    selected_parts = {part_a["object_id"], part_b["object_id"]}
+    data["constraints"] = [
+        constraint
+        for constraint in data["constraints"]
+        if not (
+            constraint.get("type") == "world_anchor"
+            and constraint.get("part") in selected_parts
+        )
+        and not (
+            constraint.get("type") == "planar_offset"
+            and {
+                constraint.get("a", {}).get("part"),
+                constraint.get("b", {}).get("part"),
+            }
+            == selected_parts
+        )
+    ]
+    data["constraints"].append(
+        {
+            "id": str(uuid.uuid4()),
+            "type": "world_anchor",
+            "part": part_a["object_id"],
+            "world_pose": _current_pose_from_home(doc, part_a),
+            "marker": _identity_pose(),
+        }
+    )
+    constraint = {
+        "id": str(uuid.uuid4()),
+        "type": "planar_offset",
+        "offset": float(offset),
+        "a": {
+            "part": part_a["object_id"],
+            "face_index": int(side_a["face_index"]),
+        },
+        "b": {
+            "part": part_b["object_id"],
+            "face_index": int(side_b["face_index"]),
+        },
+    }
+    data["constraints"].append(constraint)
+    write_data(doc, data)
+    _store_serials(doc, data["parts"].keys())
+    _store_settled_poses(
+        doc,
+        data,
+        {
+            part["object_id"]: _current_pose_from_home(doc, part)
+            for part in data["parts"].values()
+        },
+    )
     return constraint
 
 
@@ -556,6 +681,125 @@ def _driver_pose_error(current_pose, solved_pose):
     return translation, rotation
 
 
+def _planar_offset_error(doc, data, driver_part_id):
+    """Return the largest live offset and normal error for driver's face joints."""
+    offset_error = 0.0
+    normal_error = 0.0
+    found = False
+    for constraint in data["constraints"]:
+        if constraint.get("type") != "planar_offset":
+            continue
+        sides = (constraint.get("a", {}), constraint.get("b", {}))
+        if driver_part_id not in [side.get("part") for side in sides]:
+            continue
+        plane_a = _face_plane(
+            doc,
+            constraint["a"]["part"],
+            int(constraint["a"]["face_index"]),
+        )
+        plane_b = _face_plane(
+            doc,
+            constraint["b"]["part"],
+            int(constraint["b"]["face_index"]),
+        )
+        if plane_a is None or plane_b is None:
+            return float("inf"), float("inf"), True
+        found = True
+        actual_offset = (plane_b.Origin - plane_a.Origin) * plane_a.ZAxis
+        offset_error = max(
+            offset_error,
+            abs(actual_offset - float(constraint["offset"])),
+        )
+        normal_error = max(
+            normal_error,
+            1.0 - abs(plane_a.ZAxis * plane_b.ZAxis),
+        )
+    return offset_error, normal_error, found
+
+
+def _project_planar_driver_translation(doc, data, driver_part_id, current_pose):
+    """Project only normal translation, retaining the driver's free motion.
+
+    Ondsel's underconstrained solve can choose an arbitrary in-plane position.
+    For an untilted planar relationship, the face metadata provides the exact
+    correction: translate the moved part only along the first face's normal.
+    """
+    constraints = [
+        constraint
+        for constraint in data["constraints"]
+        if constraint.get("type") == "planar_offset"
+        and driver_part_id
+        in (
+            constraint.get("a", {}).get("part"),
+            constraint.get("b", {}).get("part"),
+        )
+    ]
+    if len(constraints) != 1:
+        return None
+
+    constraint = constraints[0]
+    plane_a = _face_plane(
+        doc,
+        constraint["a"]["part"],
+        int(constraint["a"]["face_index"]),
+    )
+    plane_b = _face_plane(
+        doc,
+        constraint["b"]["part"],
+        int(constraint["b"]["face_index"]),
+    )
+    if plane_a is None or plane_b is None:
+        return None
+    normal_error = 1.0 - abs(plane_a.ZAxis * plane_b.ZAxis)
+    if normal_error > 1e-8:
+        return None
+
+    actual_offset = (plane_b.Origin - plane_a.Origin) * plane_a.ZAxis
+    offset_error = actual_offset - float(constraint["offset"])
+    if abs(offset_error) <= doc.ModelAbsoluteTolerance:
+        return None
+
+    direction = Rhino.Geometry.Vector3d(plane_a.ZAxis)
+    if driver_part_id == constraint["a"]["part"]:
+        direction = direction * offset_error
+    else:
+        direction = direction * -offset_error
+    projected_pose = _copy_pose(current_pose)
+    projected_pose["position"] = [
+        value + correction
+        for value, correction in zip(
+            projected_pose["position"],
+            assembly_common.vector_tuple(direction),
+        )
+    ]
+    return projected_pose, offset_error
+
+
+def _planar_parent_follow_poses(doc, data, driver_part_id, current_poses):
+    """Carry planar children by the moved parent's live rigid delta."""
+    parent_constraints = [
+        constraint
+        for constraint in data["constraints"]
+        if constraint.get("type") == "planar_offset"
+        and constraint.get("a", {}).get("part") == driver_part_id
+    ]
+    previous_parent_pose = _settled_pose(doc, driver_part_id)
+    if not parent_constraints or previous_parent_pose is None:
+        return {}
+
+    parent_delta = _pose_delta(previous_parent_pose, current_poses[driver_part_id])
+    followers = {}
+    for constraint in parent_constraints:
+        child_part_id = constraint["b"]["part"]
+        child_pose = current_poses.get(child_part_id)
+        if child_pose is None:
+            continue
+        child_plane = _pose_to_plane(child_pose)
+        child_plane.Transform(parent_delta)
+        followers[child_part_id] = _plane_to_pose(child_plane)
+    return followers
+
+
 def _rewrite_part_id(data, old_object_id, new_object_id):
     old_key = assembly_common.guid_string(old_object_id)
     new_key = assembly_common.guid_string(new_object_id)
@@ -568,7 +812,7 @@ def _rewrite_part_id(data, old_object_id, new_object_id):
     data["parts"][new_key] = part
     for constraint in data["constraints"]:
         ctype = constraint.get("type")
-        if ctype == "revolute":
+        if ctype in ("revolute", "planar_offset"):
             for side_name in ("a", "b"):
                 if constraint[side_name].get("part") == old_key:
                     constraint[side_name]["part"] = new_key
@@ -703,6 +947,46 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True, 
             part_a = data["parts"][constraint["a"]["part"]]["name"]
             part_b = data["parts"][constraint["b"]["part"]]["name"]
             assembly.add_revolute_joint(constraint["id"], part_a, constraint["id"] + "_a", part_b, constraint["id"] + "_b")
+        elif ctype == "planar_offset":
+            markers = {}
+            for side_name in ("a", "b"):
+                side = constraint[side_name]
+                part = data["parts"][side["part"]]
+                marker = _local_face_marker_pose(doc, part, int(side["face_index"]))
+                if marker is None:
+                    debug_log(
+                        "planar offset {} skipped: missing face for side {}".format(
+                            constraint["id"][:8],
+                            side_name,
+                        )
+                    )
+                    markers = None
+                    break
+                markers[side_name] = marker
+            if markers is None:
+                continue
+            part_a = data["parts"][constraint["a"]["part"]]["name"]
+            part_b = data["parts"][constraint["b"]["part"]]["name"]
+            assembly.add_marker(
+                part_a,
+                constraint["id"] + "_a",
+                markers["a"]["position"],
+                markers["a"]["quaternion"],
+            )
+            assembly.add_marker(
+                part_b,
+                constraint["id"] + "_b",
+                markers["b"]["position"],
+                markers["b"]["quaternion"],
+            )
+            assembly.add_planar_joint(
+                constraint["id"],
+                part_a,
+                constraint["id"] + "_a",
+                part_b,
+                constraint["id"] + "_b",
+                float(constraint["offset"]),
+            )
         elif ctype == "slider_axis":
             part = data["parts"][constraint["part"]]
             local_marker = constraint["marker"]
@@ -769,20 +1053,66 @@ def solve_and_propagate(doc, driver_part_id=None, driver_pose=None, apply=True, 
             )
         )
 
+    if driver_part_id is not None:
+        planar_projection = _project_planar_driver_translation(
+            doc,
+            data,
+            driver_part_id,
+            current_poses[driver_part_id],
+        )
+        if planar_projection is not None:
+            solved_poses[driver_part_id], projected_offset_error = planar_projection
+            debug_log(
+                "driver planar translation projection: offset_error={}".format(
+                    round(projected_offset_error, 9),
+                )
+            )
+
+    parent_followers = {}
+    if driver_part_id is not None:
+        parent_followers = _planar_parent_follow_poses(
+            doc,
+            data,
+            driver_part_id,
+            current_poses,
+        )
+        if parent_followers:
+            solved_poses.update(parent_followers)
+            debug_log(
+                "parent driver={} carries planar children={}".format(
+                    driver_part_id[:8],
+                    [object_id[:8] for object_id in parent_followers],
+                )
+            )
+
     keep_driver = False
     if driver_part_id is not None:
         driver_translation_error, driver_rotation_error = _driver_pose_error(
             current_poses[driver_part_id],
             solved_poses[driver_part_id],
         )
-        # The user-changed part is the drag driver. Preserve its requested
-        # pose and let the solver move the other parts as far as constraints
-        # permit; a residual is not a reason to snap the user's part back.
-        keep_driver = driver_part_id is not None
+        offset_error, normal_error, driver_has_planar_offset = _planar_offset_error(
+            doc,
+            data,
+            driver_part_id,
+        )
+        # Preserve valid in-plane translation/spin exactly. Project only a
+        # driver that has changed its signed face gap or face-normal alignment.
+        planar_is_valid = (
+            offset_error <= doc.ModelAbsoluteTolerance
+            and normal_error <= 1e-8
+        )
+        keep_driver = bool(parent_followers) or not driver_has_planar_offset or planar_is_valid
         debug_log(
-            "driver preserved: translation_error={} rotation_error={}".format(
+            "driver {}: translation_error={} rotation_error={} "
+            "planar_offset_error={} planar_normal_error={}".format(
+                "preserved as parent" if parent_followers else (
+                    "preserved" if keep_driver else "projected for planar offset"
+                ),
                 round(driver_translation_error, 6),
                 round(driver_rotation_error, 6),
+                round(offset_error, 9),
+                round(normal_error, 9),
             )
         )
 
@@ -849,6 +1179,12 @@ def EndCommandHandler(sender, event):
         if doc is None:
             _debug("EndCommand ignored: no active doc")
             return
+        _debug(
+            "EndCommand received: command={} doc={}".format(
+                command_name,
+                doc.RuntimeSerialNumber,
+            )
+        )
         try:
             from ondsel.assembly import assembly_dynamic_conduit
             assembly_dynamic_conduit.command_ended(doc)
@@ -861,6 +1197,13 @@ def EndCommandHandler(sender, event):
             _debug("EndCommand ignored during solve: {}".format(command_name))
             return
         data = read_data(doc)
+        _debug(
+            "EndCommand state: command={} parts={} constraints={}".format(
+                command_name,
+                len(data["parts"]),
+                len(data["constraints"]),
+            )
+        )
         if not data["parts"]:
             _debug("EndCommand ignored: no assembly parts ({})".format(command_name))
             return
@@ -902,8 +1245,6 @@ def CloseDocumentHandler(sender, event):
 
 def subscribe():
     unsubscribe()
-    from ondsel.assembly import assembly_dynamic_conduit
-    assembly_dynamic_conduit.start()
     drop_watcher_connection()  # drop any connection from a previous watcher
     get_watcher_connection()  # establish the feedback socket for this watcher
     handlers = (EndCommandHandler, CloseDocumentHandler)

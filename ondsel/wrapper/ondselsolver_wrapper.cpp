@@ -26,6 +26,7 @@
 #include "ASMTFixedJoint.h"
 #include "ASMTPointInLineJoint.h"
 #include "ASMTParallelAxesJoint.h"
+#include "ASMTPlanarJoint.h"
 #include "ASMTTranslationalJoint.h"
 
 namespace py = pybind11;
@@ -168,6 +169,25 @@ public:
         joint->setName(name);
         joint->setMarkerI(assemblyName + "/" + partI + "/" + markerI);
         joint->setMarkerJ(assemblyName + "/" + partJ + "/" + markerJ);
+        assembly->addJoint(joint);
+    }
+
+    void add_planar_joint(
+        const std::string& name,
+        const std::string& partI,
+        const std::string& markerI,
+        const std::string& partJ,
+        const std::string& markerJ,
+        double offset)
+    {
+        partNamed(partI);
+        partNamed(partJ);
+
+        auto joint = ASMTPlanarJoint::With();
+        joint->setName(name);
+        joint->setMarkerI(assemblyName + "/" + partI + "/" + markerI);
+        joint->setMarkerJ(assemblyName + "/" + partJ + "/" + markerJ);
+        joint->offset = offset;
         assembly->addJoint(joint);
     }
 
@@ -327,6 +347,15 @@ PYBIND11_MODULE(MOD_NAME, m)
             py::arg("marker_i"),
             py::arg("part_j"),
             py::arg("marker_j"))
+        .def(
+            "add_planar_joint",
+            &PyAssembly::add_planar_joint,
+            py::arg("name"),
+            py::arg("part_i"),
+            py::arg("marker_i"),
+            py::arg("part_j"),
+            py::arg("marker_j"),
+            py::arg("offset"))
         .def("solve", &PyAssembly::solve)
         .def("begin_drag", &PyAssembly::begin_drag)
         .def(
