@@ -6,6 +6,7 @@ _MODULES = (
     "utils",
     "document_runtime",
     "metadata",
+    "anchor_definitions",
     "analysis.bbox",
     "analysis.polyline_vertex",
     "analysis.vertex",
@@ -15,6 +16,7 @@ _MODULES = (
     "scheduler",
     "handlers",
     "prompting.anchor_pick_conduit",
+    "prompting.osnap_anchor_picker",
     "prompting.picking",
     "prompting.command_menu",
 )
