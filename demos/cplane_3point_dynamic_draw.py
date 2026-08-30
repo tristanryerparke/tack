@@ -6,8 +6,9 @@ Run this from the parent terminal:
 
 The reusable anchor model lives in ``tack/anchor_definitions.py``. Reusable
 OSnap interaction and global-state cleanup live in
-``tack/prompting/osnap_anchor_picker.py``. This file contains only the
-plane-specific definition, resolver, and dynamic axis preview.
+``tack/prompting/osnap_anchor_picker.py``. Persistent resolution and display
+live in ``tack/three_point_plane.py``. This file contains the interactive
+three-point flow and its dynamic axis preview.
 """
 
 import importlib
@@ -20,7 +21,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import Rhino
-import System
 from Rhino.Commands import Result
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.env import install_os_environment
@@ -30,12 +30,11 @@ import tack
 
 importlib.reload(tack).reload()
 
-from tack import anchor_definitions
+from tack import three_point_plane
 from tack.prompting.osnap_anchor_picker import AnchorPickSession
 from tack.prompting.osnap_anchor_picker import select_object
 
 
-AXIS_SCREEN_LENGTH = 120.0
 PICKER_CALLBACK = "analytic_three_anchor_plane"
 
 
@@ -58,13 +57,6 @@ def _perpendicular(vector, axis):
     return _unit(vector - axis * _dot(vector, axis))
 
 
-def _axis_length(viewport, origin):
-    success, pixels_per_unit = viewport.GetWorldToScreenScale(origin)
-    if success and pixels_per_unit > 0.0:
-        return AXIS_SCREEN_LENGTH / pixels_per_unit
-    return 10.0
-
-
 def _emit_callback(connection, parasite, event, **data):
     payload = {"callback": PICKER_CALLBACK, "event": event}
     payload.update(data)
@@ -72,77 +64,6 @@ def _emit_callback(connection, parasite, event, **data):
     print("CALLBACK {}".format(encoded))
     parasite.flush()
     connection.send_data(encoded)
-
-
-def resolve_plane_definition(doc, definition):
-    """Analytically regenerate a plane from a saved three-anchor definition."""
-    try:
-        object_id = System.Guid(definition["object_id"])
-    except Exception:
-        return None
-    obj = doc.Objects.FindId(object_id)
-    if obj is None:
-        return None
-
-    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    origin = anchor_definitions.resolve(
-        obj,
-        definition["origin_anchor"],
-        tolerance,
-    )
-    x_point = anchor_definitions.resolve(
-        obj,
-        definition["x_axis_anchor"],
-        tolerance,
-    )
-    y_point = anchor_definitions.resolve(
-        obj,
-        definition["y_axis_anchor"],
-        tolerance,
-    )
-    if origin is None or x_point is None or y_point is None:
-        return None
-
-    plane = Rhino.Geometry.Plane(origin, x_point, y_point)
-    return plane if plane.IsValid else None
-
-
-def _plane_border(origin, x_axis, y_axis, axis_length):
-    if x_axis is None or y_axis is None:
-        return []
-    return [
-        origin - x_axis * axis_length - y_axis * axis_length,
-        origin + x_axis * axis_length - y_axis * axis_length,
-        origin + x_axis * axis_length + y_axis * axis_length,
-        origin - x_axis * axis_length + y_axis * axis_length,
-    ]
-
-
-def _draw_preview(display, origin, x_axis, y_axis, axis_length):
-    appearance = Rhino.ApplicationSettings.AppearanceSettings
-    border = _plane_border(origin, x_axis, y_axis, axis_length)
-    for index, start in enumerate(border):
-        display.DrawLine(
-            start,
-            border[(index + 1) % len(border)],
-            appearance.GridThickLineColor,
-            1,
-        )
-
-    if x_axis is not None:
-        display.DrawLine(
-            origin,
-            origin + x_axis * axis_length,
-            appearance.GridXAxisLineColor,
-            2,
-        )
-    if y_axis is not None:
-        display.DrawLine(
-            origin,
-            origin + y_axis * axis_length,
-            appearance.GridYAxisLineColor,
-            2,
-        )
 
 
 class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
@@ -196,14 +117,26 @@ class AxisPreviewConduit(Rhino.Display.DisplayConduit):
 
     def update(self, current, viewport):
         origin, x_axis, y_axis = self.getter.axes(current)
-        self.state = (origin, x_axis, y_axis, _axis_length(viewport, origin))
+        self.state = (
+            origin,
+            x_axis,
+            y_axis,
+            three_point_plane.axis_length(viewport, origin),
+        )
 
     def CalculateBoundingBox(self, event):
         if self.state is None:
             return
         origin, x_axis, y_axis, axis_length = self.state
         points = [origin]
-        points.extend(_plane_border(origin, x_axis, y_axis, axis_length))
+        points.extend(
+            three_point_plane.plane_border(
+                origin,
+                x_axis,
+                y_axis,
+                axis_length,
+            )
+        )
         if x_axis is not None:
             points.append(origin + x_axis * axis_length)
         if y_axis is not None:
@@ -212,7 +145,11 @@ class AxisPreviewConduit(Rhino.Display.DisplayConduit):
 
     def DrawOverlay(self, event):
         if self.state is not None:
-            _draw_preview(event.Display, *self.state)
+            three_point_plane.draw_preview(
+                event.Display,
+                *self.state,
+                grid_spacing=three_point_plane.millimeter_spacing(event.RhinoDoc),
+            )
 
 
 def _getter_factory(construction_plane, origin=None, x_point=None):
@@ -331,11 +268,12 @@ def RunCommand(is_interactive, connection, parasite):
         "x_axis_anchor": x_definition,
         "y_axis_anchor": y_definition,
     }
-    resolved_plane = resolve_plane_definition(doc, definition)
-    if resolved_plane is None:
+    persistent_state = three_point_plane.install(doc, definition)
+    if persistent_state is None:
         print("The completed anchor definition could not be resolved.")
         _emit_callback(connection, parasite, "failed", definition=definition)
         return Result.Failure
+    resolved_plane = persistent_state["plane"]
 
     print("Plane anchor definition: {}".format(json.dumps(definition, sort_keys=True)))
     _emit_callback(

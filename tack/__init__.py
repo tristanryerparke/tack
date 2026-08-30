@@ -7,6 +7,7 @@ _MODULES = (
     "document_runtime",
     "metadata",
     "anchor_definitions",
+    "three_point_plane",
     "analysis.bbox",
     "analysis.polyline_vertex",
     "analysis.vertex",
