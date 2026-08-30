@@ -543,6 +543,11 @@ def derive(obj_ref, picked_point, osnap_type, tolerance):
     return None
 
 
+def candidates(obj, feature_type, tolerance):
+    """Return current ``(definition, point)`` candidates for one anchor type."""
+    return list(_candidates(obj, feature_type, tolerance))
+
+
 def validate(definition):
     """Return whether a dictionary exactly matches one new-model anchor type."""
     if not isinstance(definition, dict):

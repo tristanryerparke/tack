@@ -110,12 +110,127 @@ class AxisPreviewConduit(Rhino.Display.DisplayConduit):
             )
 
 
+def _live_circular_plane(candidates, point, snap_name, tolerance):
+    if snap_name != "center":
+        return None
+    matches = [
+        candidate
+        for candidate in candidates
+        if candidate["point"].DistanceTo(point) <= tolerance
+    ]
+    return matches[0]["plane"] if len(matches) == 1 else None
+
+
+class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
+    def __init__(self, candidates, tolerance):
+        super(CircularPreviewGetPoint, self).__init__()
+        self.candidates = candidates
+        self.tolerance = tolerance
+        self.preview = None
+
+    def _update_preview(self, point):
+        if self.preview is None:
+            return
+        snap_name = str(self.OsnapEventType).split(".")[-1].lower()
+        self.preview.plane = _live_circular_plane(
+            self.candidates,
+            point,
+            snap_name,
+            self.tolerance,
+        )
+
+    def OnMouseMove(self, event):
+        self._update_preview(event.Point)
+        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+        super(CircularPreviewGetPoint, self).OnMouseMove(event)
+
+    def OnDynamicDraw(self, event):
+        self._update_preview(event.CurrentPoint)
+        super(CircularPreviewGetPoint, self).OnDynamicDraw(event)
+
+
+class CircularPreviewConduit(Rhino.Display.DisplayConduit):
+    def __init__(self, getter):
+        super(CircularPreviewConduit, self).__init__()
+        self.getter = getter
+        self.plane = None
+
+    def CalculateBoundingBox(self, event):
+        if self.plane is None:
+            return
+        points = three_point_plane.plane_border(
+            self.plane.Origin,
+            self.plane.XAxis,
+            self.plane.YAxis,
+            three_point_plane.PLANE_HALF_EXTENT,
+        )
+        points.append(self.plane.Origin)
+        event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
+
+    def DrawOverlay(self, event):
+        if self.plane is None:
+            return
+        three_point_plane.draw_preview(
+            event.Display,
+            self.plane.Origin,
+            self.plane.XAxis,
+            self.plane.YAxis,
+            three_point_plane.PLANE_HALF_EXTENT,
+            grid_spacing=three_point_plane.GRID_SPACING,
+            major_frequency=(
+                event.Viewport.GetConstructionPlane().ThickLineFrequency
+            ),
+        )
+
+
+def _circular_plane_candidates(doc, obj):
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    result = []
+    for feature_type in (
+        anchor_definitions.CIRCULAR_EDGE_CENTER,
+        anchor_definitions.CURVE_CENTER,
+    ):
+        for anchor, center in anchor_definitions.candidates(
+            obj,
+            feature_type,
+            tolerance,
+        ):
+            if feature_type == anchor_definitions.CIRCULAR_EDGE_CENTER:
+                definition = {
+                    "type": "circular_edge_plane",
+                    "object_id": str(obj.Id),
+                    "edge_center_anchor": anchor,
+                }
+            else:
+                definition = {
+                    "type": "circular_curve_plane",
+                    "object_id": str(obj.Id),
+                    "curve_center_anchor": anchor,
+                }
+            plane = three_point_plane.resolve_definition(doc, definition)
+            if plane is not None:
+                result.append(
+                    {
+                        "point": center,
+                        "plane": plane,
+                        "definition": definition,
+                    }
+                )
+    return result
+
+
 def _getter_factory(construction_plane, origin=None, x_point=None):
     return lambda: AxisPreviewGetPoint(construction_plane, origin, x_point)
 
 
 def _preview_factory(getter):
     conduit = AxisPreviewConduit(getter)
+    getter.preview = conduit
+    return conduit
+
+
+def _circular_preview_factory(getter):
+    conduit = CircularPreviewConduit(getter)
     getter.preview = conduit
     return conduit
 
@@ -163,6 +278,12 @@ def _is_circular_center(definition):
 
 def pick_circular_plane(doc, obj):
     """Pick one circular edge/curve center and return its analytic plane data."""
+    candidates = _circular_plane_candidates(doc, obj)
+    if not candidates:
+        print("The selected object has no resolvable circular center planes.")
+        return None
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+
     with AnchorPickSession(
         doc,
         obj,
@@ -170,6 +291,8 @@ def pick_circular_plane(doc, obj):
     ) as session:
         picked = session.pick(
             "Center-snap to a circular Brep edge or circular curve",
+            getter_factory=lambda: CircularPreviewGetPoint(candidates, tolerance),
+            preview_factory=_circular_preview_factory,
             definition_filter=_is_circular_center,
             rejected_message=(
                 "Only a center snap on a circular Brep edge or circular curve "
