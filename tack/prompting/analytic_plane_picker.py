@@ -8,6 +8,7 @@ from tack.prompting.osnap_anchor_picker import AnchorPickSession
 
 
 CIRCULAR_OPTION = "Circular"
+THREE_POINT_OPTION = "3Point"
 
 
 def _dot(left, right):
@@ -160,6 +161,26 @@ class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
         super(CircularPreviewGetPoint, self).OnDynamicDraw(event)
 
 
+class SmartOriginPreviewGetPoint(AxisPreviewGetPoint):
+    """Use a circular plane at a center, otherwise use CPlane-style axes."""
+
+    def __init__(self, construction_plane, candidates, tolerance):
+        super(SmartOriginPreviewGetPoint, self).__init__(construction_plane)
+        self.candidates = candidates
+        self.tolerance = tolerance
+
+    def OnMouseMove(self, event):
+        if self.preview is not None:
+            self.preview.update(event.Point)
+            Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
+        super(AxisPreviewGetPoint, self).OnMouseMove(event)
+
+    def OnDynamicDraw(self, event):
+        if self.preview is not None:
+            self.preview.update(event.CurrentPoint)
+        super(AxisPreviewGetPoint, self).OnDynamicDraw(event)
+
+
 class CircularPreviewConduit(Rhino.Display.DisplayConduit):
     def __init__(self, getter):
         super(CircularPreviewConduit, self).__init__()
@@ -180,6 +201,52 @@ class CircularPreviewConduit(Rhino.Display.DisplayConduit):
 
     def DrawOverlay(self, event):
         if self.plane is None:
+            return
+        three_point_plane.draw_preview(
+            event.Display,
+            self.plane.Origin,
+            self.plane.XAxis,
+            self.plane.YAxis,
+            three_point_plane.PLANE_HALF_EXTENT,
+            grid_spacing=three_point_plane.GRID_SPACING,
+            major_frequency=(
+                event.Viewport.GetConstructionPlane().ThickLineFrequency
+            ),
+        )
+
+
+class SmartOriginPreviewConduit(AxisPreviewConduit):
+    def __init__(self, getter):
+        super(SmartOriginPreviewConduit, self).__init__(getter)
+        self.plane = None
+
+    def update(self, current):
+        self.plane = _live_circular_plane(
+            self.getter.candidates,
+            current,
+            self.getter.tolerance,
+        )
+        if self.plane is None:
+            super(SmartOriginPreviewConduit, self).update(current)
+        else:
+            self.state = None
+
+    def CalculateBoundingBox(self, event):
+        if self.plane is None:
+            super(SmartOriginPreviewConduit, self).CalculateBoundingBox(event)
+            return
+        points = three_point_plane.plane_border(
+            self.plane.Origin,
+            self.plane.XAxis,
+            self.plane.YAxis,
+            three_point_plane.PLANE_HALF_EXTENT,
+        )
+        points.append(self.plane.Origin)
+        event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
+
+    def DrawOverlay(self, event):
+        if self.plane is None:
+            super(SmartOriginPreviewConduit, self).DrawOverlay(event)
             return
         three_point_plane.draw_preview(
             event.Display,
@@ -242,6 +309,12 @@ def _preview_factory(getter):
 
 def _circular_preview_factory(getter):
     conduit = CircularPreviewConduit(getter)
+    getter.preview = conduit
+    return conduit
+
+
+def _smart_origin_preview_factory(getter):
+    conduit = SmartOriginPreviewConduit(getter)
     getter.preview = conduit
     return conduit
 
@@ -314,6 +387,10 @@ def pick_circular_plane(doc, obj):
         return None
 
     center, center_anchor = picked
+    return _circular_result(obj, center, center_anchor)
+
+
+def _circular_result(obj, center, center_anchor):
     if center_anchor["type"] == anchor_definitions.CIRCULAR_EDGE_CENTER:
         definition = {
             "type": "circular_edge_plane",
@@ -340,6 +417,24 @@ def pick_circular_plane(doc, obj):
             }
         ],
     }
+
+
+def _circular_result_at_live_center(doc, obj, candidates, point, tolerance):
+    plane = _live_circular_plane(candidates, point, tolerance)
+    if plane is None:
+        return None
+    candidate = next(
+        candidate
+        for candidate in candidates
+        if candidate["point"].DistanceTo(point) <= tolerance
+        and candidate["plane"] is plane
+    )
+    definition = candidate["definition"]
+    if definition["type"] == "circular_edge_plane":
+        anchor = definition["edge_center_anchor"]
+    else:
+        anchor = definition["curve_center_anchor"]
+    return _circular_result(obj, candidate["point"], anchor)
 
 
 def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
@@ -407,10 +502,93 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
 
 
 def pick_plane(doc, obj, construction_plane):
-    """Default to three-point picking with a Circular command-line button."""
-    return pick_three_point_plane(
-        doc,
-        obj,
-        construction_plane,
-        allow_circular=True,
-    )
+    """Pick a one-click circular plane or reconcile a three-point plane."""
+    tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    candidates = _circular_plane_candidates(doc, obj)
+    with AnchorPickSession(doc, obj) as session:
+        origin_result = session.pick(
+            "Pick an analytic plane origin or choose 3Point",
+            getter_factory=(
+                (
+                    lambda: SmartOriginPreviewGetPoint(
+                        construction_plane,
+                        candidates,
+                        tolerance,
+                    )
+                )
+                if candidates
+                else _getter_factory(construction_plane)
+            ),
+            preview_factory=(
+                _smart_origin_preview_factory if candidates else _preview_factory
+            ),
+            options=(THREE_POINT_OPTION,),
+        )
+        force_three_point = isinstance(origin_result, dict)
+        if origin_result is None:
+            return None
+        if force_three_point:
+            origin_result = session.pick(
+                "3Point mode: pick an analytic anchor for the plane origin",
+                getter_factory=_getter_factory(construction_plane),
+                preview_factory=_preview_factory,
+            )
+            if origin_result is None:
+                return None
+
+        origin, origin_definition = origin_result
+        if not force_three_point:
+            if _is_circular_center(origin_definition):
+                return _circular_result(obj, origin, origin_definition)
+            # A circular center can coincide with the synthetic bounding-box
+            # center, which AnchorPickSession resolves before PointOnObject.
+            circular_result = _circular_result_at_live_center(
+                doc,
+                obj,
+                candidates,
+                origin,
+                tolerance,
+            )
+            if circular_result is not None:
+                return circular_result
+
+        x_result = _pick_nonzero_x(session, construction_plane, origin)
+        if x_result is None:
+            return None
+        x_point, x_definition = x_result
+        y_result = _pick_valid_y(
+            session,
+            construction_plane,
+            origin,
+            x_point,
+        )
+        if y_result is None:
+            return None
+        y_point, y_definition = y_result
+        return {
+            "mode": "three_point",
+            "definition": {
+                "type": "three_point_plane",
+                "object_id": str(obj.Id),
+                "origin_anchor": origin_definition,
+                "x_axis_anchor": x_definition,
+                "y_axis_anchor": y_definition,
+            },
+            "picks": [
+                {
+                    "role": "origin",
+                    "point": origin,
+                    "anchor": origin_definition,
+                },
+                {
+                    "role": "x_axis",
+                    "point": x_point,
+                    "anchor": x_definition,
+                },
+                {
+                    "role": "y_axis",
+                    "point": y_point,
+                    "anchor": y_definition,
+                },
+            ],
+        }

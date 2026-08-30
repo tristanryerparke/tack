@@ -1,8 +1,9 @@
-"""Pick an analytic plane using ThreePoint by default or Circular by option.
+"""Pick an analytic plane with smart circular-center reconciliation.
 
-After selecting the target object, the origin prompt exposes a ``Circular``
-command-line button. Picking an origin continues the default three-point flow;
-choosing ``Circular`` switches to one circular Brep-edge center snap.
+At the origin prompt, a circular edge/curve center displays and accepts its
+one-click analytic plane. Any other anchor continues to X/Y three-point
+selection. Use ``3Point`` to force custom X/Y directions from a circular
+center.
 
 Run from the parent terminal:
 
