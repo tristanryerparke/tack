@@ -7,6 +7,7 @@ _MODULES = (
     "document_runtime",
     "metadata",
     "anchor_definitions",
+    "three_point_plane_metadata",
     "three_point_plane",
     "analysis.bbox",
     "analysis.polyline_vertex",
@@ -18,6 +19,7 @@ _MODULES = (
     "handlers",
     "prompting.anchor_pick_conduit",
     "prompting.osnap_anchor_picker",
+    "prompting.analytic_plane_picker",
     "prompting.picking",
     "prompting.command_menu",
 )

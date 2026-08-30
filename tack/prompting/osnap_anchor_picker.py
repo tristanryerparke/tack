@@ -68,9 +68,10 @@ def _unlock_objects(object_ids):
 class AnchorPickSession:
     """Constrain one or more analytic anchor picks to a target object."""
 
-    def __init__(self, doc, obj):
+    def __init__(self, doc, obj, include_bounding_box_center=True):
         self.doc = doc
         self.obj = obj
+        self.include_bounding_box_center = include_bounding_box_center
         self.tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
         self.bounding_box_center = anchor_definitions.bounding_box_center(obj)
         if self.bounding_box_center is None:
@@ -88,7 +89,7 @@ class AnchorPickSession:
             self._project_was_enabled = settings.ProjectSnapToCPlane
             settings.Osnap = True
             settings.ProjectSnapToCPlane = False
-            self._center_conduit.Enabled = True
+            self._center_conduit.Enabled = self.include_bounding_box_center
             self.doc.Views.Redraw()
             return self
         except Exception:
@@ -107,12 +108,22 @@ class AnchorPickSession:
         self.doc.Views.Redraw()
         return False
 
-    def pick(self, prompt, getter_factory=None, preview_factory=None):
+    def pick(
+        self,
+        prompt,
+        getter_factory=None,
+        preview_factory=None,
+        definition_filter=None,
+        rejected_message=None,
+        options=(),
+    ):
         """Return ``(resolved_point, definition)`` or ``None`` on cancel.
 
         ``getter_factory`` can provide a custom ``GetPoint`` subclass.
         ``preview_factory`` receives that getter and can return an additional
         display conduit, allowing callers to add interaction-specific previews.
+        ``definition_filter`` can restrict callers to selected anchor types.
+        Named command-line ``options`` return as ``{"option": name}``.
         """
         while True:
             getter = (
@@ -123,9 +134,14 @@ class AnchorPickSession:
             getter.SetCommandPrompt(prompt)
             getter.AcceptNothing(False)
             getter.PermitObjectSnap(True)
-            getter.AddConstructionPoint(self.bounding_box_center)
-            getter.AddSnapPoint(self.bounding_box_center)
+            if self.include_bounding_box_center:
+                getter.AddConstructionPoint(self.bounding_box_center)
+                getter.AddSnapPoint(self.bounding_box_center)
             getter.FullFrameRedrawDuringGet = True
+            option_names = {
+                getter.AddOption(name): name
+                for name in options
+            }
 
             preview = (
                 preview_factory(getter)
@@ -136,12 +152,25 @@ class AnchorPickSession:
                 preview.Enabled = True
             self.doc.Views.Redraw()
             try:
-                if getter.Get() != Rhino.Input.GetResult.Point:
+                result = getter.Get()
+                if result == Rhino.Input.GetResult.Option:
+                    return {"option": option_names.get(getter.OptionIndex())}
+                if result != Rhino.Input.GetResult.Point:
                     return None
 
                 point = getter.Point()
-                if point.DistanceTo(self.bounding_box_center) <= self.tolerance:
-                    return point, {"type": anchor_definitions.BOUNDING_BOX_CENTER}
+                if (
+                    self.include_bounding_box_center
+                    and point.DistanceTo(self.bounding_box_center) <= self.tolerance
+                ):
+                    definition = {"type": anchor_definitions.BOUNDING_BOX_CENTER}
+                    if definition_filter is None or definition_filter(definition):
+                        return point, definition
+                    print(
+                        rejected_message
+                        or "That anchor type is not accepted. Pick another snap."
+                    )
+                    continue
 
                 obj_ref = getter.PointOnObject()
                 if (
@@ -162,7 +191,13 @@ class AnchorPickSession:
                 )
                 if derived is not None:
                     definition, resolved_point = derived
-                    return resolved_point, definition
+                    if definition_filter is None or definition_filter(definition):
+                        return resolved_point, definition
+                    print(
+                        rejected_message
+                        or "That anchor type is not accepted. Pick another snap."
+                    )
+                    continue
 
                 print(
                     "That snap cannot be derived unambiguously. "

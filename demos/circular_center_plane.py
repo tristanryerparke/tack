@@ -1,11 +1,11 @@
-"""Define a persistent analytic plane from three OSnap anchors.
+"""Define a persistent plane from one circular edge/curve center snap.
+
+The plane origin is the circle center. Its X axis points from the center to the
+edge or curve start, and its XY plane is coplanar with the circle.
 
 Run from the parent terminal:
 
-    uv run rhino-watch demos/cplane_3point_dynamic_draw.py --debug
-
-Reusable picking is implemented by ``tack.prompting.analytic_plane_picker``;
-this demo keeps the original three-point-only entry point.
+    uv run rhino-watch demos/circular_center_plane.py --debug
 """
 
 import importlib
@@ -33,7 +33,7 @@ from tack.prompting import analytic_plane_picker
 from tack.prompting.osnap_anchor_picker import select_object
 
 
-PICKER_CALLBACK = "analytic_three_anchor_plane"
+PICKER_CALLBACK = "circular_center_plane"
 
 
 def _point_data(point):
@@ -51,53 +51,46 @@ def _emit_callback(connection, parasite, event, **data):
 
 def RunCommand(is_interactive, connection, parasite):
     doc = Rhino.RhinoDoc.ActiveDoc
-    view = doc.Views.ActiveView if doc is not None else None
-    if view is None:
-        _emit_callback(connection, parasite, "cancelled", reason="no_active_view")
+    if doc is None:
+        _emit_callback(connection, parasite, "cancelled", reason="no_active_doc")
         return Result.Cancel
 
-    obj = select_object(doc, "Select object that will define the plane")
+    obj = select_object(doc, "Select object with a circular edge or curve")
     if obj is None:
         _emit_callback(connection, parasite, "cancelled", stage="object")
         return Result.Cancel
 
-    picked = analytic_plane_picker.pick_three_point_plane(
-        doc,
-        obj,
-        view.ActiveViewport.ConstructionPlane(),
-    )
+    picked = analytic_plane_picker.pick_circular_plane(doc, obj)
     if picked is None:
-        _emit_callback(connection, parasite, "cancelled", stage="plane")
+        _emit_callback(connection, parasite, "cancelled", stage="circle_center")
         return Result.Cancel
 
+    accepted = picked["picks"][0]
+    center = accepted["point"]
     definition = picked["definition"]
-    for accepted in picked["picks"]:
-        _emit_callback(
-            connection,
-            parasite,
-            accepted["role"],
-            point=_point_data(accepted["point"]),
-            anchor=accepted["anchor"],
-        )
-
     if not three_point_plane_metadata.save_definition(doc, definition):
-        print("The plane definition could not be saved on its defining object.")
+        print("The circular plane metadata could not be saved.")
         _emit_callback(connection, parasite, "save_failed", definition=definition)
         return Result.Failure
 
     state = three_point_plane.install(doc, definition)
     if state is None:
-        print("The completed anchor definition could not be resolved.")
+        print("The circular edge or curve could not be resolved into a plane.")
         _emit_callback(connection, parasite, "resolve_failed", definition=definition)
         return Result.Failure
 
     plane = state["plane"]
-    print("Plane anchor definition: {}".format(json.dumps(definition, sort_keys=True)))
+    print(
+        "Circular plane definition: {}".format(
+            json.dumps(definition, sort_keys=True)
+        )
+    )
     _emit_callback(
         connection,
         parasite,
         "completed",
         definition=definition,
+        picked_center=_point_data(center),
         resolved_plane={
             "origin": _point_data(plane.Origin),
             "x_axis": _point_data(plane.XAxis),

@@ -543,6 +543,39 @@ def derive(obj_ref, picked_point, osnap_type, tolerance):
     return None
 
 
+def validate(definition):
+    """Return whether a dictionary exactly matches one new-model anchor type."""
+    if not isinstance(definition, dict):
+        return False
+    handler = _HANDLERS.get(definition.get("type"))
+    return handler is not None and handler.validates(definition)
+
+
+def circular_edge(obj, definition, tolerance):
+    """Resolve a circular-edge anchor to its current Brep edge and circle."""
+    if (
+        not validate(definition)
+        or definition.get("type") != CIRCULAR_EDGE_CENTER
+    ):
+        return None
+    brep = _brep(obj)
+    edge_index = definition["edge_index"]
+    if brep is None or edge_index >= brep.Edges.Count:
+        return None
+    edge = brep.Edges[edge_index]
+    circle = _circle(edge.DuplicateCurve(), tolerance)
+    return None if circle is None else (edge, circle)
+
+
+def circular_curve(obj, definition, tolerance):
+    """Resolve a circular-curve anchor to its current curve and circle."""
+    if not validate(definition) or definition.get("type") != CURVE_CENTER:
+        return None
+    curve = _curve(obj)
+    circle = _circle(curve, tolerance)
+    return None if circle is None else (curve, circle)
+
+
 def resolve(obj, definition, tolerance):
     """Regenerate one anchor point using its type-specific handler."""
     if not isinstance(definition, dict):

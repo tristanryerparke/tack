@@ -1,11 +1,12 @@
-"""Define a persistent analytic plane from three OSnap anchors.
+"""Pick an analytic plane using ThreePoint by default or Circular by option.
+
+After selecting the target object, the origin prompt exposes a ``Circular``
+command-line button. Picking an origin continues the default three-point flow;
+choosing ``Circular`` switches to one circular Brep-edge center snap.
 
 Run from the parent terminal:
 
-    uv run rhino-watch demos/cplane_3point_dynamic_draw.py --debug
-
-Reusable picking is implemented by ``tack.prompting.analytic_plane_picker``;
-this demo keeps the original three-point-only entry point.
+    uv run rhino-watch demos/analytic_plane_picker.py --debug
 """
 
 import importlib
@@ -33,7 +34,7 @@ from tack.prompting import analytic_plane_picker
 from tack.prompting.osnap_anchor_picker import select_object
 
 
-PICKER_CALLBACK = "analytic_three_anchor_plane"
+PICKER_CALLBACK = "analytic_plane_picker"
 
 
 def _point_data(point):
@@ -61,7 +62,7 @@ def RunCommand(is_interactive, connection, parasite):
         _emit_callback(connection, parasite, "cancelled", stage="object")
         return Result.Cancel
 
-    picked = analytic_plane_picker.pick_three_point_plane(
+    picked = analytic_plane_picker.pick_plane(
         doc,
         obj,
         view.ActiveViewport.ConstructionPlane(),
@@ -76,27 +77,33 @@ def RunCommand(is_interactive, connection, parasite):
             connection,
             parasite,
             accepted["role"],
+            mode=picked["mode"],
             point=_point_data(accepted["point"]),
             anchor=accepted["anchor"],
         )
 
     if not three_point_plane_metadata.save_definition(doc, definition):
-        print("The plane definition could not be saved on its defining object.")
+        print("The analytic plane metadata could not be saved.")
         _emit_callback(connection, parasite, "save_failed", definition=definition)
         return Result.Failure
 
     state = three_point_plane.install(doc, definition)
     if state is None:
-        print("The completed anchor definition could not be resolved.")
+        print("The analytic plane definition could not be resolved.")
         _emit_callback(connection, parasite, "resolve_failed", definition=definition)
         return Result.Failure
 
     plane = state["plane"]
-    print("Plane anchor definition: {}".format(json.dumps(definition, sort_keys=True)))
+    print(
+        "Analytic plane definition: {}".format(
+            json.dumps(definition, sort_keys=True)
+        )
+    )
     _emit_callback(
         connection,
         parasite,
         "completed",
+        mode=picked["mode"],
         definition=definition,
         resolved_plane={
             "origin": _point_data(plane.Origin),
