@@ -1,11 +1,13 @@
 import System
+import os
 import sys
 import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import Eto.Drawing as drawing
 import Eto.Forms as forms
 import Rhino
-from Rhino.Commands import Result
 
 
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
@@ -38,32 +40,27 @@ def _build_panel_content(doc):
     return layout
 
 
-def RunCommand(is_interactive):
-    try:
-        doc = Rhino.RhinoDoc.ActiveDoc
-        if doc is None:
-            return Result.Cancel
+def initialize_panel():
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        raise RuntimeError("Tack panel requires an active Rhino document.")
 
+    panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
+    if panel is None:
+        Rhino.UI.Panels.OpenPanel(PANEL_ID)
         panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
-        if panel is None:
-            Rhino.UI.Panels.OpenPanel(PANEL_ID)
-            panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
 
-        if panel is None:
-            Rhino.RhinoApp.WriteLine(
-                "TackPanelPython: panel instance was not available."
-            )
-            return Result.Failure
+    if panel is None:
+        raise RuntimeError("The C# Tack panel instance was not available.")
 
-        panel.SetPythonContent(_build_panel_content(doc))
-        Rhino.RhinoApp.WriteLine("TackPanelPython: Python content installed.")
-        return Result.Success
-    except Exception:
-        Rhino.RhinoApp.WriteLine(
-            "TackPanelPython failed:\n{}".format(traceback.format_exc())
-        )
-        return Result.Failure
+    panel.SetPythonContent(_build_panel_content(doc))
+    Rhino.RhinoApp.WriteLine("Tack panel: Python content installed.")
 
 
-if __name__ == "__main__":
-    RunCommand(True)
+try:
+    initialize_panel()
+except Exception:
+    Rhino.RhinoApp.WriteLine(
+        "Tack panel initialization failed:\n{}".format(traceback.format_exc())
+    )
+    raise

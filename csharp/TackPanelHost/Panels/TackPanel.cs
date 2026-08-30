@@ -64,17 +64,10 @@ public sealed class TackPanel : Panel, IPanel
                 return;
             }
 
-            if (!TackPanelHostPlugin.EnsureTackPythonPluginLoaded())
+            if (!PythonStartup.InitializePanel())
             {
                 _bootstrapScheduled = false;
-                RhinoApp.WriteLine("Tack panel: could not load the Tack Python plug-in.");
-                return;
-            }
-
-            if (!RhinoApp.RunScript("_TackPanelPython", false))
-            {
-                _bootstrapScheduled = false;
-                RhinoApp.WriteLine("Tack panel: could not start TackPanelPython.");
+                RhinoApp.WriteLine("Tack panel: Python initialization script failed.");
             }
         });
     }

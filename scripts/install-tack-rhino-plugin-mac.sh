@@ -12,6 +12,7 @@ CSHARP_PROJECT_PATH="$REPO_ROOT/csharp/TackPanelHost/TackPanelHost.csproj"
 CSHARP_CONFIGURATION="${CSHARP_CONFIGURATION:-Debug}"
 CSHARP_OUTPUT_DIR="$REPO_ROOT/csharp/TackPanelHost/bin/$CSHARP_CONFIGURATION/net8.0"
 CSHARP_PLUGIN_FILE="$CSHARP_OUTPUT_DIR/TackPanelHost.rhp"
+CSHARP_PYTHON_DIR="$CSHARP_OUTPUT_DIR/Python"
 RHINOCODE="${RHINOCODE:-/Applications/Rhino 8.app/Contents/Resources/bin/rhinocode}"
 MAC_PLUGINS_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}"
 INSTALL_DIR="$MAC_PLUGINS_DIR/Tack.rhp"
@@ -77,6 +78,11 @@ if [[ ! -f "$CSHARP_PLUGIN_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -d "$CSHARP_PYTHON_DIR/tack" || ! -f "$CSHARP_PYTHON_DIR/initialize_panel.py" || ! -f "$CSHARP_PYTHON_DIR/restore_analytic_plane_links.py" ]]; then
+  echo "C# build succeeded, but its Python payload was not found: $CSHARP_PYTHON_DIR" >&2
+  exit 1
+fi
+
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cp "$PLUGIN_FILE" "$INSTALL_DIR/"
@@ -88,6 +94,7 @@ fi
 rm -rf "$CSHARP_INSTALL_DIR"
 mkdir -p "$CSHARP_INSTALL_DIR"
 cp "$CSHARP_PLUGIN_FILE" "$CSHARP_INSTALL_DIR/"
+cp -R "$CSHARP_PYTHON_DIR" "$CSHARP_INSTALL_DIR/"
 
 cat <<EOF
 Installed Tack:

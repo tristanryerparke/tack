@@ -32,7 +32,7 @@ class OriginMarkerConduit(Rhino.Display.DisplayConduit):
                 continue
             event.Display.DrawPoint(
                 origin,
-                Rhino.Display.PointStyle.RoundDot,
+                Rhino.Display.PointStyle.SolidSquare,
                 MARKER_SIZE,
                 MARKER_COLOR,
             )
@@ -108,6 +108,24 @@ def install(doc, link):
     _ensure_marker_conduit()
     doc.Views.Redraw()
     return state
+
+
+def restore_document(doc):
+    """Rebuild one document's analytic-link runtime from saved metadata."""
+    active = states(doc)
+    active.clear()
+    for link in plane_link_metadata.all_links(doc):
+        state = _new_state(doc, link)
+        if state is not None:
+            active[link["link_id"]] = state
+
+    if active:
+        subscribe()
+        _ensure_marker_conduit()
+    else:
+        _disable_marker_if_unused()
+    doc.Views.Redraw()
+    return len(active)
 
 
 def clear_document(doc):
