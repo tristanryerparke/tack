@@ -110,15 +110,29 @@ class AxisPreviewConduit(Rhino.Display.DisplayConduit):
             )
 
 
-def _live_circular_plane(candidates, point, snap_name, tolerance):
-    if snap_name != "center":
-        return None
+def _live_circular_plane(candidates, point, tolerance):
+    """Return the unambiguous plane at a live circular-center point.
+
+    Trimmed arcs commonly share one circle center. They are not ambiguous for
+    preview purposes when their analytic planes are coplanar; use the first
+    such candidate. Different coplanarity still suppresses the preview.
+    """
     matches = [
         candidate
         for candidate in candidates
         if candidate["point"].DistanceTo(point) <= tolerance
     ]
-    return matches[0]["plane"] if len(matches) == 1 else None
+    if not matches:
+        return None
+    plane = matches[0]["plane"]
+    return (
+        plane
+        if all(
+            abs(plane.ZAxis * candidate["plane"].ZAxis) >= 1.0 - tolerance
+            for candidate in matches[1:]
+        )
+        else None
+    )
 
 
 class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
@@ -131,14 +145,11 @@ class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
     def _update_preview(self, point):
         if self.preview is None:
             return
-        snap_name = str(self.OsnapEventType).split(".")[-1].lower()
         self.preview.plane = _live_circular_plane(
             self.candidates,
             point,
-            snap_name,
             self.tolerance,
         )
-
     def OnMouseMove(self, event):
         self._update_preview(event.Point)
         Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
