@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>TackPanelHost</AssemblyName>
+    <RootNamespace>TackPanelHost</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <NoWarn>NU1701;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/TackPanelIcon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.17.25066.7001" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+</Project>

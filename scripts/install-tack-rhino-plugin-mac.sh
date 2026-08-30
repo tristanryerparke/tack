@@ -8,9 +8,14 @@ BUILD_PATH="$REPO_ROOT/build"
 BUILD_OUTPUT="$BUILD_PATH/rh8"
 PLUGIN_FILE="$BUILD_OUTPUT/Tack.rhp"
 RUI_FILE="$BUILD_OUTPUT/Tack.rui"
+CSHARP_PROJECT_PATH="$REPO_ROOT/csharp/TackPanelHost/TackPanelHost.csproj"
+CSHARP_CONFIGURATION="${CSHARP_CONFIGURATION:-Debug}"
+CSHARP_OUTPUT_DIR="$REPO_ROOT/csharp/TackPanelHost/bin/$CSHARP_CONFIGURATION/net8.0"
+CSHARP_PLUGIN_FILE="$CSHARP_OUTPUT_DIR/TackPanelHost.rhp"
 RHINOCODE="${RHINOCODE:-/Applications/Rhino 8.app/Contents/Resources/bin/rhinocode}"
 MAC_PLUGINS_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}"
 INSTALL_DIR="$MAC_PLUGINS_DIR/Tack.rhp"
+CSHARP_INSTALL_DIR="$MAC_PLUGINS_DIR/TackPanelHost.rhp"
 
 usage() {
   cat <<'EOF'
@@ -21,6 +26,7 @@ Rhino launch.
 
 Environment:
   RHINOCODE               Override the rhinocode executable.
+  CSHARP_CONFIGURATION    C# host build configuration. Default: Debug.
   RHINO_MAC_PLUGINS_DIR   Override Rhino's version-specific MacPlugIns directory.
 EOF
 }
@@ -58,8 +64,16 @@ echo "Building $PROJECT_PATH..."
   --buildtarget '8.*' \
   --buildpath "$BUILD_PATH"
 
+echo "Building $CSHARP_PROJECT_PATH ($CSHARP_CONFIGURATION)..."
+dotnet build "$CSHARP_PROJECT_PATH" -c "$CSHARP_CONFIGURATION"
+
 if [[ ! -f "$PLUGIN_FILE" ]]; then
   echo "Build succeeded, but the plugin was not found: $PLUGIN_FILE" >&2
+  exit 1
+fi
+
+if [[ ! -f "$CSHARP_PLUGIN_FILE" ]]; then
+  echo "C# build succeeded, but the plugin was not found: $CSHARP_PLUGIN_FILE" >&2
   exit 1
 fi
 
@@ -71,10 +85,15 @@ if [[ -f "$RUI_FILE" ]]; then
   cp "$RUI_FILE" "$INSTALL_DIR/"
 fi
 
+rm -rf "$CSHARP_INSTALL_DIR"
+mkdir -p "$CSHARP_INSTALL_DIR"
+cp "$CSHARP_PLUGIN_FILE" "$CSHARP_INSTALL_DIR/"
+
 cat <<EOF
 Installed Tack:
-  Plugin: $INSTALL_DIR/Tack.rhp
-  UI:     $INSTALL_DIR/Tack.rui
+  Python plugin: $INSTALL_DIR/Tack.rhp
+  Python UI:     $INSTALL_DIR/Tack.rui
+  C# host:       $CSHARP_INSTALL_DIR/TackPanelHost.rhp
 
-Restart Rhino to load this build.
+Restart Rhino to load this build, then run _TackPanel.
 EOF

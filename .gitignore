@@ -6,6 +6,10 @@ dist/
 wheels/
 *.egg-info
 
+# C# build output
+csharp/**/bin/
+csharp/**/obj/
+
 # Virtual environments
 .venv
 
