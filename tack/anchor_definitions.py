@@ -104,6 +104,16 @@ def _arc(curve, tolerance):
     return _try_get_conic(curve, "TryGetArc", tolerance)
 
 
+def _supporting_circle(curve, tolerance):
+    circle = _circle(curve, tolerance)
+    if circle is not None:
+        return circle
+    arc = _arc(curve, tolerance)
+    if arc is None:
+        return None
+    return Rhino.Geometry.Circle(arc.Plane, arc.Radius)
+
+
 def _ellipse(curve, tolerance):
     return _try_get_conic(curve, "TryGetEllipse", tolerance)
 
@@ -302,14 +312,14 @@ def _circular_edge_center_features(obj, tolerance):
         return []
     result = []
     for index, edge in enumerate(brep.Edges):
-        circle = _circle(edge.DuplicateCurve(), tolerance)
+        circle = _supporting_circle(edge.DuplicateCurve(), tolerance)
         if circle is not None:
             result.append(({"edge_index": index}, circle.Center))
     return result
 
 
 def _curve_center_features(obj, tolerance):
-    circle = _circle(_curve(obj), tolerance)
+    circle = _supporting_circle(_curve(obj), tolerance)
     return [] if circle is None else [({}, circle.Center)]
 
 
@@ -568,7 +578,7 @@ def circular_edge(obj, definition, tolerance):
     if brep is None or edge_index >= brep.Edges.Count:
         return None
     edge = brep.Edges[edge_index]
-    circle = _circle(edge.DuplicateCurve(), tolerance)
+    circle = _supporting_circle(edge.DuplicateCurve(), tolerance)
     return None if circle is None else (edge, circle)
 
 
@@ -577,7 +587,7 @@ def circular_curve(obj, definition, tolerance):
     if not validate(definition) or definition.get("type") != CURVE_CENTER:
         return None
     curve = _curve(obj)
-    circle = _circle(curve, tolerance)
+    circle = _supporting_circle(curve, tolerance)
     return None if circle is None else (curve, circle)
 
 
