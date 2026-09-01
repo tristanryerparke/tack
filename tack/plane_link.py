@@ -5,6 +5,7 @@ import System.Drawing
 import scriptcontext as sc
 
 from tack import document_runtime
+from tack import plane_link_dynamic
 from tack import plane_link_metadata
 from tack import plane_link_preview
 from tack import three_point_plane
@@ -89,9 +90,11 @@ def _ensure_marker_conduit():
         conduit = OriginMarkerConduit()
         sc.sticky[MARKER_CONDUIT_KEY] = conduit
     conduit.Enabled = True
+    plane_link_dynamic.ensure()
 
 
 def _disable_marker_if_unused():
+    plane_link_dynamic.disable()
     if document_runtime.has_nonempty_value(RUNTIME_KEY):
         return
     conduit = sc.sticky.pop(MARKER_CONDUIT_KEY, None)
@@ -280,6 +283,8 @@ def EndCommandHandler(sender, event):
     if is_undo_or_redo:
         _synchronize_runtime_with_metadata(doc)
 
+    plane_link_dynamic.command_ended(doc)
+
     changed = []
     for state in states(doc, create=False).values():
         if state.get("busy"):
@@ -311,6 +316,7 @@ def CloseDocumentHandler(sender, event):
         return
     document_runtime.remove_value(doc, RUNTIME_KEY)
     document_runtime.remove_value(doc, LEGACY_PENDING_KEY)
+    plane_link_dynamic.command_ended(doc)
     _disable_marker_if_unused()
 
 
