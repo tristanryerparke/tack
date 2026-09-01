@@ -29,7 +29,7 @@ class PlaneDisplayConduit(Rhino.Display.DisplayConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
         )
         event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
 
@@ -39,7 +39,7 @@ class PlaneDisplayConduit(Rhino.Display.DisplayConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
             grid_spacing=three_point_plane.GRID_SPACING,
             major_frequency=(
                 event.Viewport.GetConstructionPlane().ThickLineFrequency

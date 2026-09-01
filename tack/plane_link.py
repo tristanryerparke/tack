@@ -1,7 +1,6 @@
 """Runtime maintenance for parent/child analytic-plane relationships."""
 
 import Rhino
-import System.Drawing
 import scriptcontext as sc
 
 from tack import document_runtime
@@ -16,26 +15,50 @@ RUNTIME_KEY = "Tack.AnalyticPlaneLink.Runtime"
 LEGACY_PENDING_KEY = "Tack.AnalyticPlaneLink.Pending"
 HANDLERS_KEY = "Tack.AnalyticPlaneLink.Handlers"
 LEGACY_IDLE_HANDLER_KEY = "Tack.AnalyticPlaneLink.IdleHandler"
-MARKER_CONDUIT_KEY = "Tack.AnalyticPlaneLink.OriginMarkerConduit"
-MARKER_COLOR = System.Drawing.Color.Orange
-MARKER_SIZE = 8
+TACK_PLANE_CONDUIT_KEY = "Tack.AnalyticPlaneLink.TackPlaneConduit"
+LEGACY_MARKER_CONDUIT_KEY = "Tack.AnalyticPlaneLink.OriginMarkerConduit"
 _solving = False
 
 
-class OriginMarkerConduit(Rhino.Display.DisplayConduit):
-    def DrawForeground(self, event):
+class TackPlaneConduit(Rhino.Display.DisplayConduit):
+    def CalculateBoundingBox(self, event):
         doc = event.RhinoDoc
         if doc is None:
             return
         for state in states(doc, create=False).values():
-            origin = state.get("origin")
-            if state.get("broken") or origin is None:
+            plane = state.get("plane")
+            if (
+                state.get("broken")
+                or state.get("dynamic_preview_active")
+                or plane is None
+            ):
                 continue
-            event.Display.DrawPoint(
-                origin,
-                Rhino.Display.PointStyle.SolidSquare,
-                MARKER_SIZE,
-                MARKER_COLOR,
+            points = three_point_plane.plane_border(
+                plane.Origin,
+                plane.XAxis,
+                plane.YAxis,
+                three_point_plane.preview_half_extent(),
+            )
+            event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
+
+    def DrawOverlay(self, event):
+        doc = event.RhinoDoc
+        if doc is None:
+            return
+        for state in states(doc, create=False).values():
+            plane = state.get("plane")
+            if (
+                state.get("broken")
+                or state.get("dynamic_preview_active")
+                or plane is None
+            ):
+                continue
+            three_point_plane.draw_preview(
+                event.Display,
+                plane.Origin,
+                plane.XAxis,
+                plane.YAxis,
+                three_point_plane.preview_half_extent(),
             )
 
 
@@ -78,17 +101,25 @@ def _new_state(doc, link):
         "link": link,
         "broken": False,
         "busy": False,
+        "dynamic_preview_active": False,
         "origin": Rhino.Geometry.Point3d(parent_plane.Origin),
+        "plane": Rhino.Geometry.Plane(parent_plane),
     }
     _refresh_serials(doc, state)
     return state
 
 
 def _ensure_marker_conduit():
-    conduit = sc.sticky.get(MARKER_CONDUIT_KEY)
+    legacy = sc.sticky.pop(LEGACY_MARKER_CONDUIT_KEY, None)
+    if legacy is not None:
+        legacy.Enabled = False
+    conduit = sc.sticky.get(TACK_PLANE_CONDUIT_KEY)
+    if conduit is not None and not isinstance(conduit, TackPlaneConduit):
+        conduit.Enabled = False
+        conduit = None
     if conduit is None:
-        conduit = OriginMarkerConduit()
-        sc.sticky[MARKER_CONDUIT_KEY] = conduit
+        conduit = TackPlaneConduit()
+        sc.sticky[TACK_PLANE_CONDUIT_KEY] = conduit
     conduit.Enabled = True
     plane_link_dynamic.ensure()
 
@@ -97,9 +128,10 @@ def _disable_marker_if_unused():
     plane_link_dynamic.disable()
     if document_runtime.has_nonempty_value(RUNTIME_KEY):
         return
-    conduit = sc.sticky.pop(MARKER_CONDUIT_KEY, None)
-    if conduit is not None:
-        conduit.Enabled = False
+    for key in (TACK_PLANE_CONDUIT_KEY, LEGACY_MARKER_CONDUIT_KEY):
+        conduit = sc.sticky.pop(key, None)
+        if conduit is not None:
+            conduit.Enabled = False
 
 
 def install(doc, link):
@@ -182,6 +214,7 @@ def _show_broken_alert(state):
         return
     state["broken"] = True
     state["origin"] = None
+    state["plane"] = None
     Rhino.UI.Dialogs.ShowMessage(
         "The analytic-plane relationship can no longer resolve both saved "
         "frames. The child will stop following the parent.",
@@ -213,6 +246,7 @@ def maintain(doc, state):
 
     state["broken"] = False
     state["origin"] = Rhino.Geometry.Point3d(parent_plane.Origin)
+    state["plane"] = Rhino.Geometry.Plane(parent_plane)
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
     if _planes_match(parent_plane, child_plane, link["inverted"], tolerance):
         _refresh_serials(doc, state)

@@ -14,12 +14,20 @@ from tack import anchor_definitions
 STATE_KEY = "Tack.AnalyticThreePointPlane.State"
 CONDUIT_KEY = "Tack.AnalyticThreePointPlane.Conduit"
 HANDLER_KEY = "Tack.AnalyticThreePointPlane.EndCommandHandler"
-PLANE_HALF_EXTENT = 10.0
+CROSSHAIR_SIZE = 20.0
 GRID_SPACING = 1.0
 DEFAULT_MAJOR_GRID_FREQUENCY = 5
-PLANE_BORDER_COLOR = System.Drawing.Color.FromArgb(144, 149, 154)
-NON_GRID_THICKNESS = 2
+CROSSHAIR_COLOR = System.Drawing.Color.Orange
+CROSSHAIR_THICKNESS = 2
 GRID_THICKNESS = 1
+
+
+def preview_half_extent():
+    return CROSSHAIR_SIZE * 0.5
+
+
+def preview_circle_radius():
+    return CROSSHAIR_SIZE * 0.25
 
 
 def _definition_object(doc, definition):
@@ -177,63 +185,42 @@ def draw_preview(
     grid_spacing=None,
     major_frequency=DEFAULT_MAJOR_GRID_FREQUENCY,
 ):
+    if x_axis is None or y_axis is None:
+        return
+
     appearance = Rhino.ApplicationSettings.AppearanceSettings
-    minor_lines, major_lines = _grid_lines(
+    display.DrawLine(
         origin,
-        x_axis,
-        y_axis,
-        length,
-        grid_spacing,
-        major_frequency,
+        origin - x_axis * length,
+        CROSSHAIR_COLOR,
+        CROSSHAIR_THICKNESS,
     )
-    if minor_lines:
-        display.DrawLines(
-            minor_lines,
-            appearance.GridThinLineColor,
-            GRID_THICKNESS,
-        )
-    if major_lines:
-        display.DrawLines(
-            major_lines,
-            appearance.GridThickLineColor,
-            GRID_THICKNESS,
-        )
+    display.DrawLine(
+        origin,
+        origin - y_axis * length,
+        CROSSHAIR_COLOR,
+        CROSSHAIR_THICKNESS,
+    )
 
-    border = plane_border(origin, x_axis, y_axis, length)
-    for index, start in enumerate(border):
-        display.DrawLine(
-            start,
-            border[(index + 1) % len(border)],
-            PLANE_BORDER_COLOR,
-            NON_GRID_THICKNESS,
-        )
+    plane = Rhino.Geometry.Plane(origin, x_axis, y_axis)
+    display.DrawCircle(
+        Rhino.Geometry.Circle(plane, preview_circle_radius()),
+        CROSSHAIR_COLOR,
+        CROSSHAIR_THICKNESS,
+    )
 
-    if x_axis is not None:
-        display.DrawLine(
-            origin,
-            origin - x_axis * length,
-            PLANE_BORDER_COLOR,
-            NON_GRID_THICKNESS,
-        )
-        display.DrawLine(
-            origin,
-            origin + x_axis * length,
-            appearance.GridXAxisLineColor,
-            NON_GRID_THICKNESS,
-        )
-    if y_axis is not None:
-        display.DrawLine(
-            origin,
-            origin - y_axis * length,
-            PLANE_BORDER_COLOR,
-            NON_GRID_THICKNESS,
-        )
-        display.DrawLine(
-            origin,
-            origin + y_axis * length,
-            appearance.GridYAxisLineColor,
-            NON_GRID_THICKNESS,
-        )
+    display.DrawLine(
+        origin,
+        origin + x_axis * length,
+        appearance.GridXAxisLineColor,
+        CROSSHAIR_THICKNESS,
+    )
+    display.DrawLine(
+        origin,
+        origin + y_axis * length,
+        appearance.GridYAxisLineColor,
+        CROSSHAIR_THICKNESS,
+    )
 
 
 def _document_matches(event, state):
@@ -304,7 +291,7 @@ def _refresh(doc, state):
     if plane is None:
         return False
 
-    state["axis_length"] = PLANE_HALF_EXTENT
+    state["axis_length"] = preview_half_extent()
     return True
 
 

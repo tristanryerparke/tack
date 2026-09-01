@@ -42,7 +42,7 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
         # link_id -> {"parent_serial", "child_serial", "parent_plane",
         #             "child_plane", "inverted", "state"}
         self._sources = {}
-        # link_id -> {"child", "transform", "rest_origin", "live_origin"}
+        # link_id -> {"child", "transform", "rest_plane", "live_plane"}
         self._previews = {}
         self._drawing_child = False
 
@@ -95,19 +95,24 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
     def command_ended(self, doc):
         for source in self._sources.values():
             state = source["state"]
+            state["dynamic_preview_active"] = False
             if state.get("broken") is not True and source.get("parent_plane"):
                 state["origin"] = Rhino.Geometry.Point3d(
                     source["parent_plane"].Origin
                 )
+                state["plane"] = Rhino.Geometry.Plane(source["parent_plane"])
         self._clear(doc)
 
     def _clear(self, doc):
         for preview in self._previews.values():
             state = preview.get("state")
-            if state is not None and not state.get("broken"):
-                rest_origin = preview.get("rest_origin")
-                if rest_origin is not None:
-                    state["origin"] = Rhino.Geometry.Point3d(rest_origin)
+            if state is not None:
+                state["dynamic_preview_active"] = False
+                if not state.get("broken"):
+                    rest_plane = preview.get("rest_plane")
+                    if rest_plane is not None:
+                        state["origin"] = Rhino.Geometry.Point3d(rest_plane.Origin)
+                        state["plane"] = Rhino.Geometry.Plane(rest_plane)
         self._sources = {}
         self._previews = {}
 
@@ -122,6 +127,11 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
             if self._previews:
                 self._clear(doc)
             return
+
+        for preview in self._previews.values():
+            state = preview.get("state")
+            if state is not None:
+                state["dynamic_preview_active"] = False
 
         previews = {}
         for state in states.values():
@@ -148,10 +158,12 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
                 "child": child,
                 "state": state,
                 "transform": correction,
-                "rest_origin": source["parent_plane"].Origin,
-                "live_origin": live_parent_plane.Origin,
+                "rest_plane": Rhino.Geometry.Plane(source["parent_plane"]),
+                "live_plane": Rhino.Geometry.Plane(live_parent_plane),
             }
+            state["dynamic_preview_active"] = True
             state["origin"] = Rhino.Geometry.Point3d(live_parent_plane.Origin)
+            state["plane"] = Rhino.Geometry.Plane(live_parent_plane)
 
         self._previews = previews
         if not previews:
@@ -188,6 +200,17 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
             event.IncludeBoundingBox(
                 Rhino.Geometry.BoundingBox(points + transformed)
             )
+            plane = preview["live_plane"]
+            event.IncludeBoundingBox(
+                Rhino.Geometry.BoundingBox(
+                    three_point_plane.plane_border(
+                        plane.Origin,
+                        plane.XAxis,
+                        plane.YAxis,
+                        three_point_plane.preview_half_extent(),
+                    )
+                )
+            )
 
     def PostDrawObjects(self, event):
         for preview in self._previews.values():
@@ -203,6 +226,17 @@ class PlaneLinkDynamicConduit(Rhino.Display.DisplayConduit):
                 event.Display.DrawObject(child, preview["transform"])
             finally:
                 self._drawing_child = False
+
+    def DrawOverlay(self, event):
+        for preview in self._previews.values():
+            plane = preview["live_plane"]
+            three_point_plane.draw_preview(
+                event.Display,
+                plane.Origin,
+                plane.XAxis,
+                plane.YAxis,
+                three_point_plane.preview_half_extent(),
+            )
 
 
 def _conduit():

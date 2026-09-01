@@ -34,10 +34,7 @@ def RunCommand(is_interactive):
         return Result.Cancel
 
     saved = plane_link_metadata.all_links(doc)
-    if not saved:
-        print("No saved analytic-plane relationships were found.")
-        return Result.Cancel
-
+    active_count = len(plane_link.states(doc, create=False))
     plane_link.clear_document(doc)
     remaining = plane_link_metadata.all_links(doc)
     if remaining:
@@ -47,7 +44,12 @@ def RunCommand(is_interactive):
         )
         return Result.Failure
 
-    print("Cleared {} analytic-plane relationship(s).".format(len(saved)))
+    print(
+        "Cleared {} saved and {} active analytic-plane relationship(s).".format(
+            len(saved),
+            active_count,
+        )
+    )
     return Result.Success
 
 

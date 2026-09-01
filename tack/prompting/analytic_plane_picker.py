@@ -81,7 +81,7 @@ class AxisPreviewConduit(Rhino.Display.DisplayConduit):
             origin,
             x_axis,
             y_axis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
         )
 
     def CalculateBoundingBox(self, event):
@@ -194,7 +194,7 @@ class CircularPreviewConduit(Rhino.Display.DisplayConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
         )
         points.append(self.plane.Origin)
         event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
@@ -207,7 +207,7 @@ class CircularPreviewConduit(Rhino.Display.DisplayConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
             grid_spacing=three_point_plane.GRID_SPACING,
             major_frequency=(
                 event.Viewport.GetConstructionPlane().ThickLineFrequency
@@ -239,7 +239,7 @@ class SmartOriginPreviewConduit(AxisPreviewConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
         )
         points.append(self.plane.Origin)
         event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
@@ -253,7 +253,7 @@ class SmartOriginPreviewConduit(AxisPreviewConduit):
             self.plane.Origin,
             self.plane.XAxis,
             self.plane.YAxis,
-            three_point_plane.PLANE_HALF_EXTENT,
+            three_point_plane.preview_half_extent(),
             grid_spacing=three_point_plane.GRID_SPACING,
             major_frequency=(
                 event.Viewport.GetConstructionPlane().ThickLineFrequency
