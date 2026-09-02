@@ -253,6 +253,30 @@ def _synchronize_runtime_with_metadata(doc):
         _remove_runtime(doc)
 
 
+def _changed_states(doc):
+    changed = []
+    for state in states(doc, create=False).values():
+        if state.get("busy"):
+            continue
+        for role in ("parent", "child"):
+            current = _object_serial(utils.find_object(doc, state[role + "_id"]))
+            if current != state.get(role + "_runtime_serial"):
+                changed.append(state)
+                break
+    return changed
+
+
+def _maintain_changed_states(doc):
+    """Settle parent-to-child chains within one native command completion."""
+    max_passes = len(states(doc, create=False)) + 1
+    for _ in range(max_passes):
+        changed = _changed_states(doc)
+        if not changed:
+            return
+        for state in changed:
+            maintain(doc, state)
+
+
 def EndCommandHandler(sender, event):
     global _solving
     if _solving:
@@ -268,27 +292,14 @@ def EndCommandHandler(sender, event):
     is_undo_or_redo = _command_name(event).lower() in ("undo", "redo")
     if is_undo_or_redo:
         _synchronize_runtime_with_metadata(doc)
+        doc.Views.Redraw()
+        return
 
-    changed = []
-    for state in states(doc, create=False).values():
-        if state.get("busy"):
-            continue
-        for role in ("parent", "child"):
-            current = _object_serial(utils.find_object(doc, state[role + "_id"]))
-            if current != state.get(role + "_runtime_serial"):
-                changed.append(state)
-                break
-
-    if changed:
-        _solving = True
-        try:
-            for state in changed:
-                maintain(doc, state)
-        finally:
-            _solving = False
-
-    if is_undo_or_redo:
-        _synchronize_runtime_with_metadata(doc)
+    _solving = True
+    try:
+        _maintain_changed_states(doc)
+    finally:
+        _solving = False
     doc.Views.Redraw()
 
 

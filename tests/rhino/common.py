@@ -9,6 +9,7 @@ import Rhino
 import scriptcontext as sc
 
 from run_in_rhino.rhino_env.client import SocketConnection
+from run_in_rhino.rhino_env.env import install_sticky_environment
 from run_in_rhino.rhino_env.parasite import OutputParasite
 
 
@@ -68,9 +69,32 @@ def point_data(point):
     return [point.X, point.Y, point.Z]
 
 
-def run_test(name, action):
+def _load_repository_tack():
+    loaded_link = sys.modules.get("tack.plane_link")
+    if loaded_link is not None:
+        loaded_link.unsubscribe()
+    for module_name in list(sys.modules):
+        if module_name == "tack" or module_name.startswith("tack."):
+            sys.modules.pop(module_name)
+
+
+def run_test(name, action, use_environment=False):
+    _load_repository_tack()
     connection = SocketConnection()
+    environment = (
+        install_sticky_environment(connection) if use_environment else None
+    )
     with OutputParasite(connection, done_msg=True):
-        payload = action()
+        payload = action(environment) if use_environment else action()
         payload["name"] = name
         connection.send_data(json.dumps(payload))
+
+
+def run_flow_step(name, action):
+    """Report only after the script has flushed, before the next flow step."""
+    _load_repository_tack()
+    connection = SocketConnection()
+    with OutputParasite(connection):
+        payload = action()
+        payload["name"] = name
+    connection.send_data(json.dumps(payload))
