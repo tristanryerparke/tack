@@ -38,8 +38,16 @@ def main():
         )
         project_file.write_text(project_source)
 
-    for extension in EXTENSION_SOURCE.glob("*.cs"): 
+    for extension in EXTENSION_SOURCE.glob("*.cs"):
         shutil.copy2(extension, GENERATED_PROJECT / extension.name)
+
+    resources_source = EXTENSION_SOURCE / "Resources"
+    if resources_source.is_dir():
+        resources_target = GENERATED_PROJECT / "Resources"
+        resources_target.mkdir(exist_ok=True)
+        for resource in resources_source.iterdir():
+            if resource.is_file():
+                shutil.copy2(resource, resources_target / resource.name)
 
 
 if __name__ == "__main__":

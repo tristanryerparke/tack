@@ -16,9 +16,10 @@ panel.
 ## Architecture
 
 The Script Editor project generates the four Python commands and the combined
-Rhino plugin. `csharp/TackScriptPlugin` adds the panel, per-user settings, and
-startup restoration to that generated plugin. Interactive work runs through
-Rhino 8's CPython 3 ScriptRunner command lifecycle.
+Rhino plugin. `csharp/TackScriptPlugin` hosts the per-document panel, stores
+per-user settings, and restores saved links. `tack/panel.py` owns the panel's
+Eto control tree; its buttons dispatch the generated Python commands through
+the ScriptRunner lifecycle.
 
 Relationships are model data stored on their parent and child objects. Display
 visibility is document-scoped runtime state; its default is stored in Rhino's

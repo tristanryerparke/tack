@@ -32,7 +32,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         typeof(TackPanel),
         "Tack",
         typeof(ProjectPlugin).Assembly,
-        "Tack.Resources.projectIcon.ico",
+        "Tack.Resources.TackPanelIcon.ico",
         PanelType.PerDoc);
       RhinoDoc.EndOpenDocument += OnEndOpenDocument;
       ScheduleRestore();
@@ -65,21 +65,43 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       });
     }
 
+    internal static bool InstallPythonPanel(uint documentSerialNumber)
+    {
+      Initialize();
+      RhinoApp.WriteLine("Tack panel: starting Python content.");
+      return RunPython(
+        "from tack import panel\n"
+        + "panel.install(" + documentSerialNumber + ")\n",
+        "Tack panel initialization failed");
+    }
+
     static bool RestoreOpenDocuments()
+    {
+      return RunPython(
+        "from tack import actions\n"
+        + "actions.restore_open_documents(default_display_enabled="
+        + (DefaultDisplayEnabled ? "True" : "False") + ")\n",
+        "Tack startup restore failed");
+    }
+
+    static bool RunPython(string body, string failurePrefix)
     {
       try
       {
-        var pythonRoot = Path.Combine(
-          Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
-          "Python");
         var source = "#! python 3\n"
           + "import sys\n"
-          + "_tack_python_root = " + PythonString(pythonRoot) + "\n"
+          + "import Rhino\n"
+          + "_tack_python_root = " + PythonString(PythonRoot()) + "\n"
           + "if _tack_python_root not in sys.path:\n"
           + "    sys.path.insert(0, _tack_python_root)\n"
-          + "from tack import actions\n"
-          + "actions.restore_open_documents(default_display_enabled="
-          + (DefaultDisplayEnabled ? "True" : "False") + ")\n";
+          + "try:\n"
+          + IndentPython(body)
+          + "except Exception:\n"
+          + "    import traceback\n"
+          + "    Rhino.RhinoApp.WriteLine("
+          + PythonString(failurePrefix + ":\\n")
+          + " + traceback.format_exc())\n"
+          + "    raise\n";
         var rhinoCode = Type.GetType(
           "Rhino.Runtime.Code.RhinoCode, Rhino.Runtime.Code");
         var runScript = rhinoCode?.GetMethod(
@@ -98,9 +120,21 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       {
         while (exception.InnerException != null)
           exception = exception.InnerException;
-        RhinoApp.WriteLine("Tack startup restore failed: " + exception.Message);
+        RhinoApp.WriteLine(failurePrefix + ": " + exception.Message);
         return false;
       }
+    }
+
+    static string IndentPython(string source)
+    {
+      return "    " + source.TrimEnd('\n').Replace("\n", "\n    ") + "\n";
+    }
+
+    static string PythonRoot()
+    {
+      return Path.Combine(
+        Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+        "Python");
     }
 
     static string PythonString(string value)
