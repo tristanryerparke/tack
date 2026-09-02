@@ -28,16 +28,32 @@ class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
         )
 
 
-def select_object(doc, prompt="Select object to anchor"):
+def select_object(
+    doc,
+    prompt="Select object to anchor",
+    allow_preselection=True,
+):
     """Select an object whose geometry has a valid bounding box."""
     while True:
-        result, obj_ref = Rhino.Input.RhinoGet.GetOneObject(
-            prompt,
-            False,
-            Rhino.DocObjects.ObjectType.AnyObject,
-        )
-        if result != Result.Success or obj_ref is None:
-            return None
+        if allow_preselection:
+            result, obj_ref = Rhino.Input.RhinoGet.GetOneObject(
+                prompt,
+                False,
+                Rhino.DocObjects.ObjectType.AnyObject,
+            )
+            if result != Result.Success or obj_ref is None:
+                return None
+        else:
+            getter = Rhino.Input.Custom.GetObject()
+            getter.SetCommandPrompt(prompt)
+            getter.GeometryFilter = Rhino.DocObjects.ObjectType.AnyObject
+            getter.EnablePreSelect(False, True)
+            if getter.Get() != Rhino.Input.GetResult.Object:
+                return None
+            obj_ref = getter.Object(0)
+            if obj_ref is None:
+                return None
+
         obj = obj_ref.Object()
         if obj is not None and anchor_definitions.bounding_box_center(obj) is not None:
             return obj
@@ -112,7 +128,6 @@ class AnchorPickSession:
         self,
         prompt,
         getter_factory=None,
-        preview_factory=None,
         definition_filter=None,
         rejected_message=None,
         options=(),
@@ -120,8 +135,6 @@ class AnchorPickSession:
         """Return ``(resolved_point, definition)`` or ``None`` on cancel.
 
         ``getter_factory`` can provide a custom ``GetPoint`` subclass.
-        ``preview_factory`` receives that getter and can return an additional
-        display conduit, allowing callers to add interaction-specific previews.
         ``definition_filter`` can restrict callers to selected anchor types.
         Named command-line ``options`` return as ``{"option": name}``.
         """
@@ -137,22 +150,14 @@ class AnchorPickSession:
             if self.include_bounding_box_center:
                 getter.AddConstructionPoint(self.bounding_box_center)
                 getter.AddSnapPoint(self.bounding_box_center)
-            getter.FullFrameRedrawDuringGet = True
             option_names = {
                 getter.AddOption(name): name
                 for name in options
             }
 
-            preview = (
-                preview_factory(getter)
-                if preview_factory is not None
-                else None
-            )
-            if preview is not None:
-                preview.Enabled = True
             self.doc.Views.Redraw()
             try:
-                result = getter.Get()
+                result = getter.Get(True)
                 if result == Rhino.Input.GetResult.Option:
                     return {"option": option_names.get(getter.OptionIndex())}
                 if result != Rhino.Input.GetResult.Point:
@@ -204,6 +209,4 @@ class AnchorPickSession:
                     "Pick another snap."
                 )
             finally:
-                if preview is not None:
-                    preview.Enabled = False
                 self.doc.Views.Redraw()

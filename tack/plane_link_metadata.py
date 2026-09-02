@@ -1,31 +1,79 @@
-"""Versioned metadata for parent/child analytic-plane relationships."""
+"""Persist Tack relationships and a document-level relationship index."""
 
 import json
 import uuid
 
-from tack import three_point_plane_metadata
+from tack import analytic_plane
 from tack import utils
 
 
-LINKS_KEY = "Tack.AnalyticPlaneLinks.v1"
+LINKS_KEY = "Tack.PlaneLinks.v1"
+INDEX_SECTION = "Tack"
+INDEX_ENTRY = "PlaneLinkIndex.v1"
+INDEX_VERSION = 1
 
 
 def _set_links(doc, obj, links):
     if obj is None:
         return False
     attributes = obj.Attributes.Duplicate()
-    attributes.UserDictionary.Set(LINKS_KEY, json.dumps(links, sort_keys=True))
+    if links:
+        attributes.UserDictionary.Set(
+            LINKS_KEY,
+            json.dumps(links, sort_keys=True),
+        )
+    elif attributes.UserDictionary.ContainsKey(LINKS_KEY):
+        attributes.UserDictionary.Remove(LINKS_KEY)
     return doc.Objects.ModifyAttributes(obj.Id, attributes, True)
 
 
 def _raw_links(obj):
-    if obj is None:
+    if (
+        obj is None
+        or not obj.Attributes.UserDictionary.ContainsKey(LINKS_KEY)
+    ):
         return {}
     try:
         data = json.loads(str(obj.Attributes.UserDictionary[LINKS_KEY]))
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _read_index(doc):
+    try:
+        payload = json.loads(str(doc.Strings.GetValue(INDEX_SECTION, INDEX_ENTRY)))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict) or payload.get("version") != INDEX_VERSION:
+        return {}
+    entries = payload.get("links")
+    if not isinstance(entries, dict):
+        return {}
+
+    index = {}
+    for link_id, link in entries.items():
+        if validate(link, expected_link_id=link_id):
+            index[str(link_id)] = link
+    return index
+
+
+def _write_index(doc, index):
+    try:
+        doc.Strings.SetString(
+            INDEX_SECTION,
+            INDEX_ENTRY,
+            json.dumps(
+                {
+                    "version": INDEX_VERSION,
+                    "links": index,
+                },
+                sort_keys=True,
+            ),
+        )
+        return True
+    except Exception:
+        return False
 
 
 def validate(link, expected_link_id=None):
@@ -53,8 +101,8 @@ def validate(link, expected_link_id=None):
     ):
         return False
     return (
-        three_point_plane_metadata.validate_definition(link["parent_plane"])
-        and three_point_plane_metadata.validate_definition(link["child_plane"])
+        analytic_plane.validate_definition(link["parent_plane"])
+        and analytic_plane.validate_definition(link["child_plane"])
     )
 
 
@@ -78,17 +126,14 @@ def read_link(obj, link_id):
 
 
 def all_links(doc):
-    """Return one canonical copy of every saved relationship in ``doc``."""
-    links = {}
-    for obj in doc.Objects:
-        if obj is None:
-            continue
-        for link_id, link in read_links(obj).items():
-            if utils.same_id(obj.Id, link["child_id"]):
-                links[link_id] = link
-            elif link_id not in links:
-                links[link_id] = link
-    return list(links.values())
+    """Read complete links from the O(number of Tacks) document index."""
+    links = []
+    for link in _read_index(doc).values():
+        parent = utils.find_object(doc, link["parent_id"])
+        child = utils.find_object(doc, link["child_id"])
+        if parent is not None and child is not None:
+            links.append(link)
+    return links
 
 
 def save(doc, link):
@@ -103,23 +148,36 @@ def save(doc, link):
     child_links = read_links(child)
     parent_links[link["link_id"]] = link
     child_links[link["link_id"]] = link
-    return _set_links(doc, parent, parent_links) and _set_links(
-        doc,
-        child,
-        child_links,
-    )
+    if not _set_links(doc, parent, parent_links):
+        return False
+    if not _set_links(doc, child, child_links):
+        return False
+
+    index = _read_index(doc)
+    index[link["link_id"]] = link
+    return bool(_write_index(doc, index))
 
 
 def clear(doc):
-    """Remove every analytic-plane relationship payload in one document."""
+    """Clear indexed relationships without iterating document objects."""
+    index = _read_index(doc)
+    links_by_object = {}
+    for link_id, link in index.items():
+        for object_id in (link["parent_id"], link["child_id"]):
+            links_by_object.setdefault(object_id, set()).add(link_id)
+
     success = True
-    for obj in list(doc.Objects):
-        if obj is None or not obj.Attributes.UserDictionary.ContainsKey(LINKS_KEY):
+    for object_id, link_ids in links_by_object.items():
+        obj = utils.find_object(doc, object_id)
+        if obj is None:
             continue
-        attributes = obj.Attributes.Duplicate()
-        attributes.UserDictionary.Remove(LINKS_KEY)
-        success = doc.Objects.ModifyAttributes(obj.Id, attributes, True) and success
-    return success
+        remaining = {
+            link_id: link
+            for link_id, link in read_links(obj).items()
+            if link_id not in link_ids
+        }
+        success = _set_links(doc, obj, remaining) and success
+    return bool(_write_index(doc, {})) and success
 
 
 def create(doc, parent_id, child_id, parent_plane, child_plane, inverted):

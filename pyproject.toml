@@ -1,23 +1,27 @@
 [project]
 name = "tack"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Analytic-plane relationships for Rhino"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-    "run-in-rhino",
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "run-in-rhino; python_version >= '3.13'",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["rhino"]
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["tack", "tack.analysis", "tack.prompting"]
+[tool.setuptools.packages.find]
+include = ["tack*"]
+namespaces = true
 
 [tool.uv.sources]
 run-in-rhino = { path = "../run-in-rhino", editable = true }

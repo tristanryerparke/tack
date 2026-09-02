@@ -3,7 +3,7 @@
 import Rhino
 
 from tack import anchor_definitions
-from tack import three_point_plane
+from tack import analytic_plane
 from tack.prompting.osnap_anchor_picker import AnchorPickSession
 
 
@@ -32,7 +32,6 @@ class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
         self.construction_plane = construction_plane
         self.origin = origin
         self.x_point = x_point
-        self.preview = None
 
     def axes(self, current):
         if self.origin is None:
@@ -57,58 +56,17 @@ class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
             y_axis = _perpendicular(self.construction_plane.YAxis, x_axis)
         return self.origin, x_axis, y_axis
 
-    def OnMouseMove(self, event):
-        if self.preview is not None:
-            self.preview.update(event.Point)
-            Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-        super(AxisPreviewGetPoint, self).OnMouseMove(event)
+    def preview_plane(self, current):
+        origin, x_axis, y_axis = self.axes(current)
+        plane = Rhino.Geometry.Plane(origin, x_axis, y_axis)
+        return plane if plane.IsValid else None
 
     def OnDynamicDraw(self, event):
-        if self.preview is not None:
-            self.preview.update(event.CurrentPoint)
+        analytic_plane.draw_preview(
+            event.Display,
+            self.preview_plane(event.CurrentPoint),
+        )
         super(AxisPreviewGetPoint, self).OnDynamicDraw(event)
-
-
-class AxisPreviewConduit(Rhino.Display.DisplayConduit):
-    def __init__(self, getter):
-        super(AxisPreviewConduit, self).__init__()
-        self.getter = getter
-        self.state = None
-
-    def update(self, current):
-        origin, x_axis, y_axis = self.getter.axes(current)
-        self.state = (
-            origin,
-            x_axis,
-            y_axis,
-            three_point_plane.preview_half_extent(),
-        )
-
-    def CalculateBoundingBox(self, event):
-        if self.state is None:
-            return
-        origin, x_axis, y_axis, half_extent = self.state
-        points = [origin]
-        points.extend(
-            three_point_plane.plane_border(
-                origin,
-                x_axis,
-                y_axis,
-                half_extent,
-            )
-        )
-        event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
-
-    def DrawOverlay(self, event):
-        if self.state is not None:
-            three_point_plane.draw_preview(
-                event.Display,
-                *self.state,
-                grid_spacing=three_point_plane.GRID_SPACING,
-                major_frequency=(
-                    event.Viewport.GetConstructionPlane().ThickLineFrequency
-                ),
-            )
 
 
 def _live_circular_plane(candidates, point, tolerance):
@@ -141,23 +99,16 @@ class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
         super(CircularPreviewGetPoint, self).__init__()
         self.candidates = candidates
         self.tolerance = tolerance
-        self.preview = None
-
-    def _update_preview(self, point):
-        if self.preview is None:
-            return
-        self.preview.plane = _live_circular_plane(
-            self.candidates,
-            point,
-            self.tolerance,
-        )
-    def OnMouseMove(self, event):
-        self._update_preview(event.Point)
-        Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-        super(CircularPreviewGetPoint, self).OnMouseMove(event)
 
     def OnDynamicDraw(self, event):
-        self._update_preview(event.CurrentPoint)
+        analytic_plane.draw_preview(
+            event.Display,
+            _live_circular_plane(
+                self.candidates,
+                event.CurrentPoint,
+                self.tolerance,
+            ),
+        )
         super(CircularPreviewGetPoint, self).OnDynamicDraw(event)
 
 
@@ -169,96 +120,12 @@ class SmartOriginPreviewGetPoint(AxisPreviewGetPoint):
         self.candidates = candidates
         self.tolerance = tolerance
 
-    def OnMouseMove(self, event):
-        if self.preview is not None:
-            self.preview.update(event.Point)
-            Rhino.RhinoDoc.ActiveDoc.Views.Redraw()
-        super(AxisPreviewGetPoint, self).OnMouseMove(event)
-
-    def OnDynamicDraw(self, event):
-        if self.preview is not None:
-            self.preview.update(event.CurrentPoint)
-        super(AxisPreviewGetPoint, self).OnDynamicDraw(event)
-
-
-class CircularPreviewConduit(Rhino.Display.DisplayConduit):
-    def __init__(self, getter):
-        super(CircularPreviewConduit, self).__init__()
-        self.getter = getter
-        self.plane = None
-
-    def CalculateBoundingBox(self, event):
-        if self.plane is None:
-            return
-        points = three_point_plane.plane_border(
-            self.plane.Origin,
-            self.plane.XAxis,
-            self.plane.YAxis,
-            three_point_plane.preview_half_extent(),
-        )
-        points.append(self.plane.Origin)
-        event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
-
-    def DrawOverlay(self, event):
-        if self.plane is None:
-            return
-        three_point_plane.draw_preview(
-            event.Display,
-            self.plane.Origin,
-            self.plane.XAxis,
-            self.plane.YAxis,
-            three_point_plane.preview_half_extent(),
-            grid_spacing=three_point_plane.GRID_SPACING,
-            major_frequency=(
-                event.Viewport.GetConstructionPlane().ThickLineFrequency
-            ),
-        )
-
-
-class SmartOriginPreviewConduit(AxisPreviewConduit):
-    def __init__(self, getter):
-        super(SmartOriginPreviewConduit, self).__init__(getter)
-        self.plane = None
-
-    def update(self, current):
-        self.plane = _live_circular_plane(
-            self.getter.candidates,
+    def preview_plane(self, current):
+        return _live_circular_plane(
+            self.candidates,
             current,
-            self.getter.tolerance,
-        )
-        if self.plane is None:
-            super(SmartOriginPreviewConduit, self).update(current)
-        else:
-            self.state = None
-
-    def CalculateBoundingBox(self, event):
-        if self.plane is None:
-            super(SmartOriginPreviewConduit, self).CalculateBoundingBox(event)
-            return
-        points = three_point_plane.plane_border(
-            self.plane.Origin,
-            self.plane.XAxis,
-            self.plane.YAxis,
-            three_point_plane.preview_half_extent(),
-        )
-        points.append(self.plane.Origin)
-        event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
-
-    def DrawOverlay(self, event):
-        if self.plane is None:
-            super(SmartOriginPreviewConduit, self).DrawOverlay(event)
-            return
-        three_point_plane.draw_preview(
-            event.Display,
-            self.plane.Origin,
-            self.plane.XAxis,
-            self.plane.YAxis,
-            three_point_plane.preview_half_extent(),
-            grid_spacing=three_point_plane.GRID_SPACING,
-            major_frequency=(
-                event.Viewport.GetConstructionPlane().ThickLineFrequency
-            ),
-        )
+            self.tolerance,
+        ) or super(SmartOriginPreviewGetPoint, self).preview_plane(current)
 
 
 def _circular_plane_candidates(doc, obj):
@@ -285,7 +152,7 @@ def _circular_plane_candidates(doc, obj):
                     "object_id": str(obj.Id),
                     "curve_center_anchor": anchor,
                 }
-            plane = three_point_plane.resolve_definition(doc, definition)
+            plane = analytic_plane.resolve_definition(doc, definition)
             if plane is not None:
                 result.append(
                     {
@@ -301,30 +168,11 @@ def _getter_factory(construction_plane, origin=None, x_point=None):
     return lambda: AxisPreviewGetPoint(construction_plane, origin, x_point)
 
 
-def _preview_factory(getter):
-    conduit = AxisPreviewConduit(getter)
-    getter.preview = conduit
-    return conduit
-
-
-def _circular_preview_factory(getter):
-    conduit = CircularPreviewConduit(getter)
-    getter.preview = conduit
-    return conduit
-
-
-def _smart_origin_preview_factory(getter):
-    conduit = SmartOriginPreviewConduit(getter)
-    getter.preview = conduit
-    return conduit
-
-
 def _pick_nonzero_x(session, construction_plane, origin):
     while True:
         picked = session.pick(
             "Pick an analytic anchor for the X axis",
             getter_factory=_getter_factory(construction_plane, origin),
-            preview_factory=_preview_factory,
         )
         if picked is None:
             return None
@@ -343,7 +191,6 @@ def _pick_valid_y(session, construction_plane, origin, x_point):
                 origin,
                 x_point,
             ),
-            preview_factory=_preview_factory,
         )
         if picked is None:
             return None
@@ -376,7 +223,6 @@ def pick_circular_plane(doc, obj):
         picked = session.pick(
             "Center-snap to a circular Brep edge or circular curve",
             getter_factory=lambda: CircularPreviewGetPoint(candidates, tolerance),
-            preview_factory=_circular_preview_factory,
             definition_filter=_is_circular_center,
             rejected_message=(
                 "Only a center snap on a circular Brep edge or circular curve "
@@ -444,7 +290,6 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
         origin_result = session.pick(
             "Pick an analytic anchor for the plane origin",
             getter_factory=_getter_factory(construction_plane),
-            preview_factory=_preview_factory,
             options=(CIRCULAR_OPTION,) if allow_circular else (),
         )
         if isinstance(origin_result, dict):
@@ -519,9 +364,6 @@ def pick_plane(doc, obj, construction_plane):
                 if candidates
                 else _getter_factory(construction_plane)
             ),
-            preview_factory=(
-                _smart_origin_preview_factory if candidates else _preview_factory
-            ),
             options=(THREE_POINT_OPTION,),
         )
         force_three_point = isinstance(origin_result, dict)
@@ -531,7 +373,6 @@ def pick_plane(doc, obj, construction_plane):
             origin_result = session.pick(
                 "3Point mode: pick an analytic anchor for the plane origin",
                 getter_factory=_getter_factory(construction_plane),
-                preview_factory=_preview_factory,
             )
             if origin_result is None:
                 return None

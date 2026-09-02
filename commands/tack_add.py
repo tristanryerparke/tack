@@ -1,71 +1,25 @@
-import importlib
+#! python 3
+
 import os
 import sys
-import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-import Rhino
 from Rhino.Commands import Result
+from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
 
-import tack
+python_root = os.path.join(
+    os.path.dirname(__rhino_command__.GetType().Assembly.Location),
+    "Python",
+)
+if python_root not in sys.path:
+    sys.path.insert(0, python_root)
 
-importlib.reload(tack).reload()
-
-from tack import handlers
-from tack import metadata
-from tack import runtime
-from tack import utils
-from tack.prompting import command_menu
-
-
-def _short_id(object_id):
-    return str(object_id).split("-", 1)[0]
+from tack import actions
 
 
-def RunCommand(is_interactive):
-    doc = Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return Result.Cancel
-
-    utils.ensure_document_settings(doc)
-    display_enabled = utils.ensure_document_display_enabled(doc)
-
-    handlers.unsubscribe()
-    handlers.subscribe()
-
-    picked = command_menu.pick_link(doc)
-    if picked is None:
-        return Result.Cancel
-
-    parent_id, child_id, parent_anchor, child_anchor = picked
-    link_id = metadata.write_link(
-        doc,
-        parent_id,
-        child_id,
-        parent_anchor,
-        child_anchor,
-    )
-    if link_id is None:
-        utils.debug("[Tack anchor] could not write Tack anchor metadata.")
-        return Result.Failure
-
-    if not runtime.start_runtime(doc, parent_id, child_id, link_id):
-        utils.debug("[Tack anchor] could not start Tack relationship.")
-        return Result.Failure
-    if not display_enabled:
-        runtime.hide_display(doc)
-    utils.debug(
-        "[Tack anchor] created link={} parent={} child={}".format(
-            _short_id(link_id),
-            _short_id(parent_id),
-            _short_id(child_id),
-        )
-    )
-    return Result.Success
-
-
-if __name__ == "__main__":
-    from tack.watcher import run_entrypoint
-
-    run_entrypoint(lambda: RunCommand(True), utils.DEBUG)
+result = actions.run(
+    "add",
+    doc=__rhino_doc__,
+    default_display_enabled=ProjectPlugin.DefaultDisplayEnabled,
+)
+if result == Result.Success:
+    ProjectPlugin.SaveDisplayPreference("add")

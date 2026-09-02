@@ -3,32 +3,28 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_PATH="$REPO_ROOT/tack.rhproj"
-BUILD_PATH="$REPO_ROOT/build"
-BUILD_OUTPUT="$BUILD_PATH/rh8"
-PLUGIN_FILE="$BUILD_OUTPUT/Tack.rhp"
-RUI_FILE="$BUILD_OUTPUT/Tack.rui"
-CSHARP_PROJECT_PATH="$REPO_ROOT/csharp/TackPanelHost/TackPanelHost.csproj"
-CSHARP_CONFIGURATION="${CSHARP_CONFIGURATION:-Debug}"
-CSHARP_OUTPUT_DIR="$REPO_ROOT/csharp/TackPanelHost/bin/$CSHARP_CONFIGURATION/net8.0"
-CSHARP_PLUGIN_FILE="$CSHARP_OUTPUT_DIR/TackPanelHost.rhp"
-CSHARP_PYTHON_DIR="$CSHARP_OUTPUT_DIR/Python"
 RHINOCODE="${RHINOCODE:-/Applications/Rhino 8.app/Contents/Resources/bin/rhinocode}"
+BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-Debug}"
+GENERATED_PROJECT="$REPO_ROOT/build/rh8/src/Tack/Tack.csproj"
+GENERATED_PLUGIN="$REPO_ROOT/build/rh8/Tack.rhp"
+PROJECT_DATA_EXTRACTOR="$REPO_ROOT/csharp/TackScriptPlugin/ProjectDataExtractor/ProjectDataExtractor.csproj"
+PLUGIN_FILE="$REPO_ROOT/build/rh8/src/Tack/bin/$BUILD_CONFIGURATION/net48/Tack.rhp"
 MAC_PLUGINS_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}"
 INSTALL_DIR="$MAC_PLUGINS_DIR/Tack.rhp"
-CSHARP_INSTALL_DIR="$MAC_PLUGINS_DIR/TackPanelHost.rhp"
+LEGACY_INSTALL_DIR="$MAC_PLUGINS_DIR/TackPanelHost.rhp"
+LEGACY_RUI_SETTINGS="$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/settings/Scheme__Default/Tack_e59443d4-ab7b-4e21-8aa3-66a7ced1ae27.xml"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/install-tack-rhino-plugin-mac.sh
 
-Builds tack.rhproj with Rhino 8's rhinocode CLI and installs Tack for the next
-Rhino launch.
+Builds Tack's Python Script Editor project, applies its C# startup/panel
+extension, and installs the combined plugin for the next Rhino launch.
 
 Environment:
-  RHINOCODE               Override the rhinocode executable.
-  CSHARP_CONFIGURATION    C# host build configuration. Default: Debug.
-  RHINO_MAC_PLUGINS_DIR   Override Rhino's version-specific MacPlugIns directory.
+  BUILD_CONFIGURATION    dotnet configuration. Default: Debug.
+  RHINOCODE              RhinoCode CLI path.
+  RHINO_MAC_PLUGINS_DIR  Override Rhino's MacPlugIns directory.
 EOF
 }
 
@@ -50,57 +46,36 @@ if [[ "$OSTYPE" != darwin* ]]; then
   echo "This installer targets Rhino 8 for macOS (OSTYPE=$OSTYPE)." >&2
   exit 1
 fi
-
 if [[ ! -x "$RHINOCODE" ]]; then
-  echo "Could not find an executable rhinocode at: $RHINOCODE" >&2
-  echo "Set RHINOCODE=/path/to/rhinocode to override it." >&2
+  echo "RhinoCode CLI was not found: $RHINOCODE" >&2
   exit 1
 fi
 
-echo "Serializing command icons into $PROJECT_PATH..."
-uv run "$SCRIPT_DIR/serialize_rhproj_icons.py"
+echo "Generating $REPO_ROOT/tack.rhproj..."
+"$RHINOCODE" project build "$REPO_ROOT/tack.rhproj"
+dotnet run --project "$PROJECT_DATA_EXTRACTOR" -- \
+  "$GENERATED_PLUGIN" "$(dirname "$GENERATED_PROJECT")/Plugin.Data.resources"
+uv run "$REPO_ROOT/scripts/prepare-tack-script-plugin.py"
 
-echo "Building $PROJECT_PATH..."
-"$RHINOCODE" project build "$PROJECT_PATH" \
-  --buildtarget '8.*' \
-  --buildpath "$BUILD_PATH"
-
-echo "Building $CSHARP_PROJECT_PATH ($CSHARP_CONFIGURATION)..."
-dotnet build "$CSHARP_PROJECT_PATH" -c "$CSHARP_CONFIGURATION"
+echo "Building $GENERATED_PROJECT ($BUILD_CONFIGURATION)..."
+dotnet build "$GENERATED_PROJECT" -c "$BUILD_CONFIGURATION"
 
 if [[ ! -f "$PLUGIN_FILE" ]]; then
   echo "Build succeeded, but the plugin was not found: $PLUGIN_FILE" >&2
   exit 1
 fi
 
-if [[ ! -f "$CSHARP_PLUGIN_FILE" ]]; then
-  echo "C# build succeeded, but the plugin was not found: $CSHARP_PLUGIN_FILE" >&2
-  exit 1
-fi
-
-if [[ ! -d "$CSHARP_PYTHON_DIR/tack" || ! -f "$CSHARP_PYTHON_DIR/initialize_panel.py" || ! -f "$CSHARP_PYTHON_DIR/restore_analytic_plane_links.py" ]]; then
-  echo "C# build succeeded, but its Python payload was not found: $CSHARP_PYTHON_DIR" >&2
-  exit 1
-fi
-
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
+rm -rf "$INSTALL_DIR" "$LEGACY_INSTALL_DIR"
+rm -f "$LEGACY_RUI_SETTINGS"
+mkdir -p "$INSTALL_DIR/Python"
 cp "$PLUGIN_FILE" "$INSTALL_DIR/"
-
-if [[ -f "$RUI_FILE" ]]; then
-  cp "$RUI_FILE" "$INSTALL_DIR/"
-fi
-
-rm -rf "$CSHARP_INSTALL_DIR"
-mkdir -p "$CSHARP_INSTALL_DIR"
-cp "$CSHARP_PLUGIN_FILE" "$CSHARP_INSTALL_DIR/"
-cp -R "$CSHARP_PYTHON_DIR" "$CSHARP_INSTALL_DIR/"
+cp -R "$REPO_ROOT/tack" "$INSTALL_DIR/Python/"
 
 cat <<EOF
 Installed Tack:
-  Python plugin: $INSTALL_DIR/Tack.rhp
-  Python UI:     $INSTALL_DIR/Tack.rui
-  C# host:       $CSHARP_INSTALL_DIR/TackPanelHost.rhp
+  Plugin: $INSTALL_DIR/Tack.rhp
+  Python: $INSTALL_DIR/Python/tack
 
-Restart Rhino to load this build, then run _TackPanel.
+The generated Python commands own TackAdd, TackShow, TackHide, and TackClear.
+Restart Rhino to load this build.
 EOF

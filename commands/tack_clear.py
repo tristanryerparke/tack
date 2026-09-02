@@ -1,73 +1,25 @@
-import importlib
+#! python 3
+
 import os
 import sys
-import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-import Rhino
 from Rhino.Commands import Result
+from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
 
-import tack
+python_root = os.path.join(
+    os.path.dirname(__rhino_command__.GetType().Assembly.Location),
+    "Python",
+)
+if python_root not in sys.path:
+    sys.path.insert(0, python_root)
 
-importlib.reload(tack).reload()
-
-from tack import handlers
-from tack import metadata
-from tack import runtime
-from tack import utils
-
-
-def _clear_object_metadata(doc, object_id):
-    obj = doc.Objects.Find(object_id)
-    if obj is None:
-        return
-
-    attrs = obj.Attributes.Duplicate()
-    changed = False
-    for key in (
-        metadata.LINKS_KEY,
-        metadata.PARENT_LINKS_KEY,
-    ):
-        try:
-            if attrs.UserDictionary.ContainsKey(key):
-                attrs.UserDictionary.Remove(key)
-                changed = True
-        except Exception:
-            pass
-    if changed:
-        doc.Objects.ModifyAttributes(object_id, attrs, True)
+from tack import actions
 
 
-def RunCommand(is_interactive, no_metadata=False):
-    doc = Rhino.RhinoDoc.ActiveDoc
-    if doc is None:
-        return Result.Cancel
-
-    handlers.unsubscribe()
-    runtime.stop_runtime(doc)
-    if not no_metadata:
-        for obj in doc.Objects:
-            if obj is not None:
-                _clear_object_metadata(doc, obj.Id)
-
-    if runtime.has_any_runtime():
-        handlers.subscribe()
-    doc.Views.Redraw()
-    if no_metadata:
-        print("Tack runtime cleared. Saved anchor links were preserved.")
-    else:
-        print("Tack anchor links cleared. Save the file to keep the cleanup.")
-    return Result.Success
-
-
-if __name__ == "__main__":
-    def run():
-        return RunCommand(
-            True,
-            no_metadata="--no_metadata" in sys.argv[1:],
-        )
-
-    from tack.watcher import run_entrypoint
-
-    run_entrypoint(run, utils.DEBUG)
+result = actions.run(
+    "clear",
+    doc=__rhino_doc__,
+    default_display_enabled=ProjectPlugin.DefaultDisplayEnabled,
+)
+if result == Result.Success:
+    ProjectPlugin.SaveDisplayPreference("clear")

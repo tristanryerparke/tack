@@ -5,13 +5,13 @@
 When testing Tack interactively, run the watcher directly in the agent terminal:
 
 ```bash
-uv run rhino-watch commands/tack_add.py --debug
+uv run rhino-watch demos/analytic_plane_link.py --debug
 ```
 
 Use persistent mode only when handler output is needed after setup completes:
 
 ```bash
-uv run rhino-watch commands/tack_add.py --debug --nostop
+uv run rhino-watch demos/analytic_plane_link.py --debug --nostop
 ```
 
 - Keep this foreground command as the sole live output channel. Do not use `nohup`, background processes, Terminal.app, PID files, log files, or `tail`.

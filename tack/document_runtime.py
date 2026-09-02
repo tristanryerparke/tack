@@ -1,7 +1,7 @@
 import scriptcontext as sc
 
 
-REGISTRY_KEY = "Tack.DocumentRuntimeData"
+REGISTRY_KEY = "Tack.Runtime.Documents"
 
 
 def document_key(doc):

@@ -193,10 +193,17 @@ def _quadrant_number(value):
 
 
 class _AnchorTypeHandler:
-    def __init__(self, feature_type, metadata_validators, generate):
+    def __init__(
+        self,
+        feature_type,
+        metadata_validators,
+        generate,
+        resolve_directly,
+    ):
         self.feature_type = feature_type
         self.metadata_validators = metadata_validators
         self.generate = generate
+        self.resolve_directly = resolve_directly
 
     def validates(self, definition):
         if not isinstance(definition, dict):
@@ -223,12 +230,8 @@ class _AnchorTypeHandler:
     def resolve(self, obj, definition, tolerance):
         if not self.validates(definition):
             return None
-        matches = [
-            point
-            for candidate, point in self.candidates(obj, tolerance)
-            if candidate == definition
-        ]
-        return matches[0] if len(matches) == 1 else None
+        point = self.resolve_directly(obj, definition, tolerance)
+        return None if point is None else Rhino.Geometry.Point3d(point)
 
 
 def _bounding_box_features(obj, tolerance):
@@ -359,43 +362,189 @@ def _curve_quadrant_features(obj, tolerance):
     ]
 
 
+def _resolve_bounding_box(obj, definition, tolerance):
+    return bounding_box_center(obj)
+
+
+def _resolve_brep_vertex(obj, definition, tolerance):
+    brep = _brep(obj)
+    index = definition["vertex_index"]
+    if brep is None or index >= brep.Vertices.Count:
+        return None
+    return brep.Vertices[index].Location
+
+
+def _resolve_polyline_vertex(obj, definition, tolerance):
+    curve = _curve(obj)
+    index = definition["vertex_index"]
+    if (
+        not isinstance(curve, Rhino.Geometry.PolylineCurve)
+        or index >= _polyline_vertex_count(curve)
+    ):
+        return None
+    return curve.Point(index)
+
+
+def _resolve_curve_start(obj, definition, tolerance):
+    curve = _curve(obj)
+    return None if curve is None or curve.IsClosed else curve.PointAtStart
+
+
+def _resolve_curve_end(obj, definition, tolerance):
+    curve = _curve(obj)
+    return None if curve is None or curve.IsClosed else curve.PointAtEnd
+
+
+def _resolve_brep_edge_midpoint(obj, definition, tolerance):
+    brep = _brep(obj)
+    index = definition["edge_index"]
+    if brep is None or index >= brep.Edges.Count:
+        return None
+    return _curve_midpoint(brep.Edges[index])
+
+
+def _resolve_polyline_segment_midpoint(obj, definition, tolerance):
+    curve = _curve(obj)
+    index = definition["segment_index"]
+    if (
+        not isinstance(curve, Rhino.Geometry.PolylineCurve)
+        or index >= curve.PointCount - 1
+    ):
+        return None
+    return Rhino.Geometry.Line(
+        curve.Point(index),
+        curve.Point(index + 1),
+    ).PointAt(0.5)
+
+
+def _resolve_curve_midpoint(obj, definition, tolerance):
+    curve = _curve(obj)
+    if curve is None or isinstance(curve, Rhino.Geometry.PolylineCurve):
+        return None
+    return _curve_midpoint(curve)
+
+
+def _resolve_circular_edge_center(obj, definition, tolerance):
+    brep = _brep(obj)
+    index = definition["edge_index"]
+    if brep is None or index >= brep.Edges.Count:
+        return None
+    circle = _supporting_circle(brep.Edges[index].DuplicateCurve(), tolerance)
+    return None if circle is None else circle.Center
+
+
+def _resolve_curve_center(obj, definition, tolerance):
+    circle = _supporting_circle(_curve(obj), tolerance)
+    return None if circle is None else circle.Center
+
+
+def _resolve_brep_face_center(obj, definition, tolerance):
+    brep = _brep(obj)
+    index = definition["face_index"]
+    if brep is None or index >= brep.Faces.Count:
+        return None
+    return _face_center(brep.Faces[index])
+
+
+def _resolve_brep_edge_quadrant(obj, definition, tolerance):
+    brep = _brep(obj)
+    index = definition["edge_index"]
+    if brep is None or index >= brep.Edges.Count:
+        return None
+    quadrant = definition["quadrant"]
+    return next(
+        (
+            point
+            for candidate, point in _quadrant_points(
+                brep.Edges[index],
+                tolerance,
+            )
+            if candidate == quadrant
+        ),
+        None,
+    )
+
+
+def _resolve_curve_quadrant(obj, definition, tolerance):
+    quadrant = definition["quadrant"]
+    return next(
+        (
+            point
+            for candidate, point in _quadrant_points(_curve(obj), tolerance)
+            if candidate == quadrant
+        ),
+        None,
+    )
+
+
 _HANDLERS = {
     handler.feature_type: handler
     for handler in (
-        _AnchorTypeHandler(BOUNDING_BOX_CENTER, {}, _bounding_box_features),
+        _AnchorTypeHandler(
+            BOUNDING_BOX_CENTER,
+            {},
+            _bounding_box_features,
+            _resolve_bounding_box,
+        ),
         _AnchorTypeHandler(
             BREP_VERTEX,
             {"vertex_index": _nonnegative_integer},
             _brep_vertex_features,
+            _resolve_brep_vertex,
         ),
         _AnchorTypeHandler(
             POLYLINE_VERTEX,
             {"vertex_index": _nonnegative_integer},
             _polyline_vertex_features,
+            _resolve_polyline_vertex,
         ),
-        _AnchorTypeHandler(CURVE_START, {}, _curve_start_features),
-        _AnchorTypeHandler(CURVE_END, {}, _curve_end_features),
+        _AnchorTypeHandler(
+            CURVE_START,
+            {},
+            _curve_start_features,
+            _resolve_curve_start,
+        ),
+        _AnchorTypeHandler(
+            CURVE_END,
+            {},
+            _curve_end_features,
+            _resolve_curve_end,
+        ),
         _AnchorTypeHandler(
             BREP_EDGE_MIDPOINT,
             {"edge_index": _nonnegative_integer},
             _brep_edge_midpoint_features,
+            _resolve_brep_edge_midpoint,
         ),
         _AnchorTypeHandler(
             POLYLINE_SEGMENT_MIDPOINT,
             {"segment_index": _nonnegative_integer},
             _polyline_segment_midpoint_features,
+            _resolve_polyline_segment_midpoint,
         ),
-        _AnchorTypeHandler(CURVE_MIDPOINT, {}, _curve_midpoint_features),
+        _AnchorTypeHandler(
+            CURVE_MIDPOINT,
+            {},
+            _curve_midpoint_features,
+            _resolve_curve_midpoint,
+        ),
         _AnchorTypeHandler(
             CIRCULAR_EDGE_CENTER,
             {"edge_index": _nonnegative_integer},
             _circular_edge_center_features,
+            _resolve_circular_edge_center,
         ),
-        _AnchorTypeHandler(CURVE_CENTER, {}, _curve_center_features),
+        _AnchorTypeHandler(
+            CURVE_CENTER,
+            {},
+            _curve_center_features,
+            _resolve_curve_center,
+        ),
         _AnchorTypeHandler(
             BREP_FACE_CENTER,
             {"face_index": _nonnegative_integer},
             _brep_face_center_features,
+            _resolve_brep_face_center,
         ),
         _AnchorTypeHandler(
             BREP_EDGE_QUADRANT,
@@ -404,11 +553,13 @@ _HANDLERS = {
                 "quadrant": _quadrant_number,
             },
             _brep_edge_quadrant_features,
+            _resolve_brep_edge_quadrant,
         ),
         _AnchorTypeHandler(
             CURVE_QUADRANT,
             {"quadrant": _quadrant_number},
             _curve_quadrant_features,
+            _resolve_curve_quadrant,
         ),
     )
 }
