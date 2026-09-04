@@ -187,7 +187,7 @@ def maintain(doc, state):
         _show_broken_alert(state)
         return False
 
-    saved = plane_link_metadata.read_link(child, state["link_id"])
+    saved = plane_link_metadata.read_link(doc, state["link_id"])
     if saved is not None:
         state["link"] = saved
     link = state["link"]
@@ -238,15 +238,9 @@ def _synchronize_runtime_with_metadata(doc):
         if link_id not in saved:
             active.pop(link_id, None)
     for link_id, link in saved.items():
-        state = active.get(link_id)
-        if state is None:
-            state = _new_state(doc, link)
-            if state is not None:
-                active[link_id] = state
-        else:
-            state["link"] = link
-            state["parent_id"] = link["parent_id"]
-            state["child_id"] = link["child_id"]
+        state = _new_state(doc, link)
+        if state is not None:
+            active[link_id] = state
     if active:
         _ensure_conduit(doc)
     else:

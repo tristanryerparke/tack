@@ -21,7 +21,7 @@ per-user settings, and restores saved links. `tack/panel.py` owns the panel's
 Eto control tree; its buttons dispatch the generated Python commands through
 the ScriptRunner lifecycle.
 
-Relationships are model data stored on their parent and child objects. Display
+Relationships are stored in Tack's plug-in-owned document data. Display
 visibility is document-scoped runtime state; its default is stored in Rhino's
 per-user plugin settings rather than document user text. Display conduits are
 created per document and reject events from every other document.

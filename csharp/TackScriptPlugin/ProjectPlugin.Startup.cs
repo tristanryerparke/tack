@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 
 using Rhino;
+using Rhino.FileIO;
 using Rhino.PlugIns;
 using Rhino.UI;
 
@@ -35,6 +36,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         "Tack.Resources.TackPanelIcon.ico",
         PanelType.PerDoc);
       RhinoDoc.EndOpenDocument += OnEndOpenDocument;
+      RhinoDoc.CloseDocument += OnCloseDocument;
       ScheduleRestore();
       return LoadReturnCode.Success;
     }
@@ -42,12 +44,39 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     protected override void OnShutdown()
     {
       RhinoDoc.EndOpenDocument -= OnEndOpenDocument;
+      RhinoDoc.CloseDocument -= OnCloseDocument;
       base.OnShutdown();
+    }
+
+    protected override bool ShouldCallWriteDocument(FileWriteOptions options)
+    {
+      return true;
+    }
+
+    protected override void WriteDocument(
+      RhinoDoc document,
+      BinaryArchiveWriter archive,
+      FileWriteOptions options)
+    {
+      archive.WriteString(TackDocumentData.GetLinksJson(document.RuntimeSerialNumber));
+    }
+
+    protected override void ReadDocument(
+      RhinoDoc document,
+      BinaryArchiveReader archive,
+      FileReadOptions options)
+    {
+      TackDocumentData.LoadLinksJson(document, archive.ReadString());
     }
 
     static void OnEndOpenDocument(object sender, DocumentOpenEventArgs eventArgs)
     {
       ScheduleRestore();
+    }
+
+    static void OnCloseDocument(object sender, DocumentEventArgs eventArgs)
+    {
+      TackDocumentData.RemoveDocument(eventArgs.Document);
     }
 
     static void ScheduleRestore()
