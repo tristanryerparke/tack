@@ -138,6 +138,12 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             and int(doc.RuntimeSerialNumber) == self.document_serial
         )
 
+    def _crosshair_size(self):
+        from tack import plane_link
+
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        return plane_link.crosshair_size(doc)
+
     def _capture(self, doc, state):
         link = state["link"]
         parent = utils.find_object(doc, state["parent_id"])
@@ -250,10 +256,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     event.IncludeBoundingBox(
                         analytic_plane.bounding_box(
                             plane,
-                            self.display_state.get(
-                                "crosshair_size",
-                                analytic_plane.CROSSHAIR_SIZE,
-                            ),
+                            self._crosshair_size(),
                         )
                     )
 
@@ -301,8 +304,5 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 analytic_plane.draw_preview(
                     event.Display,
                     plane,
-                    self.display_state.get(
-                        "crosshair_size",
-                        analytic_plane.CROSSHAIR_SIZE,
-                    ),
+                    self._crosshair_size(),
                 )

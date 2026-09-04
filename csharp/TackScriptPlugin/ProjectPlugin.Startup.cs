@@ -26,6 +26,19 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         Instance.Settings.SetBool("DefaultDisplayEnabled", action == "show");
     }
 
+    public static double CrosshairSize
+    {
+      get => Instance == null || Instance.Settings == null
+        ? 20.0
+        : Instance.Settings.GetDouble("CrosshairSize", 20.0);
+    }
+
+    public static void SaveCrosshairSize(double size)
+    {
+      if (Instance != null && Instance.Settings != null)
+        Instance.Settings.SetDouble("CrosshairSize", size);
+    }
+
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
       Panels.RegisterPanel(

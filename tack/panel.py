@@ -21,24 +21,30 @@ def _action_button(panel, label, action):
     return button
 
 
-def _crosshair_size_stepper(doc):
+def _crosshair_size_slider(panel, doc):
     from tack import analytic_plane
     from tack import plane_link
 
-    stepper = forms.NumericStepper()
-    stepper.MinValue = analytic_plane.CROSSHAIR_SIZE_MIN
-    stepper.MaxValue = analytic_plane.CROSSHAIR_SIZE_MAX
-    stepper.Increment = 1
-    stepper.DecimalPlaces = 0
-    stepper.Value = int(plane_link.crosshair_size(doc))
+    slider = Rhino.UI.Controls.Slider(panel, False)
+    slider.SetMinMax(
+        analytic_plane.CROSSHAIR_SIZE_MIN,
+        analytic_plane.CROSSHAIR_SIZE_MAX,
+    )
+    slider.Decimals = 0
+    slider.Value1 = plane_link.crosshair_size(doc)
     label = forms.Label()
     label.Text = "Crosshair size"
+    label.TextAlignment = forms.TextAlignment.Left
+    label_container = forms.DynamicLayout()
+    label_container.DefaultSpacing = drawing.Size(0, 0)
+    label_container.AddRow(label, None)
 
     def set_size(sender, event):
-        plane_link.set_crosshair_size(doc, stepper.Value)
+        if event.PropertyName == "Value1":
+            plane_link.set_crosshair_size(doc, sender.Value1)
 
-    stepper.ValueChanged += set_size
-    return stepper, label
+    slider.PropertyChanged += set_size
+    return slider, label_container
 
 
 def _display_toggle(panel, doc):
@@ -65,12 +71,18 @@ def _content(panel, doc):
     layout = forms.DynamicLayout()
     layout.Padding = drawing.Padding(5)
     layout.DefaultSpacing = drawing.Size(6, 6)
-    crosshair_stepper, crosshair_label = _crosshair_size_stepper(doc)
+    crosshair_slider, crosshair_label_container = _crosshair_size_slider(
+        panel,
+        doc,
+    )
+    crosshair_layout = forms.DynamicLayout()
+    crosshair_layout.DefaultSpacing = drawing.Size(0, 2)
+    crosshair_layout.AddRow(crosshair_label_container)
+    crosshair_layout.AddRow(crosshair_slider)
     layout.AddRow(_action_button(panel, "Add Tack", "add"))
     layout.AddRow(_display_toggle(panel, doc))
     layout.AddRow(_action_button(panel, "Clear", "clear"))
-    layout.AddRow(crosshair_label)
-    layout.AddRow(crosshair_stepper)
+    layout.AddRow(crosshair_layout)
     layout.AddRow(None)
     return layout
 

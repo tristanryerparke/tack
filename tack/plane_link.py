@@ -29,14 +29,30 @@ def _display_state(doc, default_enabled=True):
         DISPLAY_KEY,
         lambda _: {
             "enabled": bool(default_enabled),
-            "crosshair_size": analytic_plane.CROSSHAIR_SIZE,
         },
     )
 
 
+def _plugin():
+    try:
+        from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
+    except ImportError:
+        return None
+    return ProjectPlugin
+
+
 def crosshair_size(doc):
-    return float(
-        _display_state(doc).get("crosshair_size", analytic_plane.CROSSHAIR_SIZE)
+    plugin = _plugin()
+    if plugin is not None:
+        size = plugin.CrosshairSize
+    else:
+        size = _display_state(doc).get(
+            "crosshair_size",
+            analytic_plane.CROSSHAIR_SIZE,
+        )
+    return max(
+        analytic_plane.CROSSHAIR_SIZE_MIN,
+        min(analytic_plane.CROSSHAIR_SIZE_MAX, float(size)),
     )
 
 
@@ -45,7 +61,11 @@ def set_crosshair_size(doc, size):
         analytic_plane.CROSSHAIR_SIZE_MIN,
         min(analytic_plane.CROSSHAIR_SIZE_MAX, int(size)),
     )
-    _display_state(doc)["crosshair_size"] = float(size)
+    plugin = _plugin()
+    if plugin is not None:
+        plugin.SaveCrosshairSize(size)
+    else:
+        _display_state(doc)["crosshair_size"] = float(size)
     doc.Views.Redraw()
     return size
 

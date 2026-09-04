@@ -22,8 +22,9 @@ Eto control tree; its buttons dispatch the generated Python commands through
 the ScriptRunner lifecycle.
 
 Relationships and display visibility are stored in Tack's plug-in-owned
-document data. Display conduits are created per document and reject events
-from every other document.
+document data. The default display visibility and crosshair size are stored
+in per-user plug-in settings. Display conduits are created per document and
+reject events from every other document.
 
 ## Install on macOS
 
