@@ -247,7 +247,15 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             for link_id, state in self.states.items():
                 plane = preview_planes.get(link_id, state.get("plane"))
                 if not state.get("broken") and plane is not None:
-                    event.IncludeBoundingBox(analytic_plane.bounding_box(plane))
+                    event.IncludeBoundingBox(
+                        analytic_plane.bounding_box(
+                            plane,
+                            self.display_state.get(
+                                "crosshair_size",
+                                analytic_plane.CROSSHAIR_SIZE,
+                            ),
+                        )
+                    )
 
         for preview in self._previews.values():
             geometry = preview["child"].Geometry
@@ -290,4 +298,11 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         for link_id, state in self.states.items():
             plane = preview_planes.get(link_id, state.get("plane"))
             if not state.get("broken") and plane is not None:
-                analytic_plane.draw_preview(event.Display, plane)
+                analytic_plane.draw_preview(
+                    event.Display,
+                    plane,
+                    self.display_state.get(
+                        "crosshair_size",
+                        analytic_plane.CROSSHAIR_SIZE,
+                    ),
+                )

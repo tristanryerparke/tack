@@ -3,8 +3,6 @@
 import os
 import sys
 
-from Rhino.Commands import Result
-from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
 
 python_root = os.path.join(
     os.path.dirname(__rhino_command__.GetType().Assembly.Location),
@@ -16,10 +14,4 @@ if python_root not in sys.path:
 from tack import actions
 
 
-result = actions.run(
-    "show",
-    doc=__rhino_doc__,
-    default_display_enabled=ProjectPlugin.DefaultDisplayEnabled,
-)
-if result == Result.Success:
-    ProjectPlugin.SaveDisplayPreference("show")
+actions.run("show", doc=__rhino_doc__)

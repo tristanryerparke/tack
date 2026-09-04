@@ -7,17 +7,19 @@ import System.Drawing
 from tack import anchor_definitions
 
 
-CROSSHAIR_SIZE = 20.0
+CROSSHAIR_SIZE_MIN = 5
+CROSSHAIR_SIZE_MAX = 20
+CROSSHAIR_SIZE = float(CROSSHAIR_SIZE_MAX)
 CROSSHAIR_COLOR = System.Drawing.Color.Orange
 CROSSHAIR_THICKNESS = 2
 
 
-def preview_half_extent():
-    return CROSSHAIR_SIZE * 0.5
+def preview_half_extent(size=CROSSHAIR_SIZE):
+    return float(size) * 0.5
 
 
-def preview_circle_radius():
-    return CROSSHAIR_SIZE * 0.25
+def preview_circle_radius(size=CROSSHAIR_SIZE):
+    return float(size) * 0.25
 
 
 def _definition_object(doc, definition):
@@ -183,13 +185,13 @@ def plane_border(origin, x_axis, y_axis, half_extent):
     ]
 
 
-def draw_preview(display, plane):
+def draw_preview(display, plane, size=CROSSHAIR_SIZE):
     if plane is None or not plane.IsValid:
         return
     origin = plane.Origin
     x_axis = plane.XAxis
     y_axis = plane.YAxis
-    half_extent = preview_half_extent()
+    half_extent = preview_half_extent(size)
     appearance = Rhino.ApplicationSettings.AppearanceSettings
 
     display.DrawLine(
@@ -205,7 +207,7 @@ def draw_preview(display, plane):
         CROSSHAIR_THICKNESS,
     )
     display.DrawCircle(
-        Rhino.Geometry.Circle(plane, preview_circle_radius()),
+        Rhino.Geometry.Circle(plane, preview_circle_radius(size)),
         CROSSHAIR_COLOR,
         CROSSHAIR_THICKNESS,
     )
@@ -223,12 +225,12 @@ def draw_preview(display, plane):
     )
 
 
-def bounding_box(plane):
+def bounding_box(plane, size=CROSSHAIR_SIZE):
     return Rhino.Geometry.BoundingBox(
         plane_border(
             plane.Origin,
             plane.XAxis,
             plane.YAxis,
-            preview_half_extent(),
+            preview_half_extent(size),
         )
     )

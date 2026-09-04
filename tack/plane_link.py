@@ -27,19 +27,45 @@ def _display_state(doc, default_enabled=True):
     return document_runtime.get_value(
         doc,
         DISPLAY_KEY,
-        lambda _: {"enabled": bool(default_enabled)},
+        lambda _: {
+            "enabled": bool(default_enabled),
+            "crosshair_size": analytic_plane.CROSSHAIR_SIZE,
+        },
     )
+
+
+def crosshair_size(doc):
+    return float(
+        _display_state(doc).get("crosshair_size", analytic_plane.CROSSHAIR_SIZE)
+    )
+
+
+def set_crosshair_size(doc, size):
+    size = max(
+        analytic_plane.CROSSHAIR_SIZE_MIN,
+        min(analytic_plane.CROSSHAIR_SIZE_MAX, int(size)),
+    )
+    _display_state(doc)["crosshair_size"] = float(size)
+    doc.Views.Redraw()
+    return size
 
 
 def display_enabled(doc):
     state = document_runtime.try_get_value(doc, DISPLAY_KEY)
-    return True if state is None else bool(state["enabled"])
+    return (
+        plane_link_metadata.display_enabled(doc)
+        if state is None
+        else bool(state["enabled"])
+    )
 
 
 def set_display_enabled(doc, enabled):
     if not states(doc, create=False):
         return False
-    _display_state(doc)["enabled"] = bool(enabled)
+    enabled = bool(enabled)
+    if not plane_link_metadata.set_display_enabled(doc, enabled):
+        return False
+    _display_state(doc)["enabled"] = enabled
     doc.Views.Redraw()
     return True
 
@@ -105,7 +131,15 @@ def install(doc, link, default_display_enabled=True):
     if state is None:
         return None
     states(doc)[link["link_id"]] = state
-    _ensure_conduit(doc, default_display_enabled)
+    saved_display_enabled = plane_link_metadata.display_enabled(
+        doc,
+        default_display_enabled,
+    )
+    _ensure_conduit(doc, saved_display_enabled)
+    plane_link_metadata.set_display_enabled(
+        doc,
+        _display_state(doc, saved_display_enabled)["enabled"],
+    )
     subscribe()
     doc.Views.Redraw()
     return state
@@ -119,7 +153,10 @@ def restore_document(doc, default_display_enabled=True):
         if state is not None:
             active[link["link_id"]] = state
     if active:
-        _ensure_conduit(doc, default_display_enabled)
+        _ensure_conduit(
+            doc,
+            plane_link_metadata.display_enabled(doc, default_display_enabled),
+        )
         subscribe()
     elif not document_runtime.has_nonempty_value(STATES_KEY):
         unsubscribe()

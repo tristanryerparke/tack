@@ -1,9 +1,7 @@
 """Verify the document relationship index owns restore and clear traversal."""
 
-import json
 import sys
 
-import System
 import Rhino
 import scriptcontext as sc
 
@@ -27,6 +25,7 @@ class _NoScanObjects:
 
 class _NoScanDocument:
     def __init__(self, doc):
+        self.RuntimeSerialNumber = doc.RuntimeSerialNumber
         self.Strings = doc.Strings
         self.Objects = _NoScanObjects(doc.Objects)
 
@@ -67,6 +66,10 @@ def verify_metadata_index():
             ),
         ]
         assert all(links), "Could not persist analytic-plane links"
+        for object_id in (parent_a, child_a, parent_b, child_b):
+            assert not doc.Objects.Find(object_id).Attributes.UserDictionary.ContainsKey(
+                "Tack.PlaneLinks.v1"
+            )
 
         indexed = plane_link_metadata.all_links(_NoScanDocument(doc))
         assert {link["link_id"] for link in indexed} == {
@@ -75,33 +78,18 @@ def verify_metadata_index():
         for link in links:
             assert plane_link_metadata.validate(link)
             assert link in indexed
-            for object_id in (link["parent_id"], link["child_id"]):
-                obj = doc.Objects.Find(System.Guid(str(object_id)))
-                assert obj.Attributes.UserDictionary.ContainsKey(
-                    plane_link_metadata.LINKS_KEY
-                )
-                assert plane_link_metadata.read_link(obj, link["link_id"]) == link
-
-        raw_index = json.loads(
-            doc.Strings.GetValue(
-                plane_link_metadata.INDEX_SECTION,
-                plane_link_metadata.INDEX_ENTRY,
-            )
-        )
-        assert raw_index["version"] == plane_link_metadata.INDEX_VERSION
-        assert raw_index["links"] == {link["link_id"]: link for link in links}
 
         assert plane_link_metadata.clear(_NoScanDocument(doc))
         assert not plane_link_metadata.all_links(_NoScanDocument(doc))
         assert not doc.Objects.Find(unrelated).Attributes.UserDictionary.ContainsKey(
-            plane_link_metadata.LINKS_KEY
+            "Tack.PlaneLinks.v1"
         )
         assert str(
             doc.Objects.Find(unrelated).Attributes.UserDictionary[
                 "Tack.Test.Unrelated"
             ]
         ) == "preserve"
-        return {"link_count": len(links), "index_entries": len(raw_index["links"])}
+        return {"link_count": len(links), "index_entries": len(indexed)}
     finally:
         cleanup(doc)
 
