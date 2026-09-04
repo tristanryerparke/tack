@@ -49,4 +49,5 @@ def verify_duplicate_link_replacement():
         cleanup(doc)
 
 
-run_test("duplicate_link", verify_duplicate_link_replacement)
+if __name__ == "__main__":
+    run_test("duplicate_link", verify_duplicate_link_replacement)

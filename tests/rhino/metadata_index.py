@@ -94,4 +94,5 @@ def verify_metadata_index():
         cleanup(doc)
 
 
-run_test("metadata_index", verify_metadata_index)
+if __name__ == "__main__":
+    run_test("metadata_index", verify_metadata_index)

@@ -160,7 +160,19 @@ def clear(doc):
     if doc is None:
         return Result.Cancel
     count = len(plane_link_metadata.all_links(doc))
-    plane_link.clear_document(doc)
+    if not count:
+        Rhino.RhinoApp.WriteLine("No Tacks to clear.")
+        return Result.Cancel
+    confirmation = Rhino.UI.Dialogs.ShowMessage(
+        "Clear all {} Tack(s) from this file?".format(count),
+        "Clear all Tacks",
+        Rhino.UI.ShowMessageButton.YesNo,
+        Rhino.UI.ShowMessageIcon.Warning,
+    )
+    if confirmation != Rhino.UI.ShowMessageResult.Yes:
+        return Result.Cancel
+    if not plane_link.clear_document(doc):
+        return Result.Failure
     Rhino.RhinoApp.WriteLine("Cleared {} Tack(s).".format(count))
     return Result.Success
 

@@ -145,4 +145,5 @@ def verify_anchor_definitions():
         cleanup(doc)
 
 
-run_test("anchor_definitions", verify_anchor_definitions)
+if __name__ == "__main__":
+    run_test("anchor_definitions", verify_anchor_definitions)

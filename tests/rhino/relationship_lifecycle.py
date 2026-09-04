@@ -127,4 +127,5 @@ def verify_relationship_lifecycle():
         cleanup(doc)
 
 
-run_test("relationship_lifecycle", verify_relationship_lifecycle)
+if __name__ == "__main__":
+    run_test("relationship_lifecycle", verify_relationship_lifecycle)

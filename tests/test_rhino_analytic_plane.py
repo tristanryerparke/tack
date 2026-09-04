@@ -25,42 +25,23 @@ def _run_script(rhino_instance, name, environment=None):
 
 
 @pytest.mark.rhino
-def test_analytic_anchor_definitions_resolve_directly(rhino_instance):
-    result = _run_script(rhino_instance, "anchor_definitions.py")
+def test_blank_document_behaviors(rhino_instance):
+    result = _run_script(rhino_instance, "blank_document.py")
 
-    assert result["name"] == "anchor_definitions"
-    assert all(count > 0 for count in result["candidate_counts"].values())
-
-
-@pytest.mark.rhino
-def test_document_index_preserves_complete_links_without_object_scan(rhino_instance):
-    result = _run_script(rhino_instance, "metadata_index.py")
-
-    assert result == {
-        "name": "metadata_index",
-        "link_count": 2,
-        "index_entries": 2,
-    }
-
-
-@pytest.mark.rhino
-def test_new_tack_replaces_existing_tack_between_the_same_objects(rhino_instance):
-    result = _run_script(rhino_instance, "duplicate_link.py")
-
-    assert result == {
-        "name": "duplicate_link",
+    anchor = result["anchor_definitions"]
+    assert anchor["candidate_counts"]
+    assert all(count > 0 for count in anchor["candidate_counts"].values())
+    assert result["duplicate_link"] == {
         "link_count": 1,
         "replacement_inverted": True,
     }
-
-
-@pytest.mark.rhino
-def test_parent_move_maintains_child_and_deleted_child_breaks_link(rhino_instance):
-    result = _run_script(rhino_instance, "relationship_lifecycle.py")
-
-    assert result["name"] == "relationship_lifecycle"
-    assert result["link_id"]
-    assert result["child_after_parent_move"] == result["child_after_correction"]
+    assert result["metadata_index"] == {
+        "link_count": 2,
+        "index_entries": 2,
+    }
+    lifecycle = result["relationship_lifecycle"]
+    assert lifecycle["link_id"]
+    assert lifecycle["child_after_parent_move"] == lifecycle["child_after_correction"]
 
 
 @pytest.mark.rhino
@@ -93,19 +74,6 @@ def test_undo_and_redo_restore_analytic_plane_relationship(
 
 
 @pytest.mark.rhino
-def test_nested_parent_chain_settles_in_one_command(
-    _rhino_instance_for_document,
-):
-    rhino_instance = _rhino_instance_for_document(
-        FIXTURES / "nested_analytic_planes.3dm"
-    )
-    result = _run_script(rhino_instance, "nested_relationship.py")
-
-    assert result["name"] == "nested_relationship"
-    assert result["middle"] == result["child"]
-
-
-@pytest.mark.rhino
 def test_saved_analytic_links_restore_after_reopen(
     _rhino_instance_for_document,
 ):
@@ -116,6 +84,19 @@ def test_saved_analytic_links_restore_after_reopen(
     assert restored["name"] == "verify_restore"
     assert restored["link_id"]
     assert restored["restored_count"] == 1
+
+
+@pytest.mark.rhino
+def test_nested_parent_chain_settles_in_one_command(
+    _rhino_instance_for_document,
+):
+    rhino_instance = _rhino_instance_for_document(
+        FIXTURES / "nested_analytic_planes.3dm"
+    )
+    result = _run_script(rhino_instance, "nested_relationship.py")
+
+    assert result["name"] == "nested_relationship"
+    assert result["middle"] == result["child"]
 
 
 @pytest.mark.rhino
