@@ -70,6 +70,35 @@ def set_crosshair_size(doc, size):
     return size
 
 
+def crosshair_thickness(doc):
+    plugin = _plugin()
+    if plugin is not None:
+        thickness = plugin.CrosshairThickness
+    else:
+        thickness = _display_state(doc).get(
+            "crosshair_thickness",
+            analytic_plane.CROSSHAIR_THICKNESS,
+        )
+    return max(
+        analytic_plane.CROSSHAIR_THICKNESS_MIN,
+        min(analytic_plane.CROSSHAIR_THICKNESS_MAX, float(thickness)),
+    )
+
+
+def set_crosshair_thickness(doc, thickness):
+    thickness = max(
+        analytic_plane.CROSSHAIR_THICKNESS_MIN,
+        min(analytic_plane.CROSSHAIR_THICKNESS_MAX, int(thickness)),
+    )
+    plugin = _plugin()
+    if plugin is not None:
+        plugin.SaveCrosshairThickness(thickness)
+    else:
+        _display_state(doc)["crosshair_thickness"] = float(thickness)
+    doc.Views.Redraw()
+    return thickness
+
+
 def display_enabled(doc):
     state = document_runtime.try_get_value(doc, DISPLAY_KEY)
     return (

@@ -47,6 +47,32 @@ def _crosshair_size_slider(panel, doc):
     return slider, label_container
 
 
+def _crosshair_thickness_slider(panel, doc):
+    from tack import analytic_plane
+    from tack import plane_link
+
+    slider = Rhino.UI.Controls.Slider(panel, False)
+    slider.SetMinMax(
+        analytic_plane.CROSSHAIR_THICKNESS_MIN,
+        analytic_plane.CROSSHAIR_THICKNESS_MAX,
+    )
+    slider.Decimals = 0
+    slider.Value1 = plane_link.crosshair_thickness(doc)
+    label = forms.Label()
+    label.Text = "Crosshair line width"
+    label.TextAlignment = forms.TextAlignment.Left
+    label_container = forms.DynamicLayout()
+    label_container.DefaultSpacing = drawing.Size(0, 0)
+    label_container.AddRow(label, None)
+
+    def set_thickness(sender, event):
+        if event.PropertyName == "Value1":
+            plane_link.set_crosshair_thickness(doc, sender.Value1)
+
+    slider.PropertyChanged += set_thickness
+    return slider, label_container
+
+
 def _display_toggle(panel, doc):
     from tack import plane_link
 
@@ -75,10 +101,16 @@ def _content(panel, doc):
         panel,
         doc,
     )
+    thickness_slider, thickness_label_container = _crosshair_thickness_slider(
+        panel,
+        doc,
+    )
     crosshair_layout = forms.DynamicLayout()
     crosshair_layout.DefaultSpacing = drawing.Size(0, 2)
     crosshair_layout.AddRow(crosshair_label_container)
     crosshair_layout.AddRow(crosshair_slider)
+    crosshair_layout.AddRow(thickness_label_container)
+    crosshair_layout.AddRow(thickness_slider)
     layout.AddRow(_action_button(panel, "Add Tack", "add"))
     layout.AddRow(_display_toggle(panel, doc))
     layout.AddRow(_action_button(panel, "Clear", "clear"))

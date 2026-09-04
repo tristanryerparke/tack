@@ -11,6 +11,8 @@ CROSSHAIR_SIZE_MIN = 5
 CROSSHAIR_SIZE_MAX = 20
 CROSSHAIR_SIZE = float(CROSSHAIR_SIZE_MAX)
 CROSSHAIR_COLOR = System.Drawing.Color.Orange
+CROSSHAIR_THICKNESS_MIN = 1
+CROSSHAIR_THICKNESS_MAX = 5
 CROSSHAIR_THICKNESS = 2
 
 
@@ -185,7 +187,12 @@ def plane_border(origin, x_axis, y_axis, half_extent):
     ]
 
 
-def draw_preview(display, plane, size=CROSSHAIR_SIZE):
+def draw_preview(
+    display,
+    plane,
+    size=CROSSHAIR_SIZE,
+    thickness=CROSSHAIR_THICKNESS,
+):
     if plane is None or not plane.IsValid:
         return
     origin = plane.Origin
@@ -198,30 +205,30 @@ def draw_preview(display, plane, size=CROSSHAIR_SIZE):
         origin,
         origin - x_axis * half_extent,
         CROSSHAIR_COLOR,
-        CROSSHAIR_THICKNESS,
+        thickness,
     )
     display.DrawLine(
         origin,
         origin - y_axis * half_extent,
         CROSSHAIR_COLOR,
-        CROSSHAIR_THICKNESS,
+        thickness,
     )
     display.DrawCircle(
         Rhino.Geometry.Circle(plane, preview_circle_radius(size)),
         CROSSHAIR_COLOR,
-        CROSSHAIR_THICKNESS,
+        thickness,
     )
     display.DrawLine(
         origin,
         origin + x_axis * half_extent,
         appearance.GridXAxisLineColor,
-        CROSSHAIR_THICKNESS,
+        thickness,
     )
     display.DrawLine(
         origin,
         origin + y_axis * half_extent,
         appearance.GridYAxisLineColor,
-        CROSSHAIR_THICKNESS,
+        thickness,
     )
 
 

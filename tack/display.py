@@ -144,6 +144,12 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
         return plane_link.crosshair_size(doc)
 
+    def _crosshair_thickness(self):
+        from tack import plane_link
+
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        return plane_link.crosshair_thickness(doc)
+
     def _capture(self, doc, state):
         link = state["link"]
         parent = utils.find_object(doc, state["parent_id"])
@@ -305,4 +311,5 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     event.Display,
                     plane,
                     self._crosshair_size(),
+                    self._crosshair_thickness(),
                 )

@@ -39,6 +39,19 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         Instance.Settings.SetDouble("CrosshairSize", size);
     }
 
+    public static double CrosshairThickness
+    {
+      get => Instance == null || Instance.Settings == null
+        ? 2.0
+        : Instance.Settings.GetDouble("CrosshairThickness", 2.0);
+    }
+
+    public static void SaveCrosshairThickness(double thickness)
+    {
+      if (Instance != null && Instance.Settings != null)
+        Instance.Settings.SetDouble("CrosshairThickness", thickness);
+    }
+
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
       Panels.RegisterPanel(
