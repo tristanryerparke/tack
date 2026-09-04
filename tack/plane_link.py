@@ -179,7 +179,11 @@ def install(doc, link, default_display_enabled=True):
     state = _new_state(doc, link)
     if state is None:
         return None
-    states(doc)[link["link_id"]] = state
+    active = states(doc)
+    for saved_link_id, saved_state in list(active.items()):
+        if plane_link_metadata.same_object_pair(saved_state, link):
+            active.pop(saved_link_id)
+    active[link["link_id"]] = state
     saved_display_enabled = plane_link_metadata.display_enabled(
         doc,
         default_display_enabled,

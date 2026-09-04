@@ -235,6 +235,16 @@ def validate(link, expected_link_id=None):
     )
 
 
+def same_object_pair(left, right):
+    return (
+        utils.same_id(left["parent_id"], right["parent_id"])
+        and utils.same_id(left["child_id"], right["child_id"])
+    ) or (
+        utils.same_id(left["parent_id"], right["child_id"])
+        and utils.same_id(left["child_id"], right["parent_id"])
+    )
+
+
 def read_link(doc, link_id):
     return next(
         (
@@ -266,6 +276,9 @@ def save(doc, link):
         return False
 
     index = _read_index(doc)
+    for saved_link_id, saved_link in list(index.items()):
+        if same_object_pair(saved_link, link):
+            index.pop(saved_link_id)
     index[link["link_id"]] = link
     return _write_index(doc, index)
 

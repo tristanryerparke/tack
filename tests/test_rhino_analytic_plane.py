@@ -44,6 +44,17 @@ def test_document_index_preserves_complete_links_without_object_scan(rhino_insta
 
 
 @pytest.mark.rhino
+def test_new_tack_replaces_existing_tack_between_the_same_objects(rhino_instance):
+    result = _run_script(rhino_instance, "duplicate_link.py")
+
+    assert result == {
+        "name": "duplicate_link",
+        "link_count": 1,
+        "replacement_inverted": True,
+    }
+
+
+@pytest.mark.rhino
 def test_parent_move_maintains_child_and_deleted_child_breaks_link(rhino_instance):
     result = _run_script(rhino_instance, "relationship_lifecycle.py")
 
