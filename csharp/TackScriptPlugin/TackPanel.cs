@@ -59,6 +59,11 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
           ProjectCommand_e3e23181.Instance,
           "e3e23181-99dc-4872-9488-b2b59d06c07e",
           doc);
+      if (action == "settings")
+        return RunProjectCommand(
+          ProjectCommand_f72f643c.Instance,
+          "f72f643c-d1a2-4bc8-a62f-2872b9780159",
+          doc);
       return Result.Cancel;
     }
 

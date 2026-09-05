@@ -50,58 +50,6 @@ def _icon_button(panel, name, color, tooltip, icon_size=_ICON_SIZE):
     return button
 
 
-def _crosshair_size_slider(panel, doc):
-    from tack import analytic_plane
-    from tack import plane_link
-
-    slider = Rhino.UI.Controls.Slider(panel, False)
-    slider.SetMinMax(
-        analytic_plane.CROSSHAIR_SIZE_MIN,
-        analytic_plane.CROSSHAIR_SIZE_MAX,
-    )
-    slider.Decimals = 0
-    slider.Value1 = plane_link.crosshair_size(doc)
-    label = forms.Label()
-    label.Text = "Crosshair size"
-    label.TextAlignment = forms.TextAlignment.Left
-    label_container = forms.DynamicLayout()
-    label_container.DefaultSpacing = drawing.Size(0, 0)
-    label_container.AddRow(label, None)
-
-    def set_size(sender, event):
-        if event.PropertyName == "Value1":
-            plane_link.set_crosshair_size(doc, sender.Value1)
-
-    slider.PropertyChanged += set_size
-    return slider, label_container
-
-
-def _crosshair_thickness_slider(panel, doc):
-    from tack import analytic_plane
-    from tack import plane_link
-
-    slider = Rhino.UI.Controls.Slider(panel, False)
-    slider.SetMinMax(
-        analytic_plane.CROSSHAIR_THICKNESS_MIN,
-        analytic_plane.CROSSHAIR_THICKNESS_MAX,
-    )
-    slider.Decimals = 0
-    slider.Value1 = plane_link.crosshair_thickness(doc)
-    label = forms.Label()
-    label.Text = "Crosshair line width"
-    label.TextAlignment = forms.TextAlignment.Left
-    label_container = forms.DynamicLayout()
-    label_container.DefaultSpacing = drawing.Size(0, 0)
-    label_container.AddRow(label, None)
-
-    def set_thickness(sender, event):
-        if event.PropertyName == "Value1":
-            plane_link.set_crosshair_thickness(doc, sender.Value1)
-
-    slider.PropertyChanged += set_thickness
-    return slider, label_container
-
-
 def _button_bar(panel, doc):
     from tack import plane_link
 
@@ -145,7 +93,16 @@ def _button_bar(panel, doc):
     )
     clear.Click += lambda sender, event: panel.RunTackCommand("clear")
 
-    bar.AddRow(add, display, clear, None)
+    settings = _icon_button(
+        panel,
+        "settings",
+        "#9e9e9e",
+        "Tack Settings",
+        _ICON_SIZE - 4,
+    )
+    settings.Click += lambda sender, event: panel.RunTackCommand("settings")
+
+    bar.AddRow(add, display, clear, settings, None)
     return bar
 
 
@@ -153,22 +110,7 @@ def _content(panel, doc):
     layout = forms.DynamicLayout()
     layout.Padding = drawing.Padding(5)
     layout.DefaultSpacing = drawing.Size(6, 6)
-    crosshair_slider, crosshair_label_container = _crosshair_size_slider(
-        panel,
-        doc,
-    )
-    thickness_slider, thickness_label_container = _crosshair_thickness_slider(
-        panel,
-        doc,
-    )
-    crosshair_layout = forms.DynamicLayout()
-    crosshair_layout.DefaultSpacing = drawing.Size(0, 2)
-    crosshair_layout.AddRow(crosshair_label_container)
-    crosshair_layout.AddRow(crosshair_slider)
-    crosshair_layout.AddRow(thickness_label_container)
-    crosshair_layout.AddRow(thickness_slider)
     layout.AddRow(_button_bar(panel, doc))
-    layout.AddRow(crosshair_layout)
     layout.AddRow(None)
     return layout
 
