@@ -217,6 +217,23 @@ def restore_document(doc, default_display_enabled=True):
     return len(active)
 
 
+def remove_link(doc, link_id):
+    if not plane_link_metadata.remove(doc, link_id):
+        return False
+
+    active = states(doc, create=False)
+    for saved_link_id in list(active):
+        if utils.same_id(saved_link_id, link_id):
+            active.pop(saved_link_id)
+            break
+    if not active:
+        _remove_runtime(doc)
+        if not document_runtime.has_nonempty_value(STATES_KEY):
+            unsubscribe()
+    doc.Views.Redraw()
+    return True
+
+
 def clear_document(doc):
     _remove_runtime(doc)
     metadata_cleared = plane_link_metadata.clear(doc)
@@ -376,6 +393,9 @@ def EndCommandHandler(sender, event):
     is_undo_or_redo = _command_name(event).lower() in ("undo", "redo")
     if is_undo_or_redo:
         _synchronize_runtime_with_metadata(doc)
+        from tack import panel
+
+        panel.refresh(doc)
         doc.Views.Redraw()
         return
 
@@ -393,6 +413,9 @@ def CloseDocumentHandler(sender, event):
         return
     _remove_runtime(doc)
     document_runtime.remove_document(doc)
+    from tack import panel
+
+    panel.forget(doc)
     if not document_runtime.has_nonempty_value(STATES_KEY):
         unsubscribe()
 

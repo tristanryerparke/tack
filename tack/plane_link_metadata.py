@@ -283,6 +283,23 @@ def save(doc, link):
     return _write_index(doc, index)
 
 
+def remove(doc, link_id):
+    """Remove one persisted Tack relationship from this document."""
+    index = _read_index(doc)
+    saved_link_id = next(
+        (
+            saved_id
+            for saved_id in index
+            if utils.same_id(saved_id, link_id)
+        ),
+        None,
+    )
+    if saved_link_id is None:
+        return False
+    index.pop(saved_link_id)
+    return _write_index(doc, index)
+
+
 def clear(doc):
     """Clear every persisted Tack relationship in this document."""
     return _write_index(doc, {})

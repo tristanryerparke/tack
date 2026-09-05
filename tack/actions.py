@@ -11,6 +11,12 @@ from tack.prompting import analytic_plane_picker
 from tack.prompting.osnap_anchor_picker import select_object
 
 
+def _refresh_panel(doc):
+    from tack import panel
+
+    panel.refresh(doc)
+
+
 def _pick_plane(doc, obj, role):
     view = doc.Views.ActiveView
     if view is None:
@@ -136,6 +142,7 @@ def add(doc, default_display_enabled=True):
 
         if plane_link.install(doc, link, default_display_enabled) is None:
             return Result.Failure
+        _refresh_panel(doc)
         return Result.Success
     finally:
         parent_display.Enabled = False
@@ -156,6 +163,17 @@ def hide(doc):
     return Result.Success
 
 
+def remove(doc, link_id):
+    if doc is None or plane_link_metadata.read_link(doc, link_id) is None:
+        Rhino.RhinoApp.WriteLine("The selected Tack no longer exists.")
+        return Result.Cancel
+    if not plane_link.remove_link(doc, link_id):
+        return Result.Failure
+    _refresh_panel(doc)
+    Rhino.RhinoApp.WriteLine("Deleted Tack {}.".format(str(link_id)[:8]))
+    return Result.Success
+
+
 def clear(doc):
     if doc is None:
         return Result.Cancel
@@ -173,6 +191,7 @@ def clear(doc):
         return Result.Cancel
     if not plane_link.clear_document(doc):
         return Result.Failure
+    _refresh_panel(doc)
     Rhino.RhinoApp.WriteLine("Cleared {} Tack(s).".format(count))
     return Result.Success
 
@@ -181,6 +200,7 @@ def restore_open_documents(default_display_enabled=True):
     restored = 0
     for doc in Rhino.RhinoDoc.OpenDocuments(False):
         restored += plane_link.restore_document(doc, default_display_enabled)
+        _refresh_panel(doc)
     if restored:
         Rhino.RhinoApp.WriteLine("Restored {} Tack(s).".format(restored))
     return Result.Success
