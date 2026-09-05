@@ -101,22 +101,17 @@ def verify_relationship_lifecycle():
             "child correction",
         )
 
-        original_alert = plane_link._show_broken_alert
-
-        def mark_broken(broken_state):
-            broken_state["broken"] = True
-            broken_state["plane"] = None
-
-        plane_link._show_broken_alert = mark_broken
-        try:
-            assert doc.Objects.Delete(child_id, True)
-            plane_link.EndCommandHandler(
-                None,
-                types.SimpleNamespace(CommandEnglishName="Delete"),
-            )
-        finally:
-            plane_link._show_broken_alert = original_alert
-        assert state["broken"], "Deleting a child must break the relationship"
+        assert doc.Objects.Delete(child_id, True)
+        plane_link.EndCommandHandler(
+            None,
+            types.SimpleNamespace(CommandEnglishName="Delete"),
+        )
+        assert plane_link_metadata.read_link(doc, link["link_id"]) is None, (
+            "Deleting a child must delete its Tack"
+        )
+        assert not plane_link.states(doc, create=False), (
+            "Deleting a child must remove its runtime Tack"
+        )
 
         return {
             "link_id": link["link_id"],

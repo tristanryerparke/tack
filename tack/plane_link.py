@@ -371,6 +371,34 @@ def _command_name(event):
     )
 
 
+def _prune_deleted_object_links(doc):
+    """Delete Tacks whose objects were deleted so undo can reinstate both."""
+    active = states(doc)
+    orphaned = [
+        link_id
+        for link_id, state in active.items()
+        if utils.find_object(doc, state["parent_id"]) is None
+        or utils.find_object(doc, state["child_id"]) is None
+    ]
+    if not orphaned:
+        return False
+    undo_record = doc.BeginUndoRecord("Tack links")
+    try:
+        for link_id in orphaned:
+            plane_link_metadata.remove(doc, link_id)
+            active.pop(link_id, None)
+    finally:
+        if undo_record:
+            doc.EndUndoRecord(undo_record)
+    if not active:
+        _remove_runtime(doc)
+    from tack import panel
+
+    panel.refresh(doc)
+    doc.Views.Redraw()
+    return True
+
+
 def _synchronize_runtime_with_metadata(doc):
     active = states(doc)
     saved = {link["link_id"]: link for link in plane_link_metadata.all_links(doc)}
@@ -434,6 +462,7 @@ def EndCommandHandler(sender, event):
 
     _solving = True
     try:
+        _prune_deleted_object_links(doc)
         _maintain_changed_states(doc)
     finally:
         _solving = False

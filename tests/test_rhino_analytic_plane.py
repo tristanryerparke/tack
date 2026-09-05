@@ -100,6 +100,55 @@ def test_nested_parent_chain_settles_in_one_command(
 
 
 @pytest.mark.rhino
+def test_deleting_tacked_object_removes_and_undo_reinstates(
+    _rhino_instance_for_document,
+):
+    rhino_instance = _rhino_instance_for_document(
+        FIXTURES / "nested_analytic_planes.3dm"
+    )
+    from rhino_flow import run_flow
+
+    results = run_flow(
+        [
+            ("script", RHINO_DIR / "delete_cascade_setup.py"),
+            ("command", "_Delete _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_check.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_mid.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_final.py"),
+            ("command", "_Delete _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_check.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_mid.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "delete_cascade_final.py"),
+        ],
+        rhino_instance,
+    )
+
+    setup, delete_child, mid_child, final_child = (
+        results[0],
+        results[1],
+        results[2],
+        results[3],
+    )
+    delete_parent, mid_parent, final_parent = results[4], results[5], results[6]
+
+    assert setup["link_id"]
+    assert delete_child["victim"] == "child"
+    assert not delete_child["link_present"]
+    assert mid_child["link"], "Undo did not restore the Tack data first"
+    assert final_child["link_present"]
+    assert final_child["runtime"] == 1
+    assert delete_parent["victim"] == "parent"
+    assert not delete_parent["link_present"]
+    assert mid_parent["link"], "Undo did not restore the Tack data first"
+    assert final_parent["link_present"]
+    assert final_parent["runtime"] == 1
+
+
+@pytest.mark.rhino
 def test_one_hundred_holes_drive_one_hundred_centered_cylinders(
     _rhino_instance_for_document,
 ):

@@ -108,7 +108,14 @@ def add(doc, default_display_enabled=True):
         child = _select_child(doc, parent.Id)
         if child is None:
             return Result.Cancel
-        if link_graph.would_create_cycle(
+        replacing = any(
+            plane_link_metadata.same_object_pair(
+                link,
+                {"parent_id": str(parent.Id), "child_id": str(child.Id)},
+            )
+            for link in plane_link_metadata.all_links(doc)
+        )
+        if not replacing and link_graph.would_create_cycle(
             plane_link_metadata.all_links(doc),
             parent.Id,
             child.Id,

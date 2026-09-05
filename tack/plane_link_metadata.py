@@ -318,7 +318,20 @@ def clear(doc):
 
 
 def create(doc, parent_id, child_id, parent_plane, child_plane, inverted):
-    if link_graph.would_create_cycle(_read_index(doc).values(), parent_id, child_id):
+    index = _read_index(doc)
+    replacing_pair = {
+        "parent_id": str(parent_id),
+        "child_id": str(child_id),
+    }
+    replacing = any(
+        same_object_pair(saved_link, replacing_pair)
+        for saved_link in index.values()
+    )
+    if not replacing and link_graph.would_create_cycle(
+        index.values(),
+        parent_id,
+        child_id,
+    ):
         return None
     link = {
         "version": 1,

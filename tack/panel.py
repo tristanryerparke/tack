@@ -55,6 +55,70 @@ def _short_id(object_id):
     return str(object_id).split("-", 1)[0]
 
 
+def _panel_object(doc, object_id):
+    try:
+        return doc.Objects.Find(System.Guid.Parse(str(object_id)))
+    except Exception:
+        return None
+
+
+def _object_display_name(doc, object_id):
+    try:
+        obj = _panel_object(doc, object_id)
+        name = None if obj is None else obj.Attributes.Name
+        return (
+            str(name).strip()
+            if name and str(name).strip()
+            else _short_id(object_id)
+        )
+    except Exception:
+        return _short_id(object_id)
+
+
+def _object_type_label(doc, object_id):
+    try:
+        obj = _panel_object(doc, object_id)
+        if obj is None:
+            return "Obj"
+        geometry = obj.Geometry
+        object_type = obj.ObjectType
+        if object_type == Rhino.DocObjects.ObjectType.Brep:
+            return "Polysrf" if geometry.Faces.Count > 1 else "Srf"
+        if object_type == Rhino.DocObjects.ObjectType.Curve:
+            return "Crv"
+        if object_type == Rhino.DocObjects.ObjectType.Surface:
+            return "Srf"
+        if object_type == Rhino.DocObjects.ObjectType.Extrusion:
+            return "Extr"
+        if object_type == Rhino.DocObjects.ObjectType.Mesh:
+            return "Mesh"
+        if object_type == Rhino.DocObjects.ObjectType.SubD:
+            return "SubD"
+        if object_type == Rhino.DocObjects.ObjectType.Point:
+            return "Pnt"
+        if object_type == Rhino.DocObjects.ObjectType.PointSet:
+            return "Pts"
+        if object_type == Rhino.DocObjects.ObjectType.Hatch:
+            return "Htch"
+        if object_type == Rhino.DocObjects.ObjectType.TextDot:
+            return "Dot"
+        if object_type == Rhino.DocObjects.ObjectType.Annotation:
+            return (
+                "Txt"
+                if isinstance(geometry, Rhino.Geometry.TextEntity)
+                else "Ann"
+            )
+        if object_type == Rhino.DocObjects.ObjectType.InstanceReference:
+            return "Blk"
+        if object_type == Rhino.DocObjects.ObjectType.Light:
+            return "Lgt"
+        if object_type == Rhino.DocObjects.ObjectType.ClipPlane:
+            return "Clp"
+    except Exception:
+        pass
+    return "Obj"
+
+
 class _PanelView:
     def __init__(self, panel, doc):
         self._panel = panel
@@ -71,10 +135,14 @@ class _PanelView:
         self._tree.MouseDown += self._tree_mouse_down
 
         self._context_item = None
+        self._context_header = forms.ButtonMenuItem()
+        self._context_header.Text = "Tack"
+        self._context_header.Enabled = False
         select_object = forms.ButtonMenuItem()
         select_object.Text = "Select object"
         select_object.Click += self._select_context_object
         context_menu = forms.ContextMenu()
+        context_menu.Items.Add(self._context_header)
         context_menu.Items.Add(select_object)
         context_menu.Opening += self._context_menu_opening
         self._tree.ContextMenu = context_menu
@@ -181,10 +249,10 @@ class _PanelView:
     def _selected_link_id(self):
         return self._delete_link_id(self._item_tag(self._tree.SelectedItem))
 
-    def _selection_changed(self, sender, event):
+    def _apply_tree_selection(self, item):
         from tack import plane_link
 
-        tag = self._item_tag(self._tree.SelectedItem)
+        tag = self._item_tag(item)
         self._remove.Enabled = self._delete_link_id(tag) is not None
         self._context_item = tag
         plane_link.set_tree_selection(
@@ -193,11 +261,25 @@ class _PanelView:
             () if tag is None else tag["direct_link_ids"],
         )
 
+    def _selection_changed(self, sender, event):
+        self._apply_tree_selection(self._tree.SelectedItem)
+
     def _tree_mouse_down(self, sender, event):
         cell = self._tree.GetCellAt(event.Location)
         self._context_item = self._item_tag(cell.Item)
 
+    def _context_link_id(self):
+        link_id = self._delete_link_id(self._context_item)
+        if link_id is None and self._context_item is not None:
+            direct = self._context_item["direct_link_ids"]
+            link_id = direct[0] if direct else None
+        return link_id
+
     def _context_menu_opening(self, sender, event):
+        link_id = self._context_link_id()
+        self._context_header.Text = (
+            "Tack {}".format(_short_id(link_id)) if link_id is not None else "Tack"
+        )
         self._select_object_menu_item.Enabled = self._context_item is not None
 
     def _select_context_object(self, sender, event):
@@ -236,6 +318,7 @@ class _PanelView:
         from tack import link_graph
         from tack import plane_link
 
+        selected_object_id = plane_link.selected_object_id(self._doc)
         active = list(plane_link.states(self._doc, create=False).values())
         children_by_parent = {}
         incoming_by_child = {}
@@ -265,11 +348,19 @@ class _PanelView:
             children = children_by_parent.get(key, ())
             return link_sort_key(children[0]) if children else ("", key)
 
+        row_by_key = {}
+        tree_rows = []
+
         def tree_item(key, incoming_link_id=None, path=()):
             outgoing = children_by_parent.get(key, ())
             direct = tuple(incoming_by_child.get(key, ())) + tuple(outgoing)
             item = forms.TreeGridItem()
-            item.Values = ["Object {}".format(_short_id(object_ids[key]))]
+            item.Values = [
+                "{} {}".format(
+                    _object_type_label(self._doc, object_ids[key]),
+                    _object_display_name(self._doc, object_ids[key]),
+                )
+            ]
             item.Tag = {
                 "object_id": object_ids[key],
                 "incoming_link_id": incoming_link_id,
@@ -279,6 +370,8 @@ class _PanelView:
                 "direct_link_ids": tuple(state["link_id"] for state in direct),
             }
             item.Expanded = True
+            tree_rows.append(item)
+            row_by_key.setdefault(key, len(tree_rows) - 1)
             if key in path:
                 return item
             next_path = path + (key,)
@@ -296,10 +389,15 @@ class _PanelView:
         for key in sorted(root_keys, key=object_sort_key):
             root.Children.Add(tree_item(key))
 
+        selected_row = None
+        if selected_object_id is not None:
+            selected_row = row_by_key.get(
+                link_graph.object_key(selected_object_id)
+            )
         self._tree.DataStore = root
-        self._remove.Enabled = False
-        self._context_item = None
-        plane_link.set_tree_selection(self._doc, None, ())
+        if selected_row is not None:
+            self._tree.SelectRow(selected_row)
+        self._apply_tree_selection(self._tree.SelectedItem)
 
 
 def refresh(doc):
