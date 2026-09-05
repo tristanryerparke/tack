@@ -192,6 +192,11 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         geometry = obj.Geometry
         transform = _dynamic_transform(obj)
         if transform is None:
+            for preview in self._previews.values():
+                if utils.same_id(preview["child"].Id, obj.Id):
+                    transform = preview["transform"]
+                    break
+        if transform is None:
             return geometry
         geometry = geometry.Duplicate()
         if geometry is None or not geometry.Transform(transform):
@@ -249,32 +254,61 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         for preview in self._previews.values():
             preview["state"]["dynamic_preview_active"] = False
 
-        previews = {}
-        for state in self.states.values():
-            if state.get("busy") or state.get("broken"):
-                continue
+        states = [
+            state
+            for state in self.states.values()
+            if not state.get("busy") and not state.get("broken")
+        ]
+        transforms = {}
+        direct_dynamic_objects = set()
+        for state in states:
             parent = utils.find_object(doc, state["parent_id"])
             dynamic_transform = _dynamic_transform(parent)
             if dynamic_transform is None:
                 continue
-            source = self._source_for(doc, state)
-            child = utils.find_object(doc, state["child_id"])
-            if source is None or child is None:
-                continue
+            parent_key = str(parent.Id).lower()
+            transforms[parent_key] = dynamic_transform
+            direct_dynamic_objects.add(parent_key)
 
-            live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
-            live_parent_plane.Transform(dynamic_transform)
-            previews[state["link_id"]] = {
-                "child": child,
-                "state": state,
-                "plane": live_parent_plane,
-                "transform": plane_to_plane_transform(
+        previews = {}
+        for _ in range(len(states) + 1):
+            added_transform = False
+            for state in states:
+                parent = utils.find_object(doc, state["parent_id"])
+                child = utils.find_object(doc, state["child_id"])
+                if parent is None or child is None:
+                    continue
+                parent_transform = transforms.get(str(parent.Id).lower())
+                if parent_transform is None:
+                    continue
+                source = self._source_for(doc, state)
+                if source is None:
+                    continue
+
+                live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
+                live_parent_plane.Transform(parent_transform)
+                child_transform = plane_to_plane_transform(
                     live_parent_plane,
                     source["child_plane"],
                     source["inverted"],
-                ),
-            }
-            state["dynamic_preview_active"] = True
+                )
+                previews[state["link_id"]] = {
+                    "child": child,
+                    "state": state,
+                    "plane": live_parent_plane,
+                    "transform": child_transform,
+                }
+                state["dynamic_preview_active"] = True
+
+                child_key = str(child.Id).lower()
+                if (
+                    child_key not in transforms
+                    and child_key not in direct_dynamic_objects
+                ):
+                    transforms[child_key] = child_transform
+                    added_transform = True
+            if not added_transform:
+                break
 
         self._previews = previews
         if not previews:
