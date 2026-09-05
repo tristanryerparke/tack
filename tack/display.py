@@ -7,6 +7,7 @@ from tack import utils
 
 
 LOCKED_WIRE_THICKNESS = 1
+TREE_SELECTION_WIRE_THICKNESS = 4
 
 
 def inverted_plane(plane):
@@ -18,34 +19,49 @@ def plane_to_plane_transform(parent_plane, child_plane, inverted=False):
     return Rhino.Geometry.Transform.PlaneToPlane(source, parent_plane)
 
 
-def _draw_bounding_box(display, geometry, color):
+def _draw_bounding_box(display, geometry, color, thickness):
     bounding_box = geometry.GetBoundingBox(True)
     if not bounding_box.IsValid:
         return
     for line in Rhino.Geometry.Box(bounding_box).GetEdges():
-        display.DrawLine(line, color, LOCKED_WIRE_THICKNESS)
+        display.DrawLine(line, color, thickness)
 
 
-def _draw_locked_wireframe(display, geometry):
-    color = Rhino.ApplicationSettings.AppearanceSettings.LockedObjectColor
+def _draw_brep_edges(display, brep, color, thickness):
+    if brep is None:
+        return
+    for edge in brep.Edges:
+        display.DrawCurve(edge, color, thickness)
+
+
+def _draw_wireframe(display, geometry, color, thickness):
     if isinstance(geometry, Rhino.Geometry.Brep):
-        display.DrawBrepWires(geometry, color, 1)
+        _draw_brep_edges(display, geometry, color, thickness)
     elif isinstance(geometry, Rhino.Geometry.Extrusion):
-        display.DrawExtrusionWires(geometry, color, 1)
+        _draw_brep_edges(display, geometry.ToBrep(), color, thickness)
     elif isinstance(geometry, Rhino.Geometry.Mesh):
-        display.DrawMeshWires(geometry, color, LOCKED_WIRE_THICKNESS)
+        display.DrawMeshWires(geometry, color, thickness)
     elif isinstance(geometry, Rhino.Geometry.Curve):
-        display.DrawCurve(geometry, color, LOCKED_WIRE_THICKNESS)
+        display.DrawCurve(geometry, color, thickness)
     elif isinstance(geometry, Rhino.Geometry.SubD):
-        display.DrawSubDWires(geometry, color, float(LOCKED_WIRE_THICKNESS))
+        display.DrawSubDWires(geometry, color, float(thickness))
     elif isinstance(geometry, Rhino.Geometry.Surface):
-        display.DrawSurface(geometry, color, 1)
+        _draw_brep_edges(display, geometry.ToBrep(), color, thickness)
     elif isinstance(geometry, Rhino.Geometry.Point):
         display.DrawPoint(geometry.Location, color)
     elif isinstance(geometry, Rhino.Geometry.PointCloud):
         display.DrawPointCloud(geometry, 2, color)
     else:
-        _draw_bounding_box(display, geometry, color)
+        _draw_bounding_box(display, geometry, color, thickness)
+
+
+def _draw_locked_wireframe(display, geometry):
+    _draw_wireframe(
+        display,
+        geometry,
+        Rhino.ApplicationSettings.AppearanceSettings.LockedObjectColor,
+        LOCKED_WIRE_THICKNESS,
+    )
 
 
 class PlaneDisplayConduit(Rhino.Display.DisplayConduit):
@@ -149,6 +165,38 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
 
         doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
         return plane_link.crosshair_thickness(doc)
+
+    def _crosshair_states(self):
+        from tack import plane_link
+
+        items = list(self.states.items())
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None or not plane_link.show_selected_tacks_only(doc):
+            return items
+        selected = plane_link.selected_link_ids(doc)
+        return [
+            (link_id, state)
+            for link_id, state in items
+            if any(utils.same_id(link_id, saved_id) for saved_id in selected)
+        ]
+
+    def _selected_geometry(self):
+        from tack import plane_link
+
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None:
+            return None
+        obj = utils.find_object(doc, plane_link.selected_object_id(doc))
+        if obj is None or obj.Geometry is None:
+            return None
+        geometry = obj.Geometry
+        transform = _dynamic_transform(obj)
+        if transform is None:
+            return geometry
+        geometry = geometry.Duplicate()
+        if geometry is None or not geometry.Transform(transform):
+            return obj.Geometry
+        return geometry
 
     def _capture(self, doc, state):
         link = state["link"]
@@ -256,7 +304,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 link_id: preview["plane"]
                 for link_id, preview in self._previews.items()
             }
-            for link_id, state in self.states.items():
+            for link_id, state in self._crosshair_states():
                 plane = preview_planes.get(link_id, state.get("plane"))
                 if not state.get("broken") and plane is not None:
                     event.IncludeBoundingBox(
@@ -297,6 +345,20 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             finally:
                 self._drawing_child = False
 
+        selected_geometry = self._selected_geometry()
+        if selected_geometry is not None:
+            previous_z_bias = event.Display.ZBiasMode
+            try:
+                event.Display.ZBiasMode = Rhino.Display.ZBiasMode.TowardsCamera
+                _draw_wireframe(
+                    event.Display,
+                    selected_geometry,
+                    analytic_plane.CROSSHAIR_COLOR,
+                    TREE_SELECTION_WIRE_THICKNESS,
+                )
+            finally:
+                event.Display.ZBiasMode = previous_z_bias
+
     def DrawOverlay(self, event):
         if not self._matches(event) or not self.display_state["enabled"]:
             return
@@ -304,7 +366,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             link_id: preview["plane"]
             for link_id, preview in self._previews.items()
         }
-        for link_id, state in self.states.items():
+        for link_id, state in self._crosshair_states():
             plane = preview_planes.get(link_id, state.get("plane"))
             if not state.get("broken") and plane is not None:
                 analytic_plane.draw_preview(

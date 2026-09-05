@@ -35,7 +35,7 @@ def show(doc):
 
     dialog = forms.Dialog[bool]()
     dialog.Title = "Tack Settings"
-    dialog.ClientSize = drawing.Size(280, 180)
+    dialog.ClientSize = drawing.Size(280, 205)
     dialog.Resizable = False
     Rhino.UI.EtoExtensions.UseRhinoStyle(dialog)
 
@@ -58,6 +58,13 @@ def show(doc):
         plane_link.crosshair_thickness(doc),
         lambda thickness: plane_link.set_crosshair_thickness(doc, thickness),
     )
+    selected_only = forms.CheckBox()
+    selected_only.Text = "Show Selected Tacks Only"
+    selected_only.Checked = plane_link.show_selected_tacks_only(doc)
+    selected_only.CheckedChanged += lambda sender, event: (
+        plane_link.set_show_selected_tacks_only(doc, bool(sender.Checked))
+    )
+
     close = forms.Button()
     close.Text = "Close"
     close.Size = drawing.Size(80, 24)
@@ -72,6 +79,7 @@ def show(doc):
     layout.AddRow(size_slider)
     layout.AddRow(thickness_label)
     layout.AddRow(thickness_slider)
+    layout.AddRow(selected_only)
     layout.Add(None)
     layout.Add(close_row, True)
     dialog.Content = layout

@@ -2,8 +2,10 @@
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from tack import analytic_plane
+from tack import link_graph
 from tack import utils
 
 
@@ -206,7 +208,7 @@ def set_display_enabled(doc, enabled):
 
 
 def validate(link, expected_link_id=None):
-    if not isinstance(link, dict) or set(link) != {
+    required_fields = {
         "version",
         "link_id",
         "parent_id",
@@ -214,12 +216,22 @@ def validate(link, expected_link_id=None):
         "parent_plane",
         "child_plane",
         "inverted",
-    }:
+    }
+    if not isinstance(link, dict):
+        return False
+    fields = set(link)
+    allowed_fields = required_fields | {"created_at"}
+    if not required_fields.issubset(fields) or not fields.issubset(allowed_fields):
         return False
     link_id = str(link.get("link_id") or "")
+    created_at = link.get("created_at")
     if (
         link.get("version") != 1
         or not link_id
+        or (
+            created_at is not None
+            and (not isinstance(created_at, str) or not created_at.strip())
+        )
         or (
             expected_link_id is not None
             and not utils.same_id(link_id, expected_link_id)
@@ -306,9 +318,12 @@ def clear(doc):
 
 
 def create(doc, parent_id, child_id, parent_plane, child_plane, inverted):
+    if link_graph.would_create_cycle(_read_index(doc).values(), parent_id, child_id):
+        return None
     link = {
         "version": 1,
         "link_id": str(uuid.uuid4()),
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "parent_id": str(parent_id),
         "child_id": str(child_id),
         "parent_plane": parent_plane,

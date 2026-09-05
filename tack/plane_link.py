@@ -99,6 +99,39 @@ def set_crosshair_thickness(doc, thickness):
     return thickness
 
 
+def show_selected_tacks_only(doc):
+    plugin = _plugin()
+    if plugin is not None:
+        return bool(plugin.ShowSelectedTacksOnly)
+    return bool(_display_state(doc).get("show_selected_tacks_only", False))
+
+
+def set_show_selected_tacks_only(doc, enabled):
+    enabled = bool(enabled)
+    plugin = _plugin()
+    if plugin is not None:
+        plugin.SaveShowSelectedTacksOnly(enabled)
+    else:
+        _display_state(doc)["show_selected_tacks_only"] = enabled
+    doc.Views.Redraw()
+    return enabled
+
+
+def selected_link_ids(doc):
+    return _display_state(doc).get("selected_link_ids", ())
+
+
+def selected_object_id(doc):
+    return _display_state(doc).get("selected_object_id")
+
+
+def set_tree_selection(doc, object_id, link_ids):
+    display_state = _display_state(doc)
+    display_state["selected_object_id"] = object_id
+    display_state["selected_link_ids"] = tuple(link_ids)
+    doc.Views.Redraw()
+
+
 def display_enabled(doc):
     state = document_runtime.try_get_value(doc, DISPLAY_KEY)
     return (

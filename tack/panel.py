@@ -70,7 +70,7 @@ class _PanelView:
         self._tree.SelectionChanged += self._selection_changed
         self._tree.MouseDown += self._tree_mouse_down
 
-        self._context_object_id = None
+        self._context_item = None
         select_object = forms.ButtonMenuItem()
         select_object.Text = "Select object"
         select_object.Click += self._select_context_object
@@ -167,29 +167,46 @@ class _PanelView:
     def _item_tag(item):
         return None if item is None else item.Tag
 
-    def _selected_link_id(self):
-        tag = self._item_tag(self._tree.SelectedItem)
-        if tag is None or tag["role"] != "parent":
+    @staticmethod
+    def _delete_link_id(tag):
+        if tag is None:
             return None
-        return tag["link_id"]
+        outgoing = tag["outgoing_link_ids"]
+        if len(outgoing) == 1:
+            return outgoing[0]
+        if not outgoing:
+            return tag["incoming_link_id"]
+        return None
+
+    def _selected_link_id(self):
+        return self._delete_link_id(self._item_tag(self._tree.SelectedItem))
 
     def _selection_changed(self, sender, event):
+        from tack import plane_link
+
         tag = self._item_tag(self._tree.SelectedItem)
-        self._remove.Enabled = tag is not None and tag["role"] == "parent"
-        self._context_object_id = None if tag is None else tag["object_id"]
+        self._remove.Enabled = self._delete_link_id(tag) is not None
+        self._context_item = tag
+        plane_link.set_tree_selection(
+            self._doc,
+            None if tag is None else tag["object_id"],
+            () if tag is None else tag["direct_link_ids"],
+        )
 
     def _tree_mouse_down(self, sender, event):
         cell = self._tree.GetCellAt(event.Location)
-        tag = self._item_tag(cell.Item)
-        self._context_object_id = None if tag is None else tag["object_id"]
+        self._context_item = self._item_tag(cell.Item)
 
     def _context_menu_opening(self, sender, event):
-        self._select_object_menu_item.Enabled = self._context_object_id is not None
+        self._select_object_menu_item.Enabled = self._context_item is not None
 
     def _select_context_object(self, sender, event):
         from tack import utils
 
-        obj = utils.find_object(self._doc, self._context_object_id)
+        object_id = (
+            None if self._context_item is None else self._context_item["object_id"]
+        )
+        obj = utils.find_object(self._doc, object_id)
         if obj is None:
             Rhino.RhinoApp.WriteLine("The selected Tack object no longer exists.")
             return
@@ -216,36 +233,73 @@ class _PanelView:
         self.refresh()
 
     def refresh(self):
+        from tack import link_graph
         from tack import plane_link
 
-        root = forms.TreeGridItem()
-        active = sorted(
-            plane_link.states(self._doc, create=False).values(),
-            key=lambda state: str(state["parent_id"]),
-        )
+        active = list(plane_link.states(self._doc, create=False).values())
+        children_by_parent = {}
+        incoming_by_child = {}
+        object_ids = {}
+        incoming = set()
         for state in active:
-            parent = forms.TreeGridItem()
-            parent.Values = ["Parent {}".format(_short_id(state["parent_id"]))]
-            parent.Tag = {
-                "role": "parent",
-                "link_id": state["link_id"],
-                "object_id": state["parent_id"],
-            }
-            parent.Expanded = True
+            parent_key = link_graph.object_key(state["parent_id"])
+            child_key = link_graph.object_key(state["child_id"])
+            object_ids[parent_key] = state["parent_id"]
+            object_ids[child_key] = state["child_id"]
+            children_by_parent.setdefault(parent_key, []).append(state)
+            incoming_by_child.setdefault(child_key, []).append(state)
+            incoming.add(child_key)
 
-            child = forms.TreeGridItem()
-            child.Values = ["Child {}".format(_short_id(state["child_id"]))]
-            child.Tag = {
-                "role": "child",
-                "link_id": state["link_id"],
-                "object_id": state["child_id"],
+        def link_sort_key(state):
+            return (
+                state["link"].get("created_at") or "",
+                str(state["link_id"]),
+            )
+
+        for children in children_by_parent.values():
+            children.sort(key=link_sort_key)
+        for parents in incoming_by_child.values():
+            parents.sort(key=link_sort_key)
+
+        def object_sort_key(key):
+            children = children_by_parent.get(key, ())
+            return link_sort_key(children[0]) if children else ("", key)
+
+        def tree_item(key, incoming_link_id=None, path=()):
+            outgoing = children_by_parent.get(key, ())
+            direct = tuple(incoming_by_child.get(key, ())) + tuple(outgoing)
+            item = forms.TreeGridItem()
+            item.Values = ["Object {}".format(_short_id(object_ids[key]))]
+            item.Tag = {
+                "object_id": object_ids[key],
+                "incoming_link_id": incoming_link_id,
+                "outgoing_link_ids": tuple(
+                    state["link_id"] for state in outgoing
+                ),
+                "direct_link_ids": tuple(state["link_id"] for state in direct),
             }
-            parent.Children.Add(child)
-            root.Children.Add(parent)
+            item.Expanded = True
+            if key in path:
+                return item
+            next_path = path + (key,)
+            for state in outgoing:
+                child_key = link_graph.object_key(state["child_id"])
+                item.Children.Add(
+                    tree_item(child_key, state["link_id"], next_path)
+                )
+            return item
+
+        root = forms.TreeGridItem()
+        root_keys = [key for key in children_by_parent if key not in incoming]
+        if active and not root_keys:
+            root_keys = list(children_by_parent)
+        for key in sorted(root_keys, key=object_sort_key):
+            root.Children.Add(tree_item(key))
 
         self._tree.DataStore = root
         self._remove.Enabled = False
-        self._context_object_id = None
+        self._context_item = None
+        plane_link.set_tree_selection(self._doc, None, ())
 
 
 def refresh(doc):

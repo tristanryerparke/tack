@@ -26,6 +26,19 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         Instance.Settings.SetBool("DefaultDisplayEnabled", action == "show");
     }
 
+    public static bool ShowSelectedTacksOnly
+    {
+      get => Instance != null
+        && Instance.Settings != null
+        && Instance.Settings.GetBool("ShowSelectedTacksOnly", false);
+    }
+
+    public static void SaveShowSelectedTacksOnly(bool enabled)
+    {
+      if (Instance != null && Instance.Settings != null)
+        Instance.Settings.SetBool("ShowSelectedTacksOnly", enabled);
+    }
+
     public static double CrosshairSize
     {
       get => Instance == null || Instance.Settings == null

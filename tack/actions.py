@@ -5,6 +5,7 @@ from Rhino.Commands import Result
 
 from tack import analytic_plane
 from tack import display
+from tack import link_graph
 from tack import plane_link
 from tack import plane_link_metadata
 from tack.prompting import analytic_plane_picker
@@ -106,6 +107,19 @@ def add(doc, default_display_enabled=True):
     try:
         child = _select_child(doc, parent.Id)
         if child is None:
+            return Result.Cancel
+        if link_graph.would_create_cycle(
+            plane_link_metadata.all_links(doc),
+            parent.Id,
+            child.Id,
+        ):
+            Rhino.UI.Dialogs.ShowMessage(
+                "This Tack would create a parent-child loop. "
+                "Tack loops are unstable and cannot be created.",
+                "Tack loop not allowed",
+                Rhino.UI.ShowMessageButton.OK,
+                Rhino.UI.ShowMessageIcon.Warning,
+            )
             return Result.Cancel
         child_result = _pick_plane(doc, child, "child")
         if child_result is None:
