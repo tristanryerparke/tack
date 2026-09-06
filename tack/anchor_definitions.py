@@ -652,6 +652,17 @@ def derive(obj_ref, picked_point, osnap_type, tolerance):
         )
         return _unique_match(candidates, picked_point, tolerance)
 
+    # At a target vertex shared with another object, Rhino can report the
+    # display intersection instead of the vertex OSnap. Only accept it when
+    # the selected Brep has exactly one vertex at the picked point; an
+    # interior intersection remains unsupported and is deliberately rejected.
+    if snap_name == "intersection" and _brep(obj) is not None:
+        return _unique_match(
+            _candidates(obj, BREP_VERTEX, tolerance),
+            picked_point,
+            tolerance,
+        )
+
     if snap_name in ("mid", "midpoint"):
         candidates = _midpoint_candidates(
             obj,
