@@ -9,6 +9,7 @@ from tack.prompting.osnap_anchor_picker import AnchorPickSession
 
 CIRCULAR_OPTION = "Circular"
 THREE_POINT_OPTION = "3Point"
+WORLD_OPTION = "World"
 
 
 def _dot(left, right):
@@ -171,11 +172,12 @@ def _getter_factory(construction_plane, origin=None, x_point=None):
 def _pick_nonzero_x(session, construction_plane, origin):
     while True:
         picked = session.pick(
-            "Pick an analytic anchor for the X axis",
+            "Pick an analytic anchor for the X axis or choose World",
             getter_factory=_getter_factory(construction_plane, origin),
+            options=(WORLD_OPTION,),
         )
-        if picked is None:
-            return None
+        if picked is None or isinstance(picked, dict):
+            return picked
         point, definition = picked
         if _unit(point - origin) is not None:
             return point, definition
@@ -234,6 +236,24 @@ def pick_circular_plane(doc, obj):
 
     center, center_anchor = picked
     return _circular_result(obj, center, center_anchor)
+
+
+def _world_axes_result(obj, origin, origin_anchor):
+    return {
+        "mode": "world",
+        "definition": {
+            "type": "world_axes_plane",
+            "object_id": str(obj.Id),
+            "origin_anchor": origin_anchor,
+        },
+        "picks": [
+            {
+                "role": "origin",
+                "point": origin,
+                "anchor": origin_anchor,
+            }
+        ],
+    }
 
 
 def _circular_result(obj, center, center_anchor):
@@ -301,6 +321,8 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
             x_result = _pick_nonzero_x(session, construction_plane, origin)
             if x_result is None:
                 return None
+            if isinstance(x_result, dict):
+                return _world_axes_result(obj, origin, origin_definition)
             x_point, x_definition = x_result
 
             y_result = _pick_valid_y(
@@ -396,6 +418,8 @@ def pick_plane(doc, obj, construction_plane):
         x_result = _pick_nonzero_x(session, construction_plane, origin)
         if x_result is None:
             return None
+        if isinstance(x_result, dict):
+            return _world_axes_result(obj, origin, origin_definition)
         x_point, x_definition = x_result
         y_result = _pick_valid_y(
             session,

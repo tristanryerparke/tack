@@ -54,6 +54,25 @@ def _resolve_three_point_plane(doc, definition):
     return plane if plane.IsValid else None
 
 
+def _resolve_world_axes_plane(doc, definition):
+    obj = _definition_object(doc, definition)
+    if obj is None:
+        return None
+    origin = anchor_definitions.resolve(
+        obj,
+        definition.get("origin_anchor"),
+        max(doc.ModelAbsoluteTolerance, 1e-7),
+    )
+    if origin is None:
+        return None
+    plane = Rhino.Geometry.Plane(
+        origin,
+        Rhino.Geometry.Vector3d.XAxis,
+        Rhino.Geometry.Vector3d.YAxis,
+    )
+    return plane if plane.IsValid else None
+
+
 def _plane_from_circular_curve(curve, circle):
     x_axis = curve.PointAtStart - circle.Center
     if not x_axis.Unitize():
@@ -106,6 +125,7 @@ def _resolve_circular_curve_plane(doc, definition):
 
 _DEFINITION_RESOLVERS = {
     "three_point_plane": _resolve_three_point_plane,
+    "world_axes_plane": _resolve_world_axes_plane,
     "circular_edge_plane": _resolve_circular_edge_plane,
     "circular_curve_plane": _resolve_circular_curve_plane,
 }
@@ -131,6 +151,12 @@ def _valid_three_point_plane(definition):
     )
 
 
+def _valid_world_axes_plane(definition):
+    return set(definition) == {"type", "object_id", "origin_anchor"} and (
+        anchor_definitions.validate(definition["origin_anchor"])
+    )
+
+
 def _valid_circular_plane(definition, definition_type, field, anchor_type):
     if set(definition) != {"type", "object_id", field}:
         return False
@@ -149,6 +175,8 @@ def validate_definition(definition, expected_object_id=None):
     valid = (
         _valid_three_point_plane(definition)
         if definition_type == "three_point_plane"
+        else _valid_world_axes_plane(definition)
+        if definition_type == "world_axes_plane"
         else _valid_circular_plane(
             definition,
             "circular_edge_plane",
