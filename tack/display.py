@@ -1,5 +1,7 @@
 """Display conduits for analytic plane picking and live Tack links."""
 
+import re
+
 import Rhino
 
 from tack import analytic_plane
@@ -8,6 +10,7 @@ from tack import utils
 
 LOCKED_WIRE_THICKNESS = 1
 TREE_SELECTION_WIRE_THICKNESS = 4
+_COPY_ENABLED_PATTERN = re.compile(r"\bcopy\s*=\s*yes\b", re.IGNORECASE)
 
 
 def inverted_plane(plane):
@@ -160,6 +163,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         self._sources = {}
         self._previews = {}
         self._drawing_child = False
+        self._active_command = None
 
     def _matches(self, event):
         doc = getattr(event, "RhinoDoc", None)
@@ -262,8 +266,20 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         self._sources.clear()
         self._previews.clear()
 
+    def command_began(self, command_name):
+        self._active_command = str(command_name or "").lower().lstrip("_")
+
     def command_ended(self):
+        self._active_command = None
         self.clear_preview()
+
+    def _preview_allowed(self):
+        if self._active_command not in ("drag", "move", "rotate", "rotate3d"):
+            return False
+        # Rhino's live command prompt updates as built-in Copy options change.
+        # Suppress Tack's movement preview while Rhino is previewing a copy.
+        prompt = str(Rhino.RhinoApp.CommandPrompt or "")
+        return _COPY_ENABLED_PATTERN.search(prompt) is None
 
     def _update(self, doc):
         for preview in self._previews.values():
@@ -274,6 +290,11 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             for state in self.states.values()
             if not state.get("busy") and not state.get("broken")
         ]
+        if not self._preview_allowed():
+            self._sources.clear()
+            self._previews = {}
+            return
+
         transforms = {}
         direct_dynamic_objects = set()
         for state in states:
@@ -283,8 +304,9 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 if dynamic_transform is None:
                     continue
                 object_key = str(obj.Id).lower()
-                transforms[object_key] = dynamic_transform
                 direct_dynamic_objects.add(object_key)
+                if role == "parent":
+                    transforms[object_key] = dynamic_transform
 
         previews = {}
         for _ in range(len(states) + 1):
@@ -299,11 +321,15 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     continue
 
                 parent_transform = transforms.get(str(parent.Id).lower())
-                child_transform = transforms.get(str(child.Id).lower())
                 inherit_only = source["mode"] == "inherit_only"
                 child_is_directly_dynamic = (
                     str(child.Id).lower() in direct_dynamic_objects
                 )
+                # Copy previews every selected object natively. If both Tack
+                # endpoints are selected, do not add a redundant linked-child
+                # preview over Rhino's parent-and-child copy preview.
+                if parent_transform is not None and child_is_directly_dynamic:
+                    continue
                 if parent_transform is not None:
                     live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
                     live_parent_plane.Transform(parent_transform)
@@ -318,11 +344,6 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                             live_child_plane,
                             source["inverted"],
                         )
-                elif inherit_only and child_transform is not None:
-                    live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
-                    live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
-                    live_child_plane.Transform(child_transform)
-                    preview_transform = child_transform
                 else:
                     continue
 

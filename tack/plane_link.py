@@ -565,6 +565,15 @@ def _maintain_changed_states(doc):
             maintain(doc, state)
 
 
+def BeginCommandHandler(sender, event):
+    doc = Rhino.RhinoDoc.ActiveDoc
+    if doc is None:
+        return
+    conduit = document_runtime.try_get_value(doc, CONDUIT_KEY)
+    if conduit is not None:
+        conduit.command_began(_command_name(event))
+
+
 def EndCommandHandler(sender, event):
     global _solving
     if _solving:
@@ -611,7 +620,8 @@ def CloseDocumentHandler(sender, event):
 def subscribe():
     if sc.sticky.get(HANDLERS_KEY) is not None:
         return
-    handlers = (EndCommandHandler, CloseDocumentHandler)
+    handlers = (BeginCommandHandler, EndCommandHandler, CloseDocumentHandler)
+    Rhino.Commands.Command.BeginCommand += BeginCommandHandler
     Rhino.Commands.Command.EndCommand += EndCommandHandler
     Rhino.RhinoDoc.CloseDocument += CloseDocumentHandler
     sc.sticky[HANDLERS_KEY] = handlers
@@ -619,7 +629,11 @@ def subscribe():
 
 def unsubscribe():
     handlers = sc.sticky.pop(HANDLERS_KEY, ())
-    events = (Rhino.Commands.Command.EndCommand, Rhino.RhinoDoc.CloseDocument)
+    events = (
+        Rhino.Commands.Command.BeginCommand,
+        Rhino.Commands.Command.EndCommand,
+        Rhino.RhinoDoc.CloseDocument,
+    )
     for handler, event in zip(handlers, events):
         try:
             event -= handler
