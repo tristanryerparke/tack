@@ -151,18 +151,37 @@ class _PanelView:
         self._remove = _icon_button(
             panel,
             "x",
-            "#ef5350",
-            "Delete selected Tack",
+            "#757575",
+            "Delete Tacks associated with this object",
             _ICON_SIZE,
         )
         self._remove.Enabled = False
         self._remove.Click += self._remove_selected
+
+        self._tack_details = forms.Label()
+        self._tack_details.TextAlignment = forms.TextAlignment.Left
+        self._reset_transform = forms.Button()
+        self._reset_transform.Text = "Reset transform to original"
+        self._reset_transform.Click += self._reset_selected_transform
+
+        details_row = forms.DynamicLayout()
+        details_row.DefaultSpacing = drawing.Size(0, 0)
+        details_row.AddRow(self._tack_details, None)
+        reset_row = forms.DynamicLayout()
+        reset_row.DefaultSpacing = drawing.Size(0, 0)
+        reset_row.AddRow(self._reset_transform, None)
+        self._tack_inspector = forms.DynamicLayout()
+        self._tack_inspector.Padding = drawing.Padding(4)
+        self._tack_inspector.DefaultSpacing = drawing.Size(0, 2)
+        self._tack_inspector.AddRow(details_row)
+        self._tack_inspector.AddRow(reset_row)
 
         layout = forms.DynamicLayout()
         layout.Padding = drawing.Padding(5)
         layout.DefaultSpacing = drawing.Size(6, 6)
         layout.AddRow(self._button_bar())
         layout.Add(self._tree, yscale=True)
+        layout.AddRow(self._tack_inspector)
         self.control = layout
         self.refresh()
 
@@ -216,6 +235,15 @@ class _PanelView:
             _ICON_SIZE - 4,
         )
 
+    def _update_remove_button(self, enabled):
+        self._remove.Enabled = enabled
+        self._remove.Image = _svg_icon(
+            self._panel,
+            "x",
+            "#ef5350" if enabled else "#757575",
+            _ICON_SIZE,
+        )
+
     def _add(self, sender, event):
         self._panel.RunTackCommand("add")
         self.refresh()
@@ -249,17 +277,57 @@ class _PanelView:
     def _selected_link_id(self):
         return self._delete_link_id(self._item_tag(self._tree.SelectedItem))
 
+    def _selected_link_ids(self):
+        tag = self._item_tag(self._tree.SelectedItem)
+        return () if tag is None else tag["direct_link_ids"]
+
     def _apply_tree_selection(self, item):
         from tack import plane_link
 
         tag = self._item_tag(item)
-        self._remove.Enabled = self._delete_link_id(tag) is not None
+        link_id = self._delete_link_id(tag)
+        self._update_remove_button(
+            bool(() if tag is None else tag["direct_link_ids"])
+        )
         self._context_item = tag
+        self._update_tack_inspector(link_id)
         plane_link.set_tree_selection(
             self._doc,
             None if tag is None else tag["object_id"],
             () if tag is None else tag["direct_link_ids"],
         )
+
+    def _update_tack_inspector(self, link_id):
+        from tack import plane_link_metadata
+
+        link = (
+            None
+            if link_id is None
+            else plane_link_metadata.read_link(self._doc, link_id)
+        )
+        if link is None:
+            self._tack_details.Text = "Select a Tack to inspect"
+            self._tack_details.ToolTip = ""
+            self._reset_transform.Visible = False
+            return
+        mode = plane_link_metadata.link_mode(link)
+        self._tack_details.Text = "Tack ID: {}\nMode: {}".format(
+            _short_id(link["link_id"]),
+            "Inherit Only" if mode == "inherit_only" else "Attached",
+        )
+        self._tack_details.ToolTip = str(link["link_id"])
+        self._reset_transform.Visible = mode == "inherit_only"
+
+    def _reset_selected_transform(self, sender, event):
+        from tack import plane_link
+
+        link_id = self._selected_link_id()
+        if link_id is None or not plane_link.reset_inherit_transform(
+            self._doc,
+            link_id,
+        ):
+            Rhino.RhinoApp.WriteLine("The selected Tack cannot reset its transform.")
+        self.refresh()
 
     def _selection_changed(self, sender, event):
         self._apply_tree_selection(self._tree.SelectedItem)
@@ -298,20 +366,24 @@ class _PanelView:
         self._doc.Views.Redraw()
 
     def _remove_selected(self, sender, event):
-        link_id = self._selected_link_id()
-        if link_id is None:
+        link_ids = self._selected_link_ids()
+        count = len(link_ids)
+        if not count:
             return
         confirmation = Rhino.UI.Dialogs.ShowMessage(
-            "Delete Tack {}?".format(str(link_id)[:8]),
-            "Delete Tack",
+            "Delete {} Tack{} associated with this object?".format(
+                count,
+                "" if count == 1 else "s",
+            ),
+            "Delete Tacks",
             Rhino.UI.ShowMessageButton.YesNo,
             Rhino.UI.ShowMessageIcon.Warning,
         )
         if confirmation != Rhino.UI.ShowMessageResult.Yes:
             return
-        from tack import actions
+        from tack import plane_link
 
-        actions.remove(self._doc, link_id)
+        plane_link.remove_links(self._doc, link_ids)
         self.refresh()
 
     def refresh(self):

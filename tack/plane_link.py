@@ -178,6 +178,7 @@ def _new_state(doc, link):
         "child_id": link["child_id"],
         "link": link,
         "plane": Rhino.Geometry.Plane(parent_plane),
+        "child_plane": Rhino.Geometry.Plane(child_plane),
         "broken": False,
         "busy": False,
         "dynamic_preview_active": False,
@@ -250,21 +251,49 @@ def restore_document(doc, default_display_enabled=True):
     return len(active)
 
 
-def remove_link(doc, link_id):
-    if not plane_link_metadata.remove(doc, link_id):
+def reset_inherit_transform(doc, link_id):
+    """Restore an Inherit Only Tack's current transform to its original one."""
+    link = plane_link_metadata.read_link(doc, link_id)
+    if link is None or plane_link_metadata.link_mode(link) != "inherit_only":
+        return False
+    updated = dict(link)
+    updated["current_transform"] = list(link["original_transform"])
+    if not plane_link_metadata.save(doc, updated):
+        return False
+    state = next(
+        (
+            candidate
+            for candidate in states(doc, create=False).values()
+            if utils.same_id(candidate["link_id"], link_id)
+        ),
+        None,
+    )
+    if state is None:
+        return False
+    state["link"] = updated
+    return maintain(doc, state)
+
+
+def remove_links(doc, link_ids):
+    """Remove one or more Tacks in one persisted relationship update."""
+    requested = tuple(link_ids)
+    if not plane_link_metadata.remove_many(doc, requested):
         return False
 
     active = states(doc, create=False)
     for saved_link_id in list(active):
-        if utils.same_id(saved_link_id, link_id):
+        if any(utils.same_id(saved_link_id, link_id) for link_id in requested):
             active.pop(saved_link_id)
-            break
     if not active:
         _remove_runtime(doc)
         if not document_runtime.has_nonempty_value(STATES_KEY):
             unsubscribe()
     doc.Views.Redraw()
     return True
+
+
+def remove_link(doc, link_id):
+    return remove_links(doc, (link_id,))
 
 
 def clear_document(doc):
@@ -289,6 +318,63 @@ def transform_object_in_place(doc, obj, transform):
     if not doc.Objects.ModifyAttributes(object_id, attributes, True):
         return None
     return utils.find_object(doc, object_id)
+
+
+_TRANSFORM_FIELDS = (
+    "M00",
+    "M01",
+    "M02",
+    "M03",
+    "M10",
+    "M11",
+    "M12",
+    "M13",
+    "M20",
+    "M21",
+    "M22",
+    "M23",
+    "M30",
+    "M31",
+    "M32",
+    "M33",
+)
+
+
+def inherit_transform_data(parent_plane, child_plane):
+    """Encode the child plane in the parent plane's local coordinates."""
+    relative_child = Rhino.Geometry.Plane(child_plane)
+    relative_child.Transform(
+        Rhino.Geometry.Transform.PlaneToPlane(
+            parent_plane,
+            Rhino.Geometry.Plane.WorldXY,
+        )
+    )
+    transform = Rhino.Geometry.Transform.PlaneToPlane(
+        Rhino.Geometry.Plane.WorldXY,
+        relative_child,
+    )
+    return [float(getattr(transform, field)) for field in _TRANSFORM_FIELDS]
+
+
+def inherit_target_child_plane(parent_plane, transform_data):
+    """Resolve an inherited child plane from its parent-local transform."""
+    transform = Rhino.Geometry.Transform.Identity
+    try:
+        for field, value in zip(_TRANSFORM_FIELDS, transform_data):
+            setattr(transform, field, float(value))
+    except (TypeError, ValueError):
+        return None
+    relative_child = Rhino.Geometry.Plane(Rhino.Geometry.Plane.WorldXY)
+    if not relative_child.Transform(transform):
+        return None
+    if not relative_child.Transform(
+        Rhino.Geometry.Transform.PlaneToPlane(
+            Rhino.Geometry.Plane.WorldXY,
+            parent_plane,
+        )
+    ):
+        return None
+    return relative_child if relative_child.IsValid else None
 
 
 def _planes_match(parent_plane, child_plane, inverted, tolerance):
@@ -339,22 +425,62 @@ def maintain(doc, state):
 
     state["broken"] = False
     state["plane"] = Rhino.Geometry.Plane(parent_plane)
+    state["child_plane"] = Rhino.Geometry.Plane(child_plane)
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    if _planes_match(parent_plane, child_plane, link["inverted"], tolerance):
-        _refresh_serials(doc, state)
-        return True
+    parent_changed = _object_serial(parent) != state.get("parent_runtime_serial")
+    child_changed = _object_serial(child) != state.get("child_runtime_serial")
 
-    correction = display.plane_to_plane_transform(
-        parent_plane,
-        child_plane,
-        link["inverted"],
-    )
+    if plane_link_metadata.link_mode(link) == "inherit_only":
+        if child_changed and not parent_changed:
+            updated = dict(link)
+            updated["current_transform"] = inherit_transform_data(
+                parent_plane,
+                child_plane,
+            )
+            if not plane_link_metadata.save(doc, updated):
+                _show_broken_alert(state)
+                return False
+            state["link"] = updated
+            _refresh_serials(doc, state)
+            doc.Views.Redraw()
+            return True
+
+        target_child_plane = inherit_target_child_plane(
+            parent_plane,
+            link["current_transform"],
+        )
+        if target_child_plane is None:
+            _show_broken_alert(state)
+            return False
+        if _planes_match(target_child_plane, child_plane, False, tolerance):
+            _refresh_serials(doc, state)
+            return True
+        correction = Rhino.Geometry.Transform.PlaneToPlane(
+            child_plane,
+            target_child_plane,
+        )
+    else:
+        if _planes_match(parent_plane, child_plane, link["inverted"], tolerance):
+            _refresh_serials(doc, state)
+            return True
+        correction = display.plane_to_plane_transform(
+            parent_plane,
+            child_plane,
+            link["inverted"],
+        )
+
     state["busy"] = True
     try:
         transformed = transform_object_in_place(doc, child, correction)
         if transformed is None or not utils.same_id(transformed.Id, child.Id):
             _show_broken_alert(state)
             return False
+        resolved_child_plane = analytic_plane.resolve_definition(
+            doc,
+            link["child_plane"],
+        )
+        if resolved_child_plane is not None:
+            state["child_plane"] = Rhino.Geometry.Plane(resolved_child_plane)
         _refresh_serials(doc, state)
         doc.Views.Redraw()
         return True

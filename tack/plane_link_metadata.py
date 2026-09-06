@@ -1,6 +1,7 @@
 """Persist Tack relationships in the Tack plug-in's private document data."""
 
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 
@@ -207,6 +208,24 @@ def set_display_enabled(doc, enabled):
     return _write_index(doc, _read_index(doc), bool(enabled))
 
 
+def _valid_transform(data):
+    return (
+        isinstance(data, list)
+        and len(data) == 16
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in data
+        )
+    )
+
+
+def link_mode(link):
+    """Return a legacy-compatible Tack mode."""
+    return link.get("mode", "attached")
+
+
 def validate(link, expected_link_id=None):
     required_fields = {
         "version",
@@ -220,7 +239,12 @@ def validate(link, expected_link_id=None):
     if not isinstance(link, dict):
         return False
     fields = set(link)
-    allowed_fields = required_fields | {"created_at"}
+    allowed_fields = required_fields | {
+        "created_at",
+        "mode",
+        "original_transform",
+        "current_transform",
+    }
     if not required_fields.issubset(fields) or not fields.issubset(allowed_fields):
         return False
     link_id = str(link.get("link_id") or "")
@@ -239,6 +263,14 @@ def validate(link, expected_link_id=None):
         or not link.get("parent_id")
         or not link.get("child_id")
         or not isinstance(link.get("inverted"), bool)
+    ):
+        return False
+    mode = link_mode(link)
+    if mode not in ("attached", "inherit_only"):
+        return False
+    if mode == "inherit_only" and not (
+        _valid_transform(link.get("original_transform"))
+        and _valid_transform(link.get("current_transform"))
     ):
         return False
     return (
@@ -295,21 +327,27 @@ def save(doc, link):
     return _write_index(doc, index)
 
 
+def remove_many(doc, link_ids):
+    """Remove the requested persisted Tack relationships in one write."""
+    requested = tuple(link_ids)
+    if not requested:
+        return False
+    index = _read_index(doc)
+    removed = [
+        saved_id
+        for saved_id in index
+        if any(utils.same_id(saved_id, link_id) for link_id in requested)
+    ]
+    if not removed:
+        return False
+    for saved_id in removed:
+        index.pop(saved_id)
+    return _write_index(doc, index)
+
+
 def remove(doc, link_id):
     """Remove one persisted Tack relationship from this document."""
-    index = _read_index(doc)
-    saved_link_id = next(
-        (
-            saved_id
-            for saved_id in index
-            if utils.same_id(saved_id, link_id)
-        ),
-        None,
-    )
-    if saved_link_id is None:
-        return False
-    index.pop(saved_link_id)
-    return _write_index(doc, index)
+    return remove_many(doc, (link_id,))
 
 
 def clear(doc):
@@ -317,7 +355,17 @@ def clear(doc):
     return _write_index(doc, {})
 
 
-def create(doc, parent_id, child_id, parent_plane, child_plane, inverted):
+def create(
+    doc,
+    parent_id,
+    child_id,
+    parent_plane,
+    child_plane,
+    inverted,
+    mode="attached",
+    original_transform=None,
+    current_transform=None,
+):
     index = _read_index(doc)
     replacing_pair = {
         "parent_id": str(parent_id),
@@ -342,5 +390,9 @@ def create(doc, parent_id, child_id, parent_plane, child_plane, inverted):
         "parent_plane": parent_plane,
         "child_plane": child_plane,
         "inverted": bool(inverted),
+        "mode": mode,
     }
+    if mode == "inherit_only":
+        link["original_transform"] = original_transform
+        link["current_transform"] = current_transform
     return link if save(doc, link) else None

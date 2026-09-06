@@ -64,6 +64,20 @@ def _draw_locked_wireframe(display, geometry):
     )
 
 
+def _draw_dotted_line(display, start, end, color, thickness, spacing):
+    direction = end - start
+    length = direction.Length
+    if length <= 1e-7:
+        return
+    dot_count = min(200, max(1, int(length / max(spacing, 1e-7))))
+    step = length / dot_count
+    direction.Unitize()
+    for index in range(dot_count):
+        dot_start = start + direction * (index * step)
+        dot_end = start + direction * (index * step + step * 0.35)
+        display.DrawLine(dot_start, dot_end, color, thickness)
+
+
 class PlaneDisplayConduit(Rhino.Display.DisplayConduit):
     def __init__(self, plane):
         super(PlaneDisplayConduit, self).__init__()
@@ -219,6 +233,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             "parent_plane": parent_plane,
             "child_plane": child_plane,
             "inverted": bool(link["inverted"]),
+            "mode": link.get("mode", "attached"),
             "state": state,
         }
 
@@ -262,13 +277,14 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         transforms = {}
         direct_dynamic_objects = set()
         for state in states:
-            parent = utils.find_object(doc, state["parent_id"])
-            dynamic_transform = _dynamic_transform(parent)
-            if dynamic_transform is None:
-                continue
-            parent_key = str(parent.Id).lower()
-            transforms[parent_key] = dynamic_transform
-            direct_dynamic_objects.add(parent_key)
+            for role in ("parent", "child"):
+                obj = utils.find_object(doc, state[role + "_id"])
+                dynamic_transform = _dynamic_transform(obj)
+                if dynamic_transform is None:
+                    continue
+                object_key = str(obj.Id).lower()
+                transforms[object_key] = dynamic_transform
+                direct_dynamic_objects.add(object_key)
 
         previews = {}
         for _ in range(len(states) + 1):
@@ -278,25 +294,45 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 child = utils.find_object(doc, state["child_id"])
                 if parent is None or child is None:
                     continue
-                parent_transform = transforms.get(str(parent.Id).lower())
-                if parent_transform is None:
-                    continue
                 source = self._source_for(doc, state)
                 if source is None:
                     continue
 
-                live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
-                live_parent_plane.Transform(parent_transform)
-                child_transform = plane_to_plane_transform(
-                    live_parent_plane,
-                    source["child_plane"],
-                    source["inverted"],
+                parent_transform = transforms.get(str(parent.Id).lower())
+                child_transform = transforms.get(str(child.Id).lower())
+                inherit_only = source["mode"] == "inherit_only"
+                child_is_directly_dynamic = (
+                    str(child.Id).lower() in direct_dynamic_objects
                 )
+                if parent_transform is not None:
+                    live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
+                    live_parent_plane.Transform(parent_transform)
+                    if inherit_only:
+                        live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
+                        live_child_plane.Transform(parent_transform)
+                        preview_transform = parent_transform
+                    else:
+                        live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
+                        preview_transform = plane_to_plane_transform(
+                            live_parent_plane,
+                            live_child_plane,
+                            source["inverted"],
+                        )
+                elif inherit_only and child_transform is not None:
+                    live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
+                    live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
+                    live_child_plane.Transform(child_transform)
+                    preview_transform = child_transform
+                else:
+                    continue
+
                 previews[state["link_id"]] = {
                     "child": child,
                     "state": state,
-                    "plane": live_parent_plane,
-                    "transform": child_transform,
+                    "parent_plane": live_parent_plane,
+                    "child_plane": live_child_plane,
+                    "transform": preview_transform,
+                    "draw_child": not child_is_directly_dynamic,
                 }
                 state["dynamic_preview_active"] = True
 
@@ -305,7 +341,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     child_key not in transforms
                     and child_key not in direct_dynamic_objects
                 ):
-                    transforms[child_key] = child_transform
+                    transforms[child_key] = preview_transform
                     added_transform = True
             if not added_transform:
                 break
@@ -325,7 +361,8 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         if obj is None:
             return
         if any(
-            utils.same_id(obj.Id, preview["child"].Id)
+            preview["draw_child"]
+            and utils.same_id(obj.Id, preview["child"].Id)
             for preview in self._previews.values()
         ):
             event.DrawObject = False
@@ -334,21 +371,33 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         if not self._matches(event):
             return
         if self.display_state["enabled"]:
-            preview_planes = {
-                link_id: preview["plane"]
-                for link_id, preview in self._previews.items()
-            }
             for link_id, state in self._crosshair_states():
-                plane = preview_planes.get(link_id, state.get("plane"))
-                if not state.get("broken") and plane is not None:
-                    event.IncludeBoundingBox(
-                        analytic_plane.bounding_box(
-                            plane,
-                            self._crosshair_size(),
-                        )
+                preview = self._previews.get(link_id)
+                parent_plane = (
+                    preview.get("parent_plane")
+                    if preview is not None
+                    else state.get("plane")
+                )
+                planes = (parent_plane,)
+                if state["link"].get("mode", "attached") == "inherit_only":
+                    child_plane = (
+                        preview.get("child_plane")
+                        if preview is not None
+                        else state.get("child_plane")
                     )
+                    planes = (parent_plane, child_plane)
+                for plane in planes:
+                    if not state.get("broken") and plane is not None:
+                        event.IncludeBoundingBox(
+                            analytic_plane.bounding_box(
+                                plane,
+                                self._crosshair_size(),
+                            )
+                        )
 
         for preview in self._previews.values():
+            if not preview["draw_child"]:
+                continue
             geometry = preview["child"].Geometry
             if geometry is None:
                 continue
@@ -369,6 +418,8 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         if not self._matches(event):
             return
         for preview in self._previews.values():
+            if not preview["draw_child"]:
+                continue
             child = preview["child"]
             if child is None or child.Geometry is None:
                 continue
@@ -379,6 +430,8 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             finally:
                 self._drawing_child = False
 
+        if not self.display_state["enabled"]:
+            return
         selected_geometry = self._selected_geometry()
         if selected_geometry is not None:
             previous_z_bias = event.Display.ZBiasMode
@@ -396,16 +449,60 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
     def DrawOverlay(self, event):
         if not self._matches(event) or not self.display_state["enabled"]:
             return
-        preview_planes = {
-            link_id: preview["plane"]
-            for link_id, preview in self._previews.items()
-        }
         for link_id, state in self._crosshair_states():
-            plane = preview_planes.get(link_id, state.get("plane"))
-            if not state.get("broken") and plane is not None:
+            preview = self._previews.get(link_id)
+            parent_plane = (
+                preview.get("parent_plane")
+                if preview is not None
+                else state.get("plane")
+            )
+            if state["link"].get("mode", "attached") == "inherit_only":
+                child_plane = (
+                    preview.get("child_plane")
+                    if preview is not None
+                    else state.get("child_plane")
+                )
+                if parent_plane is None or child_plane is None:
+                    continue
+                for plane in (parent_plane, child_plane):
+                    analytic_plane.draw_preview(
+                        event.Display,
+                        plane,
+                        self._crosshair_size(),
+                        self._crosshair_thickness(),
+                    )
+            elif parent_plane is not None:
                 analytic_plane.draw_preview(
                     event.Display,
-                    plane,
+                    parent_plane,
                     self._crosshair_size(),
                     self._crosshair_thickness(),
                 )
+
+    def DrawForeground(self, event):
+        if not self._matches(event) or not self.display_state["enabled"]:
+            return
+        for link_id, state in self._crosshair_states():
+            if state["link"].get("mode", "attached") != "inherit_only":
+                continue
+            preview = self._previews.get(link_id)
+            parent_plane = (
+                preview.get("parent_plane")
+                if preview is not None
+                else state.get("plane")
+            )
+            child_plane = (
+                preview.get("child_plane")
+                if preview is not None
+                else state.get("child_plane")
+            )
+            if parent_plane is None or child_plane is None:
+                continue
+            _draw_dotted_line(
+                event.Display,
+                parent_plane.Origin,
+                child_plane.Origin,
+                analytic_plane.CROSSHAIR_COLOR,
+                2,
+                self._crosshair_size() / 20.0,
+            )

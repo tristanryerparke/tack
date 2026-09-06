@@ -53,6 +53,21 @@ def _select_child(doc, parent_id):
         Rhino.RhinoApp.WriteLine("Select a child different from the parent.")
 
 
+def _choose_link_mode():
+    """Return a native command-line Tack behavior option, or None on cancel."""
+    getter = Rhino.Input.Custom.GetOption()
+    getter.SetCommandPrompt("Choose Tack behavior")
+    attached_option = getter.AddOption("Attached")
+    inherit_option = getter.AddOption("InheritOnly")
+    if getter.Get() != Rhino.Input.GetResult.Option:
+        return None
+    if getter.OptionIndex() == attached_option:
+        return "attached"
+    if getter.OptionIndex() == inherit_option:
+        return "inherit_only"
+    return None
+
+
 def _preview_placement(doc, child, parent_plane, child_plane):
     conduit = display.TransformPreviewConduit(
         child,
@@ -64,7 +79,6 @@ def _preview_placement(doc, child, parent_plane, child_plane):
     getter.SetCommandPrompt("Preview the child placement")
     getter.AcceptNothing(True)
     getter.AddOptionToggle("Invert", inverted)
-    done_index = getter.AddOption("Done")
 
     def redraw():
         conduit.inverted = bool(inverted.CurrentValue)
@@ -80,9 +94,6 @@ def _preview_placement(doc, child, parent_plane, child_plane):
                 return conduit.transform, conduit.inverted
             if result != Rhino.Input.GetResult.Option:
                 return None
-            if getter.OptionIndex() == done_index:
-                redraw()
-                return conduit.transform, conduit.inverted
             redraw()
     finally:
         conduit.Enabled = False
@@ -132,20 +143,41 @@ def add(doc, default_display_enabled=True):
         if child_result is None:
             return Result.Cancel
         child_definition, child_plane = child_result
-        placement = _preview_placement(doc, child, parent_plane, child_plane)
-        if placement is None:
+        mode = _choose_link_mode()
+        if mode is None:
             return Result.Cancel
-        transform, inverted = placement
+
+        inverted = False
+        original_transform = None
+        current_transform = None
+        transformed_child = child
+        if mode == "attached":
+            placement = _preview_placement(
+                doc,
+                child,
+                parent_plane,
+                child_plane,
+            )
+            if placement is None:
+                return Result.Cancel
+            transform, inverted = placement
+        else:
+            original_transform = plane_link.inherit_transform_data(
+                parent_plane,
+                child_plane,
+            )
+            current_transform = list(original_transform)
 
         undo_record = doc.BeginUndoRecord("Add Tack")
         try:
-            transformed_child = plane_link.transform_object_in_place(
-                doc,
-                child,
-                transform,
-            )
-            if transformed_child is None:
-                return Result.Failure
+            if mode == "attached":
+                transformed_child = plane_link.transform_object_in_place(
+                    doc,
+                    child,
+                    transform,
+                )
+                if transformed_child is None:
+                    return Result.Failure
             child_definition["object_id"] = str(transformed_child.Id)
             link = plane_link_metadata.create(
                 doc,
@@ -154,6 +186,9 @@ def add(doc, default_display_enabled=True):
                 parent_definition,
                 child_definition,
                 inverted,
+                mode=mode,
+                original_transform=original_transform,
+                current_transform=current_transform,
             )
             if link is None:
                 return Result.Failure
