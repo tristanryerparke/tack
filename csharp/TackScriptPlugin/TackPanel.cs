@@ -40,10 +40,12 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         return Result.Cancel;
 
       if (action == "add")
-        return RunProjectCommand(
-          ProjectCommand_19f84da7.Instance,
-          "19f84da7-2ccd-4827-b61b-60faad1186aa",
-          doc);
+        return RhinoApp.RunScript(
+          doc.RuntimeSerialNumber,
+          "_TackAdd",
+          false)
+          ? Result.Success
+          : Result.Failure;
       if (action == "show")
         return RunProjectCommand(
           ProjectCommand_5d9721b6.Instance,
