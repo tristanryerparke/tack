@@ -131,10 +131,22 @@ class _PanelView:
         column.DataCell = forms.TextBoxCell(0)
         column.Width = 260
         self._tree.Columns.Add(column)
-        self._tree.SelectionChanged += self._selection_changed
+        self._tree.SelectionChanged += self._tree_selection_changed
         self._tree.MouseDown += self._tree_mouse_down
 
+        self._tack_list = forms.GridView()
+        self._tack_list.ShowHeader = False
+        self._tack_list.AllowMultipleSelection = False
+        tack_column = forms.GridColumn()
+        tack_column.DataCell = forms.TextBoxCell(0)
+        tack_column.Width = 260
+        self._tack_list.Columns.Add(tack_column)
+        self._tack_list.SelectionChanged += self._tack_list_selection_changed
+        self._tack_list.MouseDown += self._tack_list_mouse_down
+
         self._context_item = None
+        self._selected_tag = None
+        self._refreshing = False
         self._context_header = forms.ButtonMenuItem()
         self._context_header.Text = "Tack"
         self._context_header.Enabled = False
@@ -146,6 +158,7 @@ class _PanelView:
         context_menu.Items.Add(select_object)
         context_menu.Opening += self._context_menu_opening
         self._tree.ContextMenu = context_menu
+        self._tack_list.ContextMenu = context_menu
         self._select_object_menu_item = select_object
 
         self._remove = _icon_button(
@@ -179,8 +192,25 @@ class _PanelView:
         layout = forms.DynamicLayout()
         layout.Padding = drawing.Padding(5)
         layout.DefaultSpacing = drawing.Size(6, 6)
+        object_tree_label = forms.Label()
+        object_tree_label.Text = "Objects"
+        object_tree_label.TextAlignment = forms.TextAlignment.Left
+        object_tree_label_row = forms.DynamicLayout()
+        object_tree_label_row.DefaultSpacing = drawing.Size(0, 0)
+        object_tree_label_row.AddRow(object_tree_label, None)
+
+        tack_list_label = forms.Label()
+        tack_list_label.Text = "Tacks"
+        tack_list_label.TextAlignment = forms.TextAlignment.Left
+        tack_list_label_row = forms.DynamicLayout()
+        tack_list_label_row.DefaultSpacing = drawing.Size(0, 0)
+        tack_list_label_row.AddRow(tack_list_label, None)
+
         layout.AddRow(self._button_bar())
+        layout.AddRow(object_tree_label_row)
         layout.Add(self._tree, yscale=True)
+        layout.AddRow(tack_list_label_row)
+        layout.Add(self._tack_list, yscale=True)
         layout.AddRow(self._tack_inspector)
         self.control = layout
         self.refresh()
@@ -275,27 +305,32 @@ class _PanelView:
         return None
 
     def _selected_link_id(self):
-        return self._delete_link_id(self._item_tag(self._tree.SelectedItem))
+        return self._delete_link_id(self._selected_tag)
 
     def _selected_link_ids(self):
-        tag = self._item_tag(self._tree.SelectedItem)
-        return () if tag is None else tag["direct_link_ids"]
+        return () if self._selected_tag is None else self._selected_tag[
+            "direct_link_ids"
+        ]
 
-    def _apply_tree_selection(self, item):
+    def _apply_selection(self, item, tack_list=False):
         from tack import plane_link
 
         tag = self._item_tag(item)
         link_id = self._delete_link_id(tag)
+        self._selected_tag = tag
         self._update_remove_button(
             bool(() if tag is None else tag["direct_link_ids"])
         )
         self._context_item = tag
         self._update_tack_inspector(link_id)
-        plane_link.set_tree_selection(
-            self._doc,
-            None if tag is None else tag["object_id"],
-            () if tag is None else tag["direct_link_ids"],
-        )
+        if tack_list:
+            plane_link.set_tack_selection(self._doc, link_id)
+        else:
+            plane_link.set_tree_selection(
+                self._doc,
+                None if tag is None else tag["object_id"],
+                () if tag is None else tag["direct_link_ids"],
+            )
 
     def _update_tack_inspector(self, link_id):
         from tack import plane_link_metadata
@@ -329,11 +364,22 @@ class _PanelView:
             Rhino.RhinoApp.WriteLine("The selected Tack cannot reset its transform.")
         self.refresh()
 
-    def _selection_changed(self, sender, event):
-        self._apply_tree_selection(self._tree.SelectedItem)
+    def _tree_selection_changed(self, sender, event):
+        if not self._refreshing:
+            self._apply_selection(self._tree.SelectedItem)
+
+    def _tack_list_selection_changed(self, sender, event):
+        if not self._refreshing:
+            self._apply_selection(self._tack_list.SelectedItem, tack_list=True)
 
     def _tree_mouse_down(self, sender, event):
-        cell = self._tree.GetCellAt(event.Location)
+        self._set_context_item(self._tree, event)
+
+    def _tack_list_mouse_down(self, sender, event):
+        self._set_context_item(self._tack_list, event)
+
+    def _set_context_item(self, control, event):
+        cell = control.GetCellAt(event.Location)
         self._context_item = self._item_tag(cell.Item)
 
     def _context_link_id(self):
@@ -391,6 +437,7 @@ class _PanelView:
         from tack import plane_link
 
         selected_object_id = plane_link.selected_object_id(self._doc)
+        selected_tack_id = plane_link.selected_tack_id(self._doc)
         active = list(plane_link.states(self._doc, create=False).values())
         children_by_parent = {}
         incoming_by_child = {}
@@ -461,15 +508,51 @@ class _PanelView:
         for key in sorted(root_keys, key=object_sort_key):
             root.Children.Add(tree_item(key))
 
-        selected_row = None
+        tack_items = []
+        tack_row_by_link_id = {}
+        for state in sorted(active, key=link_sort_key):
+            item = forms.GridItem()
+            item.Values = [str(state["link_id"])]
+            item.Tag = {
+                "object_id": state["parent_id"],
+                "incoming_link_id": None,
+                "outgoing_link_ids": (state["link_id"],),
+                "direct_link_ids": (state["link_id"],),
+            }
+            tack_row_by_link_id[str(state["link_id"])] = len(
+                tack_row_by_link_id
+            )
+            tack_items.append(item)
+
+        selected_tree_row = None
         if selected_object_id is not None:
-            selected_row = row_by_key.get(
+            selected_tree_row = row_by_key.get(
                 link_graph.object_key(selected_object_id)
             )
-        self._tree.DataStore = root
-        if selected_row is not None:
-            self._tree.SelectRow(selected_row)
-        self._apply_tree_selection(self._tree.SelectedItem)
+        selected_tack_row = (
+            tack_row_by_link_id.get(str(selected_tack_id))
+            if selected_tack_id is not None
+            else None
+        )
+        self._refreshing = True
+        try:
+            self._tree.DataStore = root
+            self._tack_list.DataStore = tack_items
+            if selected_tree_row is not None:
+                self._tree.SelectRow(selected_tree_row)
+            if selected_tack_row is not None:
+                self._tack_list.SelectRow(selected_tack_row)
+        finally:
+            self._refreshing = False
+        selected_item = (
+            self._tack_list.SelectedItem
+            if selected_tack_row is not None
+            else self._tree.SelectedItem
+        )
+        self._apply_selection(
+            selected_item,
+            tack_list=selected_tack_row is not None,
+        )
 
 
 def refresh(doc):

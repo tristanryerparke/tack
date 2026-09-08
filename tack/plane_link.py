@@ -125,10 +125,23 @@ def selected_object_id(doc):
     return _display_state(doc).get("selected_object_id")
 
 
+def selected_tack_id(doc):
+    return _display_state(doc).get("selected_tack_id")
+
+
 def set_tree_selection(doc, object_id, link_ids):
     display_state = _display_state(doc)
     display_state["selected_object_id"] = object_id
     display_state["selected_link_ids"] = tuple(link_ids)
+    display_state["selected_tack_id"] = None
+    doc.Views.Redraw()
+
+
+def set_tack_selection(doc, link_id):
+    display_state = _display_state(doc)
+    display_state["selected_object_id"] = None
+    display_state["selected_link_ids"] = () if link_id is None else (link_id,)
+    display_state["selected_tack_id"] = link_id
     doc.Views.Redraw()
 
 

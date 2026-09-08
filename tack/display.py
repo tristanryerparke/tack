@@ -3,6 +3,7 @@
 import re
 
 import Rhino
+import System.Drawing
 
 from tack import analytic_plane
 from tack import utils
@@ -256,13 +257,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             if any(utils.same_id(link_id, saved_id) for saved_id in selected)
         ]
 
-    def _selected_geometry(self):
-        from tack import plane_link
-
-        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
-        if doc is None:
-            return None
-        obj = utils.find_object(doc, plane_link.selected_object_id(doc))
+    def _object_geometry(self, obj):
         if obj is None or obj.Geometry is None:
             return None
         geometry = obj.Geometry
@@ -278,6 +273,38 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         if geometry is None or not geometry.Transform(transform):
             return obj.Geometry
         return geometry
+
+    def _selected_geometry(self):
+        from tack import plane_link
+
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None:
+            return None
+        return self._object_geometry(
+            utils.find_object(doc, plane_link.selected_object_id(doc))
+        )
+
+    def _selected_tack_geometries(self):
+        from tack import plane_link
+
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None:
+            return None
+        selected_link_id = plane_link.selected_tack_id(doc)
+        state = next(
+            (
+                state
+                for link_id, state in self.states.items()
+                if utils.same_id(link_id, selected_link_id)
+            ),
+            None,
+        )
+        if state is None:
+            return None
+        return (
+            self._object_geometry(utils.find_object(doc, state["parent_id"])),
+            self._object_geometry(utils.find_object(doc, state["child_id"])),
+        )
 
     def _capture(self, doc, state):
         link = state["link"]
@@ -393,6 +420,12 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 if parent_transform is not None:
                     live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
                     live_parent_plane.Transform(parent_transform)
+                    if not source["rotation"]:
+                        live_parent_plane = Rhino.Geometry.Plane(
+                            live_parent_plane.Origin,
+                            source["parent_plane"].XAxis,
+                            source["parent_plane"].YAxis,
+                        )
                     live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
                     if inherit_only:
                         from tack import plane_link
@@ -428,7 +461,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     "child": child,
                     "state": state,
                     "parent_plane": live_parent_plane,
-                    "child_plane": live_child_plane,
+                    "child_plane": target_child_plane,
                     "transform": preview_transform,
                     "draw_child": not child_is_directly_dynamic,
                 }
@@ -530,19 +563,38 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
 
         if not self.display_state["enabled"]:
             return
+        selected_tack_geometries = self._selected_tack_geometries()
         selected_geometry = self._selected_geometry()
-        if selected_geometry is not None:
-            previous_z_bias = event.Display.ZBiasMode
-            try:
-                event.Display.ZBiasMode = Rhino.Display.ZBiasMode.TowardsCamera
+        if selected_tack_geometries is None and selected_geometry is None:
+            return
+        previous_z_bias = event.Display.ZBiasMode
+        try:
+            event.Display.ZBiasMode = Rhino.Display.ZBiasMode.TowardsCamera
+            if selected_tack_geometries is not None:
+                parent_geometry, child_geometry = selected_tack_geometries
+                if parent_geometry is not None:
+                    _draw_wireframe(
+                        event.Display,
+                        parent_geometry,
+                        analytic_plane.CROSSHAIR_COLOR,
+                        TREE_SELECTION_WIRE_THICKNESS,
+                    )
+                if child_geometry is not None:
+                    _draw_wireframe(
+                        event.Display,
+                        child_geometry,
+                        System.Drawing.Color.Red,
+                        TREE_SELECTION_WIRE_THICKNESS,
+                    )
+            else:
                 _draw_wireframe(
                     event.Display,
                     selected_geometry,
                     analytic_plane.CROSSHAIR_COLOR,
                     TREE_SELECTION_WIRE_THICKNESS,
                 )
-            finally:
-                event.Display.ZBiasMode = previous_z_bias
+        finally:
+            event.Display.ZBiasMode = previous_z_bias
 
     def DrawOverlay(self, event):
         if not self._matches(event) or not self.display_state["enabled"]:

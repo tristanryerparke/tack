@@ -236,6 +236,22 @@ def rotation_enabled(link):
     return link.get("rotation", True)
 
 
+def _valid_link_id(link_id):
+    if not isinstance(link_id, str) or len(link_id) != 8:
+        return False
+    try:
+        return "{:08x}".format(int(link_id, 16)) == link_id
+    except ValueError:
+        return False
+
+
+def _new_link_id(index):
+    while True:
+        link_id = uuid.uuid4().hex[:8]
+        if link_id not in index:
+            return link_id
+
+
 def validate(link, expected_link_id=None):
     required_fields = {
         "version",
@@ -259,11 +275,11 @@ def validate(link, expected_link_id=None):
     }
     if not required_fields.issubset(fields) or not fields.issubset(allowed_fields):
         return False
-    link_id = str(link.get("link_id") or "")
+    link_id = link.get("link_id")
     created_at = link.get("created_at")
     if (
         link.get("version") != 1
-        or not link_id
+        or not _valid_link_id(link_id)
         or (
             created_at is not None
             and (not isinstance(created_at, str) or not created_at.strip())
@@ -400,7 +416,7 @@ def create(
         return None
     link = {
         "version": 1,
-        "link_id": str(uuid.uuid4()),
+        "link_id": _new_link_id(index),
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "parent_id": str(parent_id),
         "child_id": str(child_id),

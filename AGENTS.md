@@ -19,4 +19,8 @@ uv run rhino-watch demos/analytic_plane_link.py --debug --nostop
 - In default mode, `end` and `quit` stop the watcher. With `--nostop`, `end` keeps it open while `quit` still stops it.
 - Let the command end from its lifecycle message, or stop the agent terminal command only when the user asks. Then inspect the command output together with the user. It is rare to use either the --nostop so only use it in the specific situation where non-script triggered code needs it output observed in the original session. Using it unessecarily can cause scripts to hang when they don't need to.
 - Do not claim an interactive Rhino result until the user has completed the requested Rhino action and the foreground output has been observed.
-- When creating new demos for tack things, always use the OutputParasite from run-in-rhino so the original shell can see the output. 
+- When creating new demos for tack things, always use the OutputParasite from run-in-rhino so the original shell can see the output.
+
+## Eto layout
+
+- For a left-aligned label in a `DynamicLayout`, set `label.TextAlignment = forms.TextAlignment.Left` and place it in a nested `DynamicLayout` with `AddRow(label, None)`. This keeps the label left aligned instead of stretching it right.
