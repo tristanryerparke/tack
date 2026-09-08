@@ -430,6 +430,8 @@ def maintain(doc, state):
     parent_changed = _object_serial(parent) != state.get("parent_runtime_serial")
     child_changed = _object_serial(child) != state.get("child_runtime_serial")
 
+    translation = plane_link_metadata.translation_enabled(link)
+    rotation = plane_link_metadata.rotation_enabled(link)
     if plane_link_metadata.link_mode(link) == "inherit_only":
         if child_changed and not parent_changed:
             updated = dict(link)
@@ -452,22 +454,28 @@ def maintain(doc, state):
         if target_child_plane is None:
             _show_broken_alert(state)
             return False
-        if _planes_match(target_child_plane, child_plane, False, tolerance):
-            _refresh_serials(doc, state)
-            return True
-        correction = Rhino.Geometry.Transform.PlaneToPlane(
-            child_plane,
+        target_child_plane = display.constrained_target_child_plane(
             target_child_plane,
+            child_plane,
+            translation,
+            rotation,
         )
     else:
-        if _planes_match(parent_plane, child_plane, link["inverted"], tolerance):
-            _refresh_serials(doc, state)
-            return True
-        correction = display.plane_to_plane_transform(
+        target_child_plane = display.linked_target_child_plane(
             parent_plane,
             child_plane,
             link["inverted"],
+            translation,
+            rotation,
         )
+
+    if _planes_match(target_child_plane, child_plane, False, tolerance):
+        _refresh_serials(doc, state)
+        return True
+    correction = Rhino.Geometry.Transform.PlaneToPlane(
+        child_plane,
+        target_child_plane,
+    )
 
     state["busy"] = True
     try:

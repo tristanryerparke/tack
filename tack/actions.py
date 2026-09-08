@@ -4,6 +4,7 @@ import Rhino
 from Rhino.Commands import Result
 
 from tack import analytic_plane
+from tack import anchor_definitions
 from tack import display
 from tack import link_graph
 from tack import plane_link
@@ -18,14 +19,22 @@ def _refresh_panel(doc):
     panel.refresh(doc)
 
 
-def _pick_plane(doc, obj, role):
+def _pick_plane(doc, obj, role, rotation):
     view = doc.Views.ActiveView
     if view is None:
         return None
-    picked = analytic_plane_picker.pick_plane(
-        doc,
-        obj,
-        view.ActiveViewport.ConstructionPlane(),
+    picked = (
+        analytic_plane_picker.pick_plane(
+            doc,
+            obj,
+            view.ActiveViewport.ConstructionPlane(),
+        )
+        if rotation
+        else analytic_plane_picker.pick_origin(
+            doc,
+            obj,
+            view.ActiveViewport.ConstructionPlane(),
+        )
     )
     if picked is None:
         return None
@@ -53,32 +62,60 @@ def _select_child(doc, parent_id):
         Rhino.RhinoApp.WriteLine("Select a child different from the parent.")
 
 
-def _choose_link_mode():
-    """Return a native command-line Tack behavior option, or None on cancel."""
-    getter = Rhino.Input.Custom.GetOption()
-    getter.SetCommandPrompt("Choose Tack behavior")
-    attached_option = getter.AddOption("Attached")
-    inherit_option = getter.AddOption("InheritOnly")
-    if getter.Get() != Rhino.Input.GetResult.Option:
-        return None
-    if getter.OptionIndex() == attached_option:
-        return "attached"
-    if getter.OptionIndex() == inherit_option:
-        return "inherit_only"
-    return None
+def _select_parent_and_degrees_of_freedom(doc):
+    """Select the parent while configuring Tack's native command options."""
+    translation = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
+    rotation = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
+    child_movement = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
+
+    while True:
+        getter = Rhino.Input.Custom.GetObject()
+        getter.SetCommandPrompt("Select parent object")
+        getter.GeometryFilter = Rhino.DocObjects.ObjectType.AnyObject
+        getter.EnablePreSelect(True, True)
+        getter.AddOptionToggle("Translation", translation)
+        getter.AddOptionToggle("Rotation", rotation)
+        getter.AddOptionToggle("ChildMovement", child_movement)
+        result = getter.Get()
+        if result == Rhino.Input.GetResult.Option:
+            continue
+        if result != Rhino.Input.GetResult.Object:
+            return None
+        obj_ref = getter.Object(0)
+        parent = obj_ref.Object() if obj_ref is not None else None
+        if (
+            parent is not None
+            and anchor_definitions.bounding_box_center(parent) is not None
+        ):
+            return parent, {
+                "translation": bool(translation.CurrentValue),
+                "rotation": bool(rotation.CurrentValue),
+                "child_movement": bool(child_movement.CurrentValue),
+            }
+        Rhino.RhinoApp.WriteLine("Select an object with a valid bounding box.")
 
 
-def _preview_placement(doc, child, parent_plane, child_plane):
+def _preview_placement(
+    doc,
+    child,
+    parent_plane,
+    child_plane,
+    translation,
+    rotation,
+):
     conduit = display.TransformPreviewConduit(
         child,
         parent_plane,
         child_plane,
+        translation=translation,
+        rotation=rotation,
     )
     inverted = Rhino.Input.Custom.OptionToggle(False, "No", "Yes")
     getter = Rhino.Input.Custom.GetOption()
     getter.SetCommandPrompt("Preview the child placement")
     getter.AcceptNothing(True)
-    getter.AddOptionToggle("Invert", inverted)
+    if rotation:
+        getter.AddOptionToggle("Invert", inverted)
 
     def redraw():
         conduit.inverted = bool(inverted.CurrentValue)
@@ -104,10 +141,16 @@ def add(doc, default_display_enabled=True):
     if doc is None or doc.Views.ActiveView is None:
         return Result.Cancel
 
-    parent = select_object(doc, "Select parent object")
-    if parent is None:
+    parent_selection = _select_parent_and_degrees_of_freedom(doc)
+    if parent_selection is None:
         return Result.Cancel
-    parent_result = _pick_plane(doc, parent, "parent")
+    parent, degrees_of_freedom = parent_selection
+    parent_result = _pick_plane(
+        doc,
+        parent,
+        "parent",
+        degrees_of_freedom["rotation"],
+    )
     if parent_result is None:
         return Result.Cancel
     parent_definition, parent_plane = parent_result
@@ -139,13 +182,20 @@ def add(doc, default_display_enabled=True):
                 Rhino.UI.ShowMessageIcon.Warning,
             )
             return Result.Cancel
-        child_result = _pick_plane(doc, child, "child")
+        child_result = _pick_plane(
+            doc,
+            child,
+            "child",
+            degrees_of_freedom["rotation"],
+        )
         if child_result is None:
             return Result.Cancel
         child_definition, child_plane = child_result
-        mode = _choose_link_mode()
-        if mode is None:
-            return Result.Cancel
+        mode = (
+            "inherit_only"
+            if degrees_of_freedom["child_movement"]
+            else "attached"
+        )
 
         inverted = False
         original_transform = None
@@ -157,6 +207,8 @@ def add(doc, default_display_enabled=True):
                 child,
                 parent_plane,
                 child_plane,
+                degrees_of_freedom["translation"],
+                degrees_of_freedom["rotation"],
             )
             if placement is None:
                 return Result.Cancel
@@ -189,6 +241,8 @@ def add(doc, default_display_enabled=True):
                 mode=mode,
                 original_transform=original_transform,
                 current_transform=current_transform,
+                translation=degrees_of_freedom["translation"],
+                rotation=degrees_of_freedom["rotation"],
             )
             if link is None:
                 return Result.Failure

@@ -368,6 +368,19 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
     return None
 
 
+def pick_origin(doc, obj, construction_plane):
+    """Pick one analytic anchor and preview it with construction-plane axes."""
+    with AnchorPickSession(doc, obj) as session:
+        picked = session.pick(
+            "Pick an analytic anchor for the plane origin",
+            getter_factory=_getter_factory(construction_plane),
+        )
+    if picked is None:
+        return None
+    origin, origin_definition = picked
+    return _world_axes_result(obj, origin, origin_definition)
+
+
 def pick_plane(doc, obj, construction_plane):
     """Pick a one-click circular plane or reconcile a three-point plane."""
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)

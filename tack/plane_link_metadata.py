@@ -226,6 +226,16 @@ def link_mode(link):
     return link.get("mode", "attached")
 
 
+def translation_enabled(link):
+    """Return whether a Tack inherits its parent's translation."""
+    return link.get("translation", True)
+
+
+def rotation_enabled(link):
+    """Return whether a Tack inherits its parent's rotation."""
+    return link.get("rotation", True)
+
+
 def validate(link, expected_link_id=None):
     required_fields = {
         "version",
@@ -244,6 +254,8 @@ def validate(link, expected_link_id=None):
         "mode",
         "original_transform",
         "current_transform",
+        "translation",
+        "rotation",
     }
     if not required_fields.issubset(fields) or not fields.issubset(allowed_fields):
         return False
@@ -266,7 +278,10 @@ def validate(link, expected_link_id=None):
     ):
         return False
     mode = link_mode(link)
-    if mode not in ("attached", "inherit_only"):
+    if mode not in ("attached", "inherit_only") or not all(
+        isinstance(link.get(field, True), bool)
+        for field in ("translation", "rotation")
+    ):
         return False
     if mode == "inherit_only" and not (
         _valid_transform(link.get("original_transform"))
@@ -365,6 +380,8 @@ def create(
     mode="attached",
     original_transform=None,
     current_transform=None,
+    translation=True,
+    rotation=True,
 ):
     index = _read_index(doc)
     replacing_pair = {
@@ -391,6 +408,8 @@ def create(
         "child_plane": child_plane,
         "inverted": bool(inverted),
         "mode": mode,
+        "translation": bool(translation),
+        "rotation": bool(rotation),
     }
     if mode == "inherit_only":
         link["original_transform"] = original_transform

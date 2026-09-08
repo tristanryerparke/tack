@@ -22,6 +22,52 @@ def plane_to_plane_transform(parent_plane, child_plane, inverted=False):
     return Rhino.Geometry.Transform.PlaneToPlane(source, parent_plane)
 
 
+def constrained_target_child_plane(
+    target_plane,
+    child_plane,
+    translation=True,
+    rotation=True,
+):
+    """Keep the child components excluded by a Tack's degrees of freedom."""
+    origin = target_plane.Origin if translation else child_plane.Origin
+    x_axis = target_plane.XAxis if rotation else child_plane.XAxis
+    y_axis = target_plane.YAxis if rotation else child_plane.YAxis
+    return Rhino.Geometry.Plane(origin, x_axis, y_axis)
+
+
+def linked_target_child_plane(
+    parent_plane,
+    child_plane,
+    inverted=False,
+    translation=True,
+    rotation=True,
+):
+    target_plane = inverted_plane(parent_plane) if inverted and rotation else parent_plane
+    return constrained_target_child_plane(
+        target_plane,
+        child_plane,
+        translation,
+        rotation,
+    )
+
+
+def constrained_plane_transform(
+    parent_plane,
+    child_plane,
+    inverted=False,
+    translation=True,
+    rotation=True,
+):
+    target_plane = linked_target_child_plane(
+        parent_plane,
+        child_plane,
+        inverted,
+        translation,
+        rotation,
+    )
+    return Rhino.Geometry.Transform.PlaneToPlane(child_plane, target_plane)
+
+
 def _draw_bounding_box(display, geometry, color, thickness):
     bounding_box = geometry.GetBoundingBox(True)
     if not bounding_box.IsValid:
@@ -94,20 +140,32 @@ class PlaneDisplayConduit(Rhino.Display.DisplayConduit):
 
 
 class TransformPreviewConduit(Rhino.Display.DisplayConduit):
-    def __init__(self, child, parent_plane, child_plane, inverted=False):
+    def __init__(
+        self,
+        child,
+        parent_plane,
+        child_plane,
+        inverted=False,
+        translation=True,
+        rotation=True,
+    ):
         super(TransformPreviewConduit, self).__init__()
         self.child = child
         self.parent_plane = parent_plane
         self.child_plane = child_plane
         self.inverted = bool(inverted)
+        self.translation = bool(translation)
+        self.rotation = bool(rotation)
         self._drawing_child = False
 
     @property
     def transform(self):
-        return plane_to_plane_transform(
+        return constrained_plane_transform(
             self.parent_plane,
             self.child_plane,
             self.inverted,
+            self.translation,
+            self.rotation,
         )
 
     def CalculateBoundingBox(self, event):
@@ -238,6 +296,8 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             "child_plane": child_plane,
             "inverted": bool(link["inverted"]),
             "mode": link.get("mode", "attached"),
+            "translation": link.get("translation", True),
+            "rotation": link.get("rotation", True),
             "state": state,
         }
 
@@ -333,17 +393,34 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 if parent_transform is not None:
                     live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
                     live_parent_plane.Transform(parent_transform)
+                    live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
                     if inherit_only:
-                        live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
-                        live_child_plane.Transform(parent_transform)
-                        preview_transform = parent_transform
+                        from tack import plane_link
+
+                        target_child_plane = plane_link.inherit_target_child_plane(
+                            live_parent_plane,
+                            source["state"]["link"]["current_transform"],
+                        )
+                        if target_child_plane is None:
+                            continue
+                        target_child_plane = constrained_target_child_plane(
+                            target_child_plane,
+                            live_child_plane,
+                            source["translation"],
+                            source["rotation"],
+                        )
                     else:
-                        live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
-                        preview_transform = plane_to_plane_transform(
+                        target_child_plane = linked_target_child_plane(
                             live_parent_plane,
                             live_child_plane,
                             source["inverted"],
+                            source["translation"],
+                            source["rotation"],
                         )
+                    preview_transform = Rhino.Geometry.Transform.PlaneToPlane(
+                        live_child_plane,
+                        target_child_plane,
+                    )
                 else:
                     continue
 
