@@ -1,10 +1,15 @@
 """Python-owned Eto content for Tack's per-document dockable panel."""
 
+import os
+import runpy
+
 import System
 
 import Eto.Drawing as drawing
 import Eto.Forms as forms
 import Rhino
+
+from TackRhinoPlugin import PluginBridge
 
 
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
@@ -132,7 +137,6 @@ class _PanelView:
         column.Width = 260
         self._tree.Columns.Add(column)
         self._tree.SelectionChanged += self._tree_selection_changed
-        self._tree.MouseDown += self._tree_mouse_down
 
         self._tack_list = forms.GridView()
         self._tack_list.ShowHeader = False
@@ -146,6 +150,8 @@ class _PanelView:
 
         self._context_item = None
         self._selected_tag = None
+        self._selected_object_id = None
+        self._show_tacks = False
         self._refreshing = False
         self._context_header = forms.ButtonMenuItem()
         self._context_header.Text = "Tack"
@@ -157,7 +163,6 @@ class _PanelView:
         context_menu.Items.Add(self._context_header)
         context_menu.Items.Add(select_object)
         context_menu.Opening += self._context_menu_opening
-        self._tree.ContextMenu = context_menu
         self._tack_list.ContextMenu = context_menu
         self._select_object_menu_item = select_object
 
@@ -171,48 +176,55 @@ class _PanelView:
         self._remove.Enabled = False
         self._remove.Click += self._remove_selected
 
+        self._object_details = forms.Label()
+        self._object_details.TextAlignment = forms.TextAlignment.Left
+        object_details_row = forms.DynamicLayout()
+        object_details_row.DefaultSpacing = drawing.Size(0, 0)
+        object_details_row.AddRow(self._object_details, None)
+        self._object_inspector = forms.DynamicLayout()
+        self._object_inspector.Padding = drawing.Padding(4)
+        self._object_inspector.AddRow(object_details_row)
+
         self._tack_details = forms.Label()
         self._tack_details.TextAlignment = forms.TextAlignment.Left
+        self._child_movement = forms.Label()
+        self._child_movement.TextAlignment = forms.TextAlignment.Left
         self._reset_transform = forms.Button()
         self._reset_transform.Text = "Reset transform to original"
         self._reset_transform.Click += self._reset_selected_transform
-
         details_row = forms.DynamicLayout()
         details_row.DefaultSpacing = drawing.Size(0, 0)
         details_row.AddRow(self._tack_details, None)
-        reset_row = forms.DynamicLayout()
-        reset_row.DefaultSpacing = drawing.Size(0, 0)
-        reset_row.AddRow(self._reset_transform, None)
+        child_movement_row = forms.DynamicLayout()
+        child_movement_row.DefaultSpacing = drawing.Size(4, 0)
+        child_movement_row.AddRow(
+            self._child_movement,
+            self._reset_transform,
+            None,
+        )
         self._tack_inspector = forms.DynamicLayout()
         self._tack_inspector.Padding = drawing.Padding(4)
         self._tack_inspector.DefaultSpacing = drawing.Size(0, 2)
         self._tack_inspector.AddRow(details_row)
-        self._tack_inspector.AddRow(reset_row)
+        self._tack_inspector.AddRow(child_movement_row)
+
+        self._objects_browser = self._browser("Objects", self._tree)
+        self._tacks_browser = self._browser("Tacks", self._tack_list)
+        self._browser_area = forms.Panel()
+        self._inspector_area = forms.Panel()
+        self._content_splitter = forms.Splitter()
+        self._content_splitter.Orientation = forms.SplitterOrientation.Vertical
+        self._content_splitter.Panel1 = self._browser_area
+        self._content_splitter.Panel2 = self._inspector_area
+        self._content_splitter.SizeChanged += self._size_browser_area
 
         layout = forms.DynamicLayout()
         layout.Padding = drawing.Padding(5)
         layout.DefaultSpacing = drawing.Size(6, 6)
-        object_tree_label = forms.Label()
-        object_tree_label.Text = "Objects"
-        object_tree_label.TextAlignment = forms.TextAlignment.Left
-        object_tree_label_row = forms.DynamicLayout()
-        object_tree_label_row.DefaultSpacing = drawing.Size(0, 0)
-        object_tree_label_row.AddRow(object_tree_label, None)
-
-        tack_list_label = forms.Label()
-        tack_list_label.Text = "Tacks"
-        tack_list_label.TextAlignment = forms.TextAlignment.Left
-        tack_list_label_row = forms.DynamicLayout()
-        tack_list_label_row.DefaultSpacing = drawing.Size(0, 0)
-        tack_list_label_row.AddRow(tack_list_label, None)
-
         layout.AddRow(self._button_bar())
-        layout.AddRow(object_tree_label_row)
-        layout.Add(self._tree, yscale=True)
-        layout.AddRow(tack_list_label_row)
-        layout.Add(self._tack_list, yscale=True)
-        layout.AddRow(self._tack_inspector)
+        layout.Add(self._content_splitter, yscale=True)
         self.control = layout
+        self._set_browser(False)
         self.refresh()
 
     def _button_bar(self):
@@ -220,6 +232,11 @@ class _PanelView:
 
         bar = forms.DynamicLayout()
         bar.DefaultSpacing = drawing.Size(2, 0)
+
+        self._browser_toggle = forms.ToggleButton()
+        self._browser_toggle.Text = "Objects"
+        self._browser_toggle.ToolTip = "Show Tacks"
+        self._browser_toggle.CheckedChanged += self._toggle_browser
 
         add = _icon_button(self._panel, "plus", "#4caf50", "Add Tack")
         add.Click += self._add
@@ -250,12 +267,59 @@ class _PanelView:
             "Tack Settings",
             _ICON_SIZE - 4,
         )
-        settings.Click += lambda sender, event: self._panel.RunTackCommand(
+        settings.Click += lambda sender, event: self._defer_command(
             "settings"
         )
 
-        bar.AddRow(add, self._display, self._remove, clear, settings, None)
+        bar.AddRow(
+            self._browser_toggle,
+            add,
+            self._display,
+            self._remove,
+            clear,
+            settings,
+            None,
+        )
         return bar
+
+    @staticmethod
+    def _browser(title, control):
+        label = forms.Label()
+        label.Text = title
+        label.TextAlignment = forms.TextAlignment.Left
+        label_row = forms.DynamicLayout()
+        label_row.DefaultSpacing = drawing.Size(0, 0)
+        label_row.AddRow(label, None)
+        layout = forms.DynamicLayout()
+        layout.DefaultSpacing = drawing.Size(0, 2)
+        layout.AddRow(label_row)
+        layout.Add(control, yscale=True)
+        return layout
+
+    def _toggle_browser(self, sender, event):
+        self._set_browser(bool(self._browser_toggle.Checked))
+
+    def _set_browser(self, show_tacks):
+        self._show_tacks = show_tacks
+        self._browser_area.Content = (
+            self._tacks_browser if show_tacks else self._objects_browser
+        )
+        self._inspector_area.Content = (
+            self._tack_inspector if show_tacks else self._object_inspector
+        )
+        self._browser_toggle.Text = "Tacks" if show_tacks else "Objects"
+        self._browser_toggle.ToolTip = (
+            "Show Objects" if show_tacks else "Show Tacks"
+        )
+        self._show_selection(
+            self._tack_list.SelectedItem if show_tacks else self._tree.SelectedItem,
+            tack_list=show_tacks,
+        )
+
+    def _size_browser_area(self, sender, event):
+        height = self._content_splitter.Height
+        if height > 0:
+            self._content_splitter.Position = int(height * 0.6)
 
     def _update_display_button(self, visible):
         self._display.Image = _svg_icon(
@@ -275,19 +339,58 @@ class _PanelView:
         )
 
     def _add(self, sender, event):
-        self._panel.RunTackCommand("add")
-        self.refresh()
+        self._defer_command("add", refresh=True)
 
     def _toggle_display(self, sender, event):
         from tack import plane_link
 
         action = "hide" if plane_link.display_enabled(self._doc) else "show"
-        self._panel.RunTackCommand(action)
-        self._update_display_button(plane_link.display_enabled(self._doc))
+        self._defer_command(action, update_display=True)
 
     def _clear(self, sender, event):
-        self._panel.RunTackCommand("clear")
-        self.refresh()
+        self._defer_command("clear", refresh=True)
+
+    def _defer_command(self, action, refresh=False, update_display=False):
+        forms.Application.Instance.AsyncInvoke(
+            lambda: self._run_command(action, refresh, update_display)
+        )
+
+    def _run_command(self, action, refresh, update_display):
+        command_name, script_name = {
+            "add": ("TackAdd", "tack_add.py"),
+            "show": ("TackShow", "tack_show.py"),
+            "hide": ("TackHide", "tack_hide.py"),
+            "clear": ("TackClear", "tack_clear.py"),
+            "settings": ("TackSettings", "tack_settings.py"),
+        }[action]
+        try:
+            if PluginBridge.IsDevelopmentMode:
+                runpy.run_path(
+                    os.path.join(
+                        str(PluginBridge.PythonRoot),
+                        "commands",
+                        script_name,
+                    ),
+                    init_globals={"__rhino_doc__": self._doc},
+                )
+            elif not Rhino.RhinoApp.RunScript(
+                self._doc.RuntimeSerialNumber,
+                "_" + command_name,
+                False,
+            ):
+                raise RuntimeError(
+                    "Rhino command could not be started: " + command_name
+                )
+            if refresh:
+                self.refresh()
+            if update_display:
+                from tack import plane_link
+
+                self._update_display_button(plane_link.display_enabled(self._doc))
+        except Exception:
+            import traceback
+
+            Rhino.RhinoApp.WriteLine(traceback.format_exc())
 
     @staticmethod
     def _item_tag(item):
@@ -312,25 +415,35 @@ class _PanelView:
             "direct_link_ids"
         ]
 
-    def _apply_selection(self, item, tack_list=False):
-        from tack import plane_link
-
+    def _show_selection(self, item, tack_list=False):
         tag = self._item_tag(item)
-        link_id = self._delete_link_id(tag)
         self._selected_tag = tag
         self._update_remove_button(
             bool(() if tag is None else tag["direct_link_ids"])
         )
-        self._context_item = tag
-        self._update_tack_inspector(link_id)
         if tack_list:
-            plane_link.set_tack_selection(self._doc, link_id)
+            self._update_tack_inspector(self._delete_link_id(tag))
         else:
-            plane_link.set_tree_selection(
-                self._doc,
-                None if tag is None else tag["object_id"],
-                () if tag is None else tag["direct_link_ids"],
-            )
+            self._update_object_inspector(tag)
+
+    def _apply_selection(self, item, tack_list=False):
+        from tack import plane_link
+
+        tag = self._item_tag(item)
+        self._show_selection(item, tack_list)
+        if tack_list:
+            self._selected_object_id = None
+            plane_link.set_tack_selection(self._doc, self._delete_link_id(tag))
+            return
+        self._selected_object_id = None if tag is None else tag["object_id"]
+        plane_link.set_tree_selection(self._doc, None, ())
+        self._select_tree_object(tag)
+
+    def _update_object_inspector(self, tag):
+        link_ids = () if tag is None else tag["direct_link_ids"]
+        self._object_details.Text = "Tack IDs: {}".format(
+            ", ".join(str(link_id) for link_id in link_ids) or "None"
+        )
 
     def _update_tack_inspector(self, link_id):
         from tack import plane_link_metadata
@@ -343,15 +456,22 @@ class _PanelView:
         if link is None:
             self._tack_details.Text = "Select a Tack to inspect"
             self._tack_details.ToolTip = ""
+            self._child_movement.Text = ""
             self._reset_transform.Visible = False
             return
-        mode = plane_link_metadata.link_mode(link)
-        self._tack_details.Text = "Tack ID: {}\nMode: {}".format(
+        child_movement_allowed = plane_link_metadata.link_mode(link) == "inherit_only"
+        self._tack_details.Text = (
+            "Tack ID: {}\nTranslation allowed: {}\nRotation allowed: {}"
+        ).format(
             _short_id(link["link_id"]),
-            "Inherit Only" if mode == "inherit_only" else "Attached",
+            "Yes" if link.get("translation", True) else "No",
+            "Yes" if link.get("rotation", True) else "No",
         )
         self._tack_details.ToolTip = str(link["link_id"])
-        self._reset_transform.Visible = mode == "inherit_only"
+        self._child_movement.Text = "Child movement allowed: {}".format(
+            "Yes" if child_movement_allowed else "No"
+        )
+        self._reset_transform.Visible = child_movement_allowed
 
     def _reset_selected_transform(self, sender, event):
         from tack import plane_link
@@ -371,9 +491,6 @@ class _PanelView:
     def _tack_list_selection_changed(self, sender, event):
         if not self._refreshing:
             self._apply_selection(self._tack_list.SelectedItem, tack_list=True)
-
-    def _tree_mouse_down(self, sender, event):
-        self._set_context_item(self._tree, event)
 
     def _tack_list_mouse_down(self, sender, event):
         self._set_context_item(self._tack_list, event)
@@ -397,14 +514,16 @@ class _PanelView:
         self._select_object_menu_item.Enabled = self._context_item is not None
 
     def _select_context_object(self, sender, event):
+        self._select_tree_object(self._context_item)
+
+    def _select_tree_object(self, tag):
         from tack import utils
 
-        object_id = (
-            None if self._context_item is None else self._context_item["object_id"]
-        )
+        object_id = None if tag is None else tag["object_id"]
         obj = utils.find_object(self._doc, object_id)
         if obj is None:
-            Rhino.RhinoApp.WriteLine("The selected Tack object no longer exists.")
+            if tag is not None:
+                Rhino.RhinoApp.WriteLine("The selected Tack object no longer exists.")
             return
         self._doc.Objects.UnselectAll()
         if not obj.Select(True):
@@ -436,7 +555,6 @@ class _PanelView:
         from tack import link_graph
         from tack import plane_link
 
-        selected_object_id = plane_link.selected_object_id(self._doc)
         selected_tack_id = plane_link.selected_tack_id(self._doc)
         active = list(plane_link.states(self._doc, create=False).values())
         children_by_parent = {}
@@ -525,9 +643,9 @@ class _PanelView:
             tack_items.append(item)
 
         selected_tree_row = None
-        if selected_object_id is not None:
+        if self._selected_object_id is not None:
             selected_tree_row = row_by_key.get(
-                link_graph.object_key(selected_object_id)
+                link_graph.object_key(self._selected_object_id)
             )
         selected_tack_row = (
             tack_row_by_link_id.get(str(selected_tack_id))
@@ -544,14 +662,11 @@ class _PanelView:
                 self._tack_list.SelectRow(selected_tack_row)
         finally:
             self._refreshing = False
-        selected_item = (
+        self._show_selection(
             self._tack_list.SelectedItem
-            if selected_tack_row is not None
-            else self._tree.SelectedItem
-        )
-        self._apply_selection(
-            selected_item,
-            tack_list=selected_tack_row is not None,
+            if self._show_tacks
+            else self._tree.SelectedItem,
+            tack_list=self._show_tacks,
         )
 
 

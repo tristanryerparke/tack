@@ -14,6 +14,8 @@ Use persistent mode only when handler output is needed after setup completes:
 uv run rhino-watch demos/analytic_plane_link.py --debug --nostop
 ```
 
+Do not start a `--nostop` watcher in the agent terminal. Agents can lose its buffered output when the user stops the process. Give the user the exact command, ask them to run it and perform the interaction, then ask them to stop it and paste the complete output back.
+
 - Keep this foreground command as the sole live output channel. Do not use `nohup`, background processes, Terminal.app, PID files, log files, or `tail`.
 - Do not intentionally start a second watcher while one is running. Startup automatically stops an existing `rhino-watch` listener on port `8765`, but refuses to kill an unrelated process.
 - In default mode, `end` and `quit` stop the watcher. With `--nostop`, `end` keeps it open while `quit` still stops it.

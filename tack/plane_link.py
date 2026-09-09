@@ -35,10 +35,10 @@ def _display_state(doc, default_enabled=True):
 
 def _plugin():
     try:
-        from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
+        from TackRhinoPlugin import PluginBridge
     except ImportError:
         return None
-    return ProjectPlugin
+    return PluginBridge
 
 
 def crosshair_size(doc):

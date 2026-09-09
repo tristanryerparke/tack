@@ -10,59 +10,13 @@ from tack import link_graph
 from tack import utils
 
 
-# These names identify Tack's pre-plugin-data document-index format and are
-# retained only to migrate existing .3dm files when first opened with the plug-in.
-INDEX_SECTION = "Tack"
-INDEX_ENTRY = "PlaneLinkIndex.v1"
-INDEX_VERSION = 1
 PLUGIN_INDEX_VERSION = 2
 
 
 def _plugin_data():
-    try:
-        from RhinoCodePlatform.Rhino3D.Projects.Plugin import TackDocumentData
-    except ImportError:
-        return None
-    return TackDocumentData
+    from tack import plugin_data
 
-
-def _read_legacy_index(doc):
-    try:
-        payload = json.loads(str(doc.Strings.GetValue(INDEX_SECTION, INDEX_ENTRY)))
-    except Exception:
-        return {}
-    return _validated_index(payload)
-
-
-def _write_legacy_index(doc, index):
-    try:
-        doc.Strings.SetString(
-            INDEX_SECTION,
-            INDEX_ENTRY,
-            json.dumps(
-                {
-                    "version": INDEX_VERSION,
-                    "links": index,
-                },
-                sort_keys=True,
-            ),
-        )
-        return True
-    except Exception:
-        return False
-
-
-def _validated_index(payload):
-    if not isinstance(payload, dict) or payload.get("version") != INDEX_VERSION:
-        return {}
-    entries = payload.get("links")
-    if not isinstance(entries, dict):
-        return {}
-    return {
-        str(link_id): link
-        for link_id, link in entries.items()
-        if validate(link, expected_link_id=link_id)
-    }
+    return plugin_data
 
 
 def _compact_link(link):
@@ -78,13 +32,9 @@ def _compact_link(link):
 def _inflate_link(link, expected_link_id=None):
     if not isinstance(link, dict) or expected_link_id is None:
         return None
-    expanded = dict(link)
-    saved_link_id = expanded.pop("link_id", None)
-    if saved_link_id is not None and not utils.same_id(
-        saved_link_id,
-        expected_link_id,
-    ):
+    if "link_id" in link:
         return None
+    expanded = dict(link)
     expanded["link_id"] = str(expected_link_id)
     for role in ("parent", "child"):
         definition = expanded.get(role + "_plane")
@@ -102,24 +52,19 @@ def _inflate_link(link, expected_link_id=None):
 
 def _validated_plugin_index(payload):
     if not isinstance(payload, dict):
-        return {}, False
-    if payload.get("version") == INDEX_VERSION:
-        return _validated_index(payload), True
+        return {}
     if payload.get("version") != PLUGIN_INDEX_VERSION:
-        return {}, False
+        return {}
     entries = payload.get("links")
     if not isinstance(entries, dict):
-        return {}, False
+        return {}
 
     index = {}
-    needs_upgrade = False
     for link_id, saved_link in entries.items():
         link = _inflate_link(saved_link, expected_link_id=link_id)
-        if link is None:
-            continue
-        index[str(link_id)] = link
-        needs_upgrade = needs_upgrade or "link_id" in saved_link
-    return index, needs_upgrade
+        if link is not None:
+            index[str(link_id)] = link
+    return index
 
 
 def _plugin_payload(index, display_enabled=None):
@@ -132,54 +77,16 @@ def _plugin_payload(index, display_enabled=None):
     }
     if isinstance(display_enabled, bool):
         payload["display_enabled"] = display_enabled
-    return json.dumps(payload, sort_keys=True)
+    return payload
 
 
 def _read_index(doc):
-    plugin_data = _plugin_data()
-    if plugin_data is None:
-        return _read_legacy_index(doc)
-
-    if not plugin_data.HasDocumentData(doc.RuntimeSerialNumber):
-        legacy_index = _read_legacy_index(doc)
-        if legacy_index:
-            if not plugin_data.ImportLinksJson(
-                doc.RuntimeSerialNumber,
-                _plugin_payload(legacy_index),
-            ):
-                return legacy_index
-            _write_legacy_index(doc, {})
-        else:
-            return {}
-
-    try:
-        payload = json.loads(str(plugin_data.GetLinksJson(doc.RuntimeSerialNumber)))
-    except Exception:
-        return {}
-    index, needs_upgrade = _validated_plugin_index(payload)
-    if needs_upgrade:
-        display_enabled = payload.get("display_enabled")
-        plugin_data.ImportLinksJson(
-            doc.RuntimeSerialNumber,
-            _plugin_payload(
-                index,
-                display_enabled if isinstance(display_enabled, bool) else None,
-            ),
-        )
-    return index
+    return _validated_plugin_index(_plugin_data().document_data(doc))
 
 
 def _stored_display_enabled(doc):
-    plugin_data = _plugin_data()
-    if plugin_data is None or not plugin_data.HasDocumentData(
-        doc.RuntimeSerialNumber
-    ):
-        return None
-    try:
-        payload = json.loads(str(plugin_data.GetLinksJson(doc.RuntimeSerialNumber)))
-    except Exception:
-        return None
-    value = payload.get("display_enabled") if isinstance(payload, dict) else None
+    payload = _plugin_data().document_data(doc)
+    value = payload.get("display_enabled")
     return value if isinstance(value, bool) else None
 
 
@@ -190,14 +97,11 @@ def display_enabled(doc, default_enabled=True):
 
 
 def _write_index(doc, index, display_enabled=None):
-    plugin_data = _plugin_data()
-    if plugin_data is None:
-        return _write_legacy_index(doc, index)
     if display_enabled is None:
         display_enabled = _stored_display_enabled(doc)
     return bool(
-        plugin_data.SetLinksJson(
-            doc.RuntimeSerialNumber,
+        _plugin_data().set_document_data(
+            doc,
             _plugin_payload(index, display_enabled),
         )
     )
@@ -222,7 +126,7 @@ def _valid_transform(data):
 
 
 def link_mode(link):
-    """Return a legacy-compatible Tack mode."""
+    """Return a Tack mode, defaulting to attached."""
     return link.get("mode", "attached")
 
 

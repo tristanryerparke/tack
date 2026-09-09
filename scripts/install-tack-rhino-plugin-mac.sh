@@ -4,32 +4,43 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RHINOCODE="${RHINOCODE:-/Applications/Rhino 8.app/Contents/Resources/bin/rhinocode}"
-BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-Debug}"
-GENERATED_PROJECT="$REPO_ROOT/build/rh8/src/Tack/Tack.csproj"
-GENERATED_PLUGIN="$REPO_ROOT/build/rh8/Tack.rhp"
-PROJECT_DATA_EXTRACTOR="$REPO_ROOT/csharp/TackScriptPlugin/ProjectDataExtractor/ProjectDataExtractor.csproj"
-PLUGIN_FILE="$REPO_ROOT/build/rh8/src/Tack/bin/$BUILD_CONFIGURATION/net48/Tack.rhp"
+RHINO_PROJECT="$REPO_ROOT/tack.rhproj"
+GENERATED_ROOT="$REPO_ROOT/build/rh8"
+GENERATED_PROJECT="$GENERATED_ROOT/src/Tack/Tack.csproj"
+GENERATED_PLUGIN="$GENERATED_ROOT/Tack.rhp"
+TEMPLATE_ROOT="${RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT:-$REPO_ROOT/../rhino-python-plugin-template}"
+PROJECT_DATA_EXTRACTOR="$TEMPLATE_ROOT/src/ProjectDataExtractor/ProjectDataExtractor.csproj"
+PLUGIN_NAME="Tack"
 MAC_PLUGINS_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}"
-INSTALL_DIR="$MAC_PLUGINS_DIR/Tack.rhp"
-LEGACY_INSTALL_DIR="$MAC_PLUGINS_DIR/TackPanelHost.rhp"
-LEGACY_RUI_SETTINGS="$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/settings/Scheme__Default/Tack_e59443d4-ab7b-4e21-8aa3-66a7ced1ae27.xml"
+INSTALL_DIR="$MAC_PLUGINS_DIR/$PLUGIN_NAME.rhp"
+MODE="development"
+CONFIGURATION=""
 
 usage() {
   cat <<'EOF'
-Usage: scripts/install-tack-rhino-plugin-mac.sh
+Usage: scripts/install-tack-rhino-plugin-mac.sh [--mode development|production] [--configuration Debug|Release]
 
-Builds Tack's Python Script Editor project, applies its C# startup/panel
-extension, and installs the combined plugin for the next Rhino launch.
+Generates Tack's native Rhino commands, applies its stable C# panel and
+persistence extension, and installs one mutually exclusive plug-in bundle.
+
+Development mode reads Tack Python and panel command files from this checkout.
+Production mode packages a Tack Python snapshot and uses native commands.
 
 Environment:
-  BUILD_CONFIGURATION    dotnet configuration. Default: Debug.
-  RHINOCODE              RhinoCode CLI path.
-  RHINO_MAC_PLUGINS_DIR  Override Rhino's MacPlugIns directory.
+  RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT  Template checkout containing the shared extractor.
 EOF
 }
 
-if [[ $# -gt 0 ]]; then
+while [[ $# -gt 0 ]]; do
   case "$1" in
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
+    --configuration)
+      CONFIGURATION="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -40,42 +51,72 @@ if [[ $# -gt 0 ]]; then
       exit 2
       ;;
   esac
-fi
+done
 
+if [[ "$MODE" != "development" && "$MODE" != "production" ]]; then
+  echo "Mode must be development or production." >&2
+  exit 2
+fi
 if [[ "$OSTYPE" != darwin* ]]; then
-  echo "This installer targets Rhino 8 for macOS (OSTYPE=$OSTYPE)." >&2
+  echo "This installer targets Rhino 8 for macOS." >&2
   exit 1
 fi
 if [[ ! -x "$RHINOCODE" ]]; then
   echo "RhinoCode CLI was not found: $RHINOCODE" >&2
   exit 1
 fi
+if [[ ! -f "$PROJECT_DATA_EXTRACTOR" ]]; then
+  echo "Template project-data extractor was not found: $PROJECT_DATA_EXTRACTOR" >&2
+  echo "Set RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT to the template checkout." >&2
+  exit 1
+fi
+if [[ -z "$CONFIGURATION" ]]; then
+  CONFIGURATION=$([[ "$MODE" == development ]] && echo Debug || echo Release)
+fi
 
-echo "Generating $REPO_ROOT/tack.rhproj..."
-"$RHINOCODE" project build "$REPO_ROOT/tack.rhproj"
+PLUGIN_FILE="$GENERATED_ROOT/src/$PLUGIN_NAME/bin/$CONFIGURATION/net48/$PLUGIN_NAME.rhp"
+
+rm -rf "$GENERATED_ROOT"
+echo "Generating native Python commands from $RHINO_PROJECT..."
+"$RHINOCODE" project build "$RHINO_PROJECT" \
+  --buildpath "$REPO_ROOT/build" \
+  --buildtarget '8.*'
+
 dotnet run --project "$PROJECT_DATA_EXTRACTOR" -- \
-  "$GENERATED_PLUGIN" "$(dirname "$GENERATED_PROJECT")/Plugin.Data.resources"
-uv run "$REPO_ROOT/scripts/prepare-tack-script-plugin.py"
+  "$GENERATED_PLUGIN" \
+  "$(dirname "$GENERATED_PROJECT")/Plugin.Data.resources"
+uv run "$SCRIPT_DIR/prepare-tack-script-plugin.py"
 
-echo "Building $GENERATED_PROJECT ($BUILD_CONFIGURATION)..."
-dotnet build "$GENERATED_PROJECT" -c "$BUILD_CONFIGURATION"
-
+echo "Building $PLUGIN_NAME ($CONFIGURATION)..."
+dotnet build "$GENERATED_PROJECT" -c "$CONFIGURATION"
 if [[ ! -f "$PLUGIN_FILE" ]]; then
-  echo "Build succeeded, but the plugin was not found: $PLUGIN_FILE" >&2
+  echo "Build succeeded, but the plug-in was not found: $PLUGIN_FILE" >&2
   exit 1
 fi
 
-rm -rf "$INSTALL_DIR" "$LEGACY_INSTALL_DIR"
-rm -f "$LEGACY_RUI_SETTINGS"
-mkdir -p "$INSTALL_DIR/Python"
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 cp "$PLUGIN_FILE" "$INSTALL_DIR/"
-cp -R "$REPO_ROOT/tack" "$INSTALL_DIR/Python/"
+
+if [[ "$MODE" == development ]]; then
+  printf '%s\n' "$REPO_ROOT" > "$INSTALL_DIR/development-python-root.txt"
+else
+  mkdir -p "$INSTALL_DIR/Python"
+  cp -R "$REPO_ROOT/tack" "$INSTALL_DIR/Python/"
+  find "$INSTALL_DIR/Python" -type d -name __pycache__ -prune -exec rm -rf {} +
+  find "$INSTALL_DIR/Python" -type f -name '*.py[co]' -delete
+fi
 
 cat <<EOF
-Installed Tack:
-  Plugin: $INSTALL_DIR/Tack.rhp
-  Python: $INSTALL_DIR/Python/tack
+Installed Tack in $MODE mode:
+  $INSTALL_DIR
 
-The generated Python commands own TackAdd, TackShow, TackHide, and TackClear.
-Restart Rhino to load this build.
+Generated commands:
+  TackAdd
+  TackShow
+  TackHide
+  TackClear
+  TackSettings
+
+Restart Rhino to load this build or switch modes.
 EOF

@@ -1,17 +1,23 @@
 #! python 3
+"""Rhino command entry point for showing Tack display."""
 
-import os
+import importlib
 import sys
 
+from TackRhinoPlugin import PluginBridge
 
-python_root = os.path.join(
-    os.path.dirname(__rhino_command__.GetType().Assembly.Location),
-    "Python",
+
+python_root = str(PluginBridge.PythonRoot)
+if python_root in sys.path:
+    sys.path.remove(python_root)
+sys.path.insert(0, python_root)
+
+from tack import command_runtime
+
+if PluginBridge.IsDevelopmentMode:
+    command_runtime = importlib.reload(command_runtime)
+result = command_runtime.run(
+    "show",
+    __rhino_doc__,
+    reload_modules=PluginBridge.IsDevelopmentMode,
 )
-if python_root not in sys.path:
-    sys.path.insert(0, python_root)
-
-from tack import actions
-
-
-actions.run("show", doc=__rhino_doc__)

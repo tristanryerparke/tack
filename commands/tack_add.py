@@ -1,25 +1,23 @@
 #! python 3
+"""Rhino command entry point for adding a Tack."""
 
-import os
+import importlib
 import sys
 
-from Rhino.Commands import Result
-from RhinoCodePlatform.Rhino3D.Projects.Plugin import ProjectPlugin
-
-python_root = os.path.join(
-    os.path.dirname(__rhino_command__.GetType().Assembly.Location),
-    "Python",
-)
-if python_root not in sys.path:
-    sys.path.insert(0, python_root)
-
-from tack import actions
+from TackRhinoPlugin import PluginBridge
 
 
-result = actions.run(
+python_root = str(PluginBridge.PythonRoot)
+if python_root in sys.path:
+    sys.path.remove(python_root)
+sys.path.insert(0, python_root)
+
+from tack import command_runtime
+
+if PluginBridge.IsDevelopmentMode:
+    command_runtime = importlib.reload(command_runtime)
+result = command_runtime.run(
     "add",
-    doc=__rhino_doc__,
-    default_display_enabled=ProjectPlugin.DefaultDisplayEnabled,
+    __rhino_doc__,
+    reload_modules=PluginBridge.IsDevelopmentMode,
 )
-if result == Result.Success:
-    ProjectPlugin.SaveDisplayPreference("add")
