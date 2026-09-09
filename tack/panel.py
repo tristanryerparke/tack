@@ -17,7 +17,7 @@ _ICON_SIZE = 20
 _PANEL_VIEWS = {}
 
 
-def _svg_icon(panel, name, color, size=_ICON_SIZE):
+def _icon_image(panel, name, color, size=_ICON_SIZE):
     resource_name = "Tack.Resources.{}.svg".format(name)
     stream = panel.GetType().Assembly.GetManifestResourceStream(resource_name)
     if stream is None:
@@ -39,6 +39,7 @@ def _svg_icon(panel, name, color, size=_ICON_SIZE):
         finally:
             reader.Dispose()
             stream.Dispose()
+
     if name not in ("plus", "x"):
         svg = svg.replace("currentColor", color)
     else:
@@ -53,15 +54,18 @@ def _svg_icon(panel, name, color, size=_ICON_SIZE):
             'stroke-width="2"',
             'stroke-width="{}"'.format(outline_width),
         )
-        colored_opening = opening.replace("currentColor", color)
-        svg = outlined_opening + paths + colored_opening + paths + "</svg>"
-    bitmap = Rhino.UI.DrawingUtilities.BitmapFromSvg(svg, size, size)
-    return Rhino.UI.EtoExtensions.ToEto(bitmap)
+        svg = '{}{}<g stroke="{}" stroke-width="2">{}</g></svg>'.format(
+            outlined_opening,
+            paths,
+            color,
+            paths,
+        )
+    return Rhino.UI.ImageResources.CreateEtoIcon(svg, size, size, False)
 
 
 def _icon_button(panel, name, color, tooltip, icon_size=_ICON_SIZE):
     button = Rhino.UI.Controls.ImageButton()
-    button.Image = _svg_icon(panel, name, color, icon_size)
+    button.Image = _icon_image(panel, name, color, icon_size)
     button.Size = drawing.Size(22, 22)
     button.ToolTip = tooltip
     return button
@@ -322,7 +326,7 @@ class _PanelView:
         self._inspector_area.Content = (
             self._tack_inspector if show_tacks else self._object_inspector
         )
-        self._browser_toggle.Image = _svg_icon(
+        self._browser_toggle.Image = _icon_image(
             self._panel,
             "tree-pine" if show_tacks else "list",
             "#9e9e9e",
@@ -342,7 +346,7 @@ class _PanelView:
             self._content_splitter.Position = int(height * 0.6)
 
     def _update_display_button(self, visible):
-        self._display.Image = _svg_icon(
+        self._display.Image = _icon_image(
             self._panel,
             "eye-off" if visible else "eye",
             "#9e9e9e",
@@ -351,7 +355,7 @@ class _PanelView:
 
     def _update_remove_button(self, enabled):
         self._remove.Enabled = enabled
-        self._remove.Image = _svg_icon(
+        self._remove.Image = _icon_image(
             self._panel,
             "x",
             "#ef5350" if enabled else "#757575",

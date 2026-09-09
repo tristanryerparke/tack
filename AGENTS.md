@@ -26,3 +26,7 @@ Do not start a `--nostop` watcher in the agent terminal. Agents can lose its buf
 ## Eto layout
 
 - For a left-aligned label in a `DynamicLayout`, set `label.TextAlignment = forms.TextAlignment.Left` and place it in a nested `DynamicLayout` with `AddRow(label, None)`. This keeps the label left aligned instead of stretching it right.
+
+## Rhino icons
+
+- When working on Rhino icons, consult the [Rhino Icons guide](https://wiki.mcneel.com/rhino/rhinoicons).
