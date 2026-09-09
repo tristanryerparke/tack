@@ -66,7 +66,7 @@ def _select_parent_and_degrees_of_freedom(doc):
     """Select the parent while configuring Tack's native command options."""
     translation = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
     rotation = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
-    child_movement = Rhino.Input.Custom.OptionToggle(True, "Off", "On")
+    attach = Rhino.Input.Custom.OptionToggle(False, "Off", "On")
 
     while True:
         getter = Rhino.Input.Custom.GetObject()
@@ -75,7 +75,7 @@ def _select_parent_and_degrees_of_freedom(doc):
         getter.EnablePreSelect(True, True)
         getter.AddOptionToggle("Translation", translation)
         getter.AddOptionToggle("Rotation", rotation)
-        getter.AddOptionToggle("ChildMovement", child_movement)
+        getter.AddOptionToggle("Attach", attach)
         result = getter.Get()
         if result == Rhino.Input.GetResult.Option:
             continue
@@ -90,7 +90,7 @@ def _select_parent_and_degrees_of_freedom(doc):
             return parent, {
                 "translation": bool(translation.CurrentValue),
                 "rotation": bool(rotation.CurrentValue),
-                "child_movement": bool(child_movement.CurrentValue),
+                "attach": bool(attach.CurrentValue),
             }
         Rhino.RhinoApp.WriteLine("Select an object with a valid bounding box.")
 
@@ -192,9 +192,7 @@ def add(doc, default_display_enabled=True):
             return Result.Cancel
         child_definition, child_plane = child_result
         mode = (
-            "inherit_only"
-            if degrees_of_freedom["child_movement"]
-            else "attached"
+            "attached" if degrees_of_freedom["attach"] else "inherit_only"
         )
 
         inverted = False

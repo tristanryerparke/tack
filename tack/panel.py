@@ -19,20 +19,20 @@ _PANEL_VIEWS = {}
 
 def _icon_image(panel, name, color, size=_ICON_SIZE):
     resource_name = "Tack.Resources.{}.svg".format(name)
-    stream = panel.GetType().Assembly.GetManifestResourceStream(resource_name)
-    if stream is None:
-        source_path = os.path.join(
-            PluginBridge.PythonRoot,
-            "csharp",
-            "TackScriptPlugin",
-            "Resources",
-            "{}.svg".format(name),
-        )
-        if not PluginBridge.IsDevelopmentMode or not os.path.isfile(source_path):
-            raise RuntimeError("Missing panel icon: {}".format(resource_name))
+    source_path = os.path.join(
+        PluginBridge.PythonRoot,
+        "csharp",
+        "TackScriptPlugin",
+        "Resources",
+        "{}.svg".format(name),
+    )
+    if PluginBridge.IsDevelopmentMode and os.path.isfile(source_path):
         with open(source_path, encoding="utf-8") as source:
             svg = source.read()
     else:
+        stream = panel.GetType().Assembly.GetManifestResourceStream(resource_name)
+        if stream is None:
+            raise RuntimeError("Missing panel icon: {}".format(resource_name))
         reader = System.IO.StreamReader(stream)
         try:
             svg = reader.ReadToEnd()
@@ -61,6 +61,14 @@ def _icon_image(panel, name, color, size=_ICON_SIZE):
             paths,
         )
     return Rhino.UI.ImageResources.CreateEtoIcon(svg, size, size, False)
+
+
+def _is_dark_theme():
+    background = drawing.SystemColors.ControlBackground
+    luminance = (
+        0.299 * background.R + 0.587 * background.G + 0.114 * background.B
+    )
+    return luminance < 128
 
 
 def _icon_button(panel, name, color, tooltip, icon_size=_ICON_SIZE):
@@ -146,6 +154,7 @@ class _PanelView:
 
         self._tree = forms.TreeGridView()
         self._tree.ShowHeader = False
+        self._tree.BackgroundColor = drawing.SystemColors.ControlBackground
         self._tree.AllowMultipleSelection = False
         column = forms.GridColumn()
         column.DataCell = forms.TextBoxCell(0)
@@ -155,6 +164,7 @@ class _PanelView:
 
         self._tack_list = forms.GridView()
         self._tack_list.ShowHeader = False
+        self._tack_list.BackgroundColor = drawing.SystemColors.ControlBackground
         self._tack_list.AllowMultipleSelection = False
         tack_column = forms.GridColumn()
         tack_column.DataCell = forms.TextBoxCell(0)
@@ -183,7 +193,7 @@ class _PanelView:
 
         self._remove = _icon_button(
             panel,
-            "x",
+            "task-delete-disabled",
             "#757575",
             "Delete Tacks associated with this object",
             _ICON_SIZE,
@@ -199,29 +209,46 @@ class _PanelView:
         self._object_inspector = forms.DynamicLayout()
         self._object_inspector.Padding = drawing.Padding(4)
         self._object_inspector.AddRow(object_details_row)
+        self._object_inspector.Add(None, yscale=True)
 
-        self._tack_details = forms.Label()
-        self._tack_details.TextAlignment = forms.TextAlignment.Left
+        self._tack_id = forms.Label()
+        self._translation_allowed = forms.Label()
+        self._rotation_allowed = forms.Label()
         self._child_movement = forms.Label()
-        self._child_movement.TextAlignment = forms.TextAlignment.Left
+        for label in (
+            self._tack_id,
+            self._translation_allowed,
+            self._rotation_allowed,
+            self._child_movement,
+        ):
+            label.TextAlignment = forms.TextAlignment.Left
         self._reset_transform = forms.Button()
         self._reset_transform.Text = "Reset transform to original"
         self._reset_transform.Click += self._reset_selected_transform
-        details_row = forms.DynamicLayout()
-        details_row.DefaultSpacing = drawing.Size(0, 0)
-        details_row.AddRow(self._tack_details, None)
+        tack_id_row = forms.DynamicLayout()
+        tack_id_row.DefaultSpacing = drawing.Size(0, 0)
+        tack_id_row.AddRow(self._tack_id, None)
+        translation_allowed_row = forms.DynamicLayout()
+        translation_allowed_row.DefaultSpacing = drawing.Size(0, 0)
+        translation_allowed_row.AddRow(self._translation_allowed, None)
+        rotation_allowed_row = forms.DynamicLayout()
+        rotation_allowed_row.DefaultSpacing = drawing.Size(0, 0)
+        rotation_allowed_row.AddRow(self._rotation_allowed, None)
         child_movement_row = forms.DynamicLayout()
-        child_movement_row.DefaultSpacing = drawing.Size(4, 0)
-        child_movement_row.AddRow(
-            self._child_movement,
-            self._reset_transform,
-            None,
-        )
+        child_movement_row.DefaultSpacing = drawing.Size(0, 0)
+        child_movement_row.AddRow(self._child_movement, None)
+        reset_transform_row = forms.DynamicLayout()
+        reset_transform_row.DefaultSpacing = drawing.Size(0, 0)
+        reset_transform_row.AddRow(self._reset_transform, None)
         self._tack_inspector = forms.DynamicLayout()
         self._tack_inspector.Padding = drawing.Padding(4)
         self._tack_inspector.DefaultSpacing = drawing.Size(0, 2)
-        self._tack_inspector.AddRow(details_row)
+        self._tack_inspector.AddRow(tack_id_row)
+        self._tack_inspector.AddRow(translation_allowed_row)
+        self._tack_inspector.AddRow(rotation_allowed_row)
         self._tack_inspector.AddRow(child_movement_row)
+        self._tack_inspector.AddRow(reset_transform_row)
+        self._tack_inspector.Add(None, yscale=True)
 
         self._objects_browser = self._browser("Objects", self._tree)
         self._tacks_browser = self._browser("Tacks", self._tack_list)
@@ -232,6 +259,7 @@ class _PanelView:
         self._content_splitter.Panel1 = self._browser_area
         self._content_splitter.Panel2 = self._inspector_area
         self._content_splitter.SizeChanged += self._size_browser_area
+        self._content_splitter.PositionChanged += self._lock_splitter
 
         layout = forms.DynamicLayout()
         layout.Padding = drawing.Padding(5)
@@ -239,7 +267,7 @@ class _PanelView:
         layout.AddRow(self._button_bar())
         layout.Add(self._content_splitter, yscale=True)
         self.control = layout
-        self._set_browser(False)
+        self._set_browser(True)
         self.refresh()
 
     def _button_bar(self):
@@ -262,7 +290,7 @@ class _PanelView:
 
         self._display = _icon_button(
             self._panel,
-            "eye-off",
+            "bulb-on-{}".format("dark" if _is_dark_theme() else "light"),
             "#9e9e9e",
             "Show or hide Tacks",
             _ICON_SIZE - 4,
@@ -328,7 +356,7 @@ class _PanelView:
         )
         self._browser_toggle.Image = _icon_image(
             self._panel,
-            "tree-pine" if show_tacks else "list",
+            "object-manager-blocks" if show_tacks else "list",
             "#9e9e9e",
             _ICON_SIZE - 4,
         )
@@ -345,10 +373,19 @@ class _PanelView:
         if height > 0:
             self._content_splitter.Position = int(height * 0.6)
 
+    def _lock_splitter(self, sender, event):
+        height = self._content_splitter.Height
+        if height > 0:
+            position = int(height * 0.6)
+            if self._content_splitter.Position != position:
+                self._content_splitter.Position = position
+
     def _update_display_button(self, visible):
+        state = "on" if visible else "off"
+        tone = "dark" if _is_dark_theme() else "light"
         self._display.Image = _icon_image(
             self._panel,
-            "eye-off" if visible else "eye",
+            "bulb-{}-{}".format(state, tone),
             "#9e9e9e",
             _ICON_SIZE - 4,
         )
@@ -357,8 +394,8 @@ class _PanelView:
         self._remove.Enabled = enabled
         self._remove.Image = _icon_image(
             self._panel,
-            "x",
-            "#ef5350" if enabled else "#757575",
+            "task-delete" if enabled else "task-delete-disabled",
+            "#ff0000" if enabled else "#757575",
             _ICON_SIZE,
         )
 
@@ -478,24 +515,30 @@ class _PanelView:
             else plane_link_metadata.read_link(self._doc, link_id)
         )
         if link is None:
-            self._tack_details.Text = "Select a Tack to inspect"
-            self._tack_details.ToolTip = ""
+            self._tack_id.Text = "Select a Tack to inspect"
+            self._tack_id.ToolTip = ""
+            self._translation_allowed.Text = ""
+            self._rotation_allowed.Text = ""
             self._child_movement.Text = ""
             self._reset_transform.Visible = False
+            self._reset_transform.Enabled = False
             return
         child_movement_allowed = plane_link_metadata.link_mode(link) == "inherit_only"
-        self._tack_details.Text = (
-            "Tack ID: {}\nTranslation allowed: {}\nRotation allowed: {}"
-        ).format(
-            _short_id(link["link_id"]),
-            "Yes" if link.get("translation", True) else "No",
-            "Yes" if link.get("rotation", True) else "No",
+        self._tack_id.Text = "Tack ID: {}".format(_short_id(link["link_id"]))
+        self._tack_id.ToolTip = str(link["link_id"])
+        self._translation_allowed.Text = "Translation allowed: {}".format(
+            "Yes" if link.get("translation", True) else "No"
         )
-        self._tack_details.ToolTip = str(link["link_id"])
+        self._rotation_allowed.Text = "Rotation allowed: {}".format(
+            "Yes" if link.get("rotation", True) else "No"
+        )
         self._child_movement.Text = "Child movement allowed: {}".format(
             "Yes" if child_movement_allowed else "No"
         )
         self._reset_transform.Visible = child_movement_allowed
+        self._reset_transform.Enabled = (
+            link["current_transform"] != link["original_transform"]
+        )
 
     def _reset_selected_transform(self, sender, event):
         from tack import plane_link
