@@ -21,13 +21,24 @@ def _svg_icon(panel, name, color, size=_ICON_SIZE):
     resource_name = "Tack.Resources.{}.svg".format(name)
     stream = panel.GetType().Assembly.GetManifestResourceStream(resource_name)
     if stream is None:
-        raise RuntimeError("Missing panel icon: {}".format(resource_name))
-    reader = System.IO.StreamReader(stream)
-    try:
-        svg = reader.ReadToEnd()
-    finally:
-        reader.Dispose()
-        stream.Dispose()
+        source_path = os.path.join(
+            PluginBridge.PythonRoot,
+            "csharp",
+            "TackScriptPlugin",
+            "Resources",
+            "{}.svg".format(name),
+        )
+        if not PluginBridge.IsDevelopmentMode or not os.path.isfile(source_path):
+            raise RuntimeError("Missing panel icon: {}".format(resource_name))
+        with open(source_path, encoding="utf-8") as source:
+            svg = source.read()
+    else:
+        reader = System.IO.StreamReader(stream)
+        try:
+            svg = reader.ReadToEnd()
+        finally:
+            reader.Dispose()
+            stream.Dispose()
     if name not in ("plus", "x"):
         svg = svg.replace("currentColor", color)
     else:
@@ -233,10 +244,14 @@ class _PanelView:
         bar = forms.DynamicLayout()
         bar.DefaultSpacing = drawing.Size(2, 0)
 
-        self._browser_toggle = forms.ToggleButton()
-        self._browser_toggle.Text = "Objects"
-        self._browser_toggle.ToolTip = "Show Tacks"
-        self._browser_toggle.CheckedChanged += self._toggle_browser
+        self._browser_toggle = _icon_button(
+            self._panel,
+            "list",
+            "#9e9e9e",
+            "Show Tacks",
+            _ICON_SIZE - 4,
+        )
+        self._browser_toggle.Click += self._toggle_browser
 
         add = _icon_button(self._panel, "plus", "#4caf50", "Add Tack")
         add.Click += self._add
@@ -272,11 +287,11 @@ class _PanelView:
         )
 
         bar.AddRow(
-            self._browser_toggle,
             add,
             self._display,
             self._remove,
             clear,
+            self._browser_toggle,
             settings,
             None,
         )
@@ -297,7 +312,7 @@ class _PanelView:
         return layout
 
     def _toggle_browser(self, sender, event):
-        self._set_browser(bool(self._browser_toggle.Checked))
+        self._set_browser(not self._show_tacks)
 
     def _set_browser(self, show_tacks):
         self._show_tacks = show_tacks
@@ -307,7 +322,12 @@ class _PanelView:
         self._inspector_area.Content = (
             self._tack_inspector if show_tacks else self._object_inspector
         )
-        self._browser_toggle.Text = "Tacks" if show_tacks else "Objects"
+        self._browser_toggle.Image = _svg_icon(
+            self._panel,
+            "tree-pine" if show_tacks else "list",
+            "#9e9e9e",
+            _ICON_SIZE - 4,
+        )
         self._browser_toggle.ToolTip = (
             "Show Objects" if show_tacks else "Show Tacks"
         )
