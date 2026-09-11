@@ -50,5 +50,15 @@ namespace TackRhinoPlugin
     {
       return ProjectPlugin.SetDocumentDataJson(documentSerialNumber, json);
     }
+
+    public static TackPanel GetPanelInstance(string panelInstanceId)
+    {
+      return TackPanel.GetInstance(panelInstanceId);
+    }
+
+    public static string[] GetPanelInstanceIds(uint documentSerialNumber)
+    {
+      return TackPanel.GetInstanceIds(documentSerialNumber);
+    }
   }
 }

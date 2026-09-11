@@ -576,14 +576,14 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     _draw_wireframe(
                         event.Display,
                         parent_geometry,
-                        analytic_plane.CROSSHAIR_COLOR,
+                        System.Drawing.Color.Red,
                         TREE_SELECTION_WIRE_THICKNESS,
                     )
                 if child_geometry is not None:
                     _draw_wireframe(
                         event.Display,
                         child_geometry,
-                        System.Drawing.Color.Red,
+                        analytic_plane.CROSSHAIR_COLOR,
                         TREE_SELECTION_WIRE_THICKNESS,
                     )
             else:

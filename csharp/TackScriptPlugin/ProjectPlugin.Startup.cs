@@ -130,11 +130,17 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       PluginDocumentData.LoadJson(document, archive.ReadString());
     }
 
-    internal static bool InstallPythonPanel(uint documentSerialNumber)
+    internal static bool InstallPythonPanel(
+      uint documentSerialNumber,
+      string panelInstanceId)
     {
       return RunPython(
         "from tack import panel\n"
-        + "panel.install(" + documentSerialNumber + ")\n",
+        + "panel.install("
+        + documentSerialNumber
+        + ", "
+        + PythonString(panelInstanceId)
+        + ")\n",
         "Tack panel initialization failed");
     }
 

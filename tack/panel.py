@@ -738,25 +738,54 @@ class _PanelView:
 
 
 def refresh(doc):
-    view = _PANEL_VIEWS.get(int(doc.RuntimeSerialNumber))
-    if view is not None:
-        view.refresh()
+    document_serial_number = int(doc.RuntimeSerialNumber)
+    for view in tuple(_PANEL_VIEWS.values()):
+        if int(view._doc.RuntimeSerialNumber) == document_serial_number:
+            view.refresh()
 
 
 def forget(doc):
-    _PANEL_VIEWS.pop(int(doc.RuntimeSerialNumber), None)
+    document_serial_number = int(doc.RuntimeSerialNumber)
+    for panel_instance_id, view in tuple(_PANEL_VIEWS.items()):
+        if int(view._doc.RuntimeSerialNumber) == document_serial_number:
+            _PANEL_VIEWS.pop(panel_instance_id, None)
 
 
-def install(document_serial_number):
-    """Install the Python Eto content into one C#-registered panel instance."""
+def _install_panel(doc, panel, panel_instance_id):
+    view = _PanelView(panel, doc)
+    _PANEL_VIEWS[str(panel_instance_id)] = view
+    panel.SetPythonContent(view.control)
+
+
+def install(document_serial_number, panel_instance_id=None):
+    """Install Python Eto content into one or more native panel instances."""
     doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(document_serial_number)
     if doc is None:
         raise RuntimeError("Tack panel document is unavailable.")
 
-    panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
+    if panel_instance_id is None and hasattr(
+        PluginBridge, "GetPanelInstanceIds"
+    ):
+        panel_instance_ids = tuple(
+            PluginBridge.GetPanelInstanceIds(document_serial_number)
+        )
+        if panel_instance_ids:
+            for instance_id in panel_instance_ids:
+                install(document_serial_number, str(instance_id))
+            return
+
+    if panel_instance_id is not None and hasattr(
+        PluginBridge, "GetPanelInstance"
+    ):
+        panel = PluginBridge.GetPanelInstance(panel_instance_id)
+    else:
+        panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
     if panel is None:
         raise RuntimeError("Tack panel instance is unavailable.")
 
-    view = _PanelView(panel, doc)
-    _PANEL_VIEWS[int(doc.RuntimeSerialNumber)] = view
-    panel.SetPythonContent(view.control)
+    instance_id = (
+        panel_instance_id
+        if panel_instance_id is not None
+        else "legacy:{}".format(document_serial_number)
+    )
+    _install_panel(doc, panel, instance_id)
