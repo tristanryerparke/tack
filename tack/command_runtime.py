@@ -5,8 +5,6 @@ import sys
 
 from Rhino.Commands import Result
 
-from TackRhinoPlugin import PluginBridge
-
 
 _PACKAGE_NAME = "tack"
 _PRESERVED_MODULES = {
@@ -51,12 +49,23 @@ def run(action, doc, reload_modules=False):
         settings = importlib.import_module(_PACKAGE_NAME + ".settings")
         return settings.show(doc)
 
+    plugin_data = importlib.import_module(_PACKAGE_NAME + ".plugin_data")
+    default_display_enabled = plugin_data.setting(
+        plugin_data.DEFAULT_DISPLAY_ENABLED,
+        True,
+    )
+    if not isinstance(default_display_enabled, bool):
+        default_display_enabled = True
+
     actions = importlib.import_module(_PACKAGE_NAME + ".actions")
     result = actions.run(
         action,
         doc=doc,
-        default_display_enabled=PluginBridge.DefaultDisplayEnabled,
+        default_display_enabled=default_display_enabled,
     )
-    if result == Result.Success and action in ("add", "clear"):
-        PluginBridge.SaveDisplayPreference(action)
+    if result == Result.Success and action in ("show", "hide"):
+        plugin_data.set_setting(
+            plugin_data.DEFAULT_DISPLAY_ENABLED,
+            action == "show",
+        )
     return result

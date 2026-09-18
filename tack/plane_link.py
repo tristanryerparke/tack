@@ -7,6 +7,7 @@ from tack import analytic_plane
 from tack import display
 from tack import document_runtime
 from tack import plane_link_metadata
+from tack import plugin_data
 from tack import utils
 
 
@@ -33,26 +34,41 @@ def _display_state(doc, default_enabled=True):
     )
 
 
-def _plugin():
-    try:
-        from TackRhinoPlugin import PluginBridge
-    except ImportError:
-        return None
-    return PluginBridge
+def _user_setting(doc, name, default):
+    value = plugin_data.setting(name)
+    if value is not None:
+        return value
+    return _display_state(doc).get(name, default)
+
+
+def _bool_setting(doc, name, default):
+    value = _user_setting(doc, name, default)
+    return value if isinstance(value, bool) else default
+
+
+def _number_setting(doc, name, default):
+    value = _user_setting(doc, name, default)
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else float(default)
+    )
+
+
+def _set_user_setting(doc, name, value):
+    if not plugin_data.set_setting(name, value):
+        _display_state(doc)[name] = value
 
 
 def crosshair_size(doc):
-    plugin = _plugin()
-    if plugin is not None:
-        size = plugin.CrosshairSize
-    else:
-        size = _display_state(doc).get(
-            "crosshair_size",
-            analytic_plane.CROSSHAIR_SIZE,
-        )
+    size = _number_setting(
+        doc,
+        plugin_data.CROSSHAIR_SIZE,
+        analytic_plane.CROSSHAIR_SIZE,
+    )
     return max(
         analytic_plane.CROSSHAIR_SIZE_MIN,
-        min(analytic_plane.CROSSHAIR_SIZE_MAX, float(size)),
+        min(analytic_plane.CROSSHAIR_SIZE_MAX, size),
     )
 
 
@@ -61,27 +77,20 @@ def set_crosshair_size(doc, size):
         analytic_plane.CROSSHAIR_SIZE_MIN,
         min(analytic_plane.CROSSHAIR_SIZE_MAX, int(size)),
     )
-    plugin = _plugin()
-    if plugin is not None:
-        plugin.SaveCrosshairSize(size)
-    else:
-        _display_state(doc)["crosshair_size"] = float(size)
+    _set_user_setting(doc, plugin_data.CROSSHAIR_SIZE, float(size))
     doc.Views.Redraw()
     return size
 
 
 def crosshair_thickness(doc):
-    plugin = _plugin()
-    if plugin is not None:
-        thickness = plugin.CrosshairThickness
-    else:
-        thickness = _display_state(doc).get(
-            "crosshair_thickness",
-            analytic_plane.CROSSHAIR_THICKNESS,
-        )
+    thickness = _number_setting(
+        doc,
+        plugin_data.CROSSHAIR_THICKNESS,
+        analytic_plane.CROSSHAIR_THICKNESS,
+    )
     return max(
         analytic_plane.CROSSHAIR_THICKNESS_MIN,
-        min(analytic_plane.CROSSHAIR_THICKNESS_MAX, float(thickness)),
+        min(analytic_plane.CROSSHAIR_THICKNESS_MAX, thickness),
     )
 
 
@@ -90,29 +99,29 @@ def set_crosshair_thickness(doc, thickness):
         analytic_plane.CROSSHAIR_THICKNESS_MIN,
         min(analytic_plane.CROSSHAIR_THICKNESS_MAX, int(thickness)),
     )
-    plugin = _plugin()
-    if plugin is not None:
-        plugin.SaveCrosshairThickness(thickness)
-    else:
-        _display_state(doc)["crosshair_thickness"] = float(thickness)
+    _set_user_setting(doc, plugin_data.CROSSHAIR_THICKNESS, float(thickness))
     doc.Views.Redraw()
     return thickness
 
 
 def show_selected_tacks_only(doc):
-    plugin = _plugin()
-    if plugin is not None:
-        return bool(plugin.ShowSelectedTacksOnly)
-    return bool(_display_state(doc).get("show_selected_tacks_only", False))
+    return _bool_setting(doc, plugin_data.SHOW_SELECTED_TACKS_ONLY, False)
 
 
 def set_show_selected_tacks_only(doc, enabled):
     enabled = bool(enabled)
-    plugin = _plugin()
-    if plugin is not None:
-        plugin.SaveShowSelectedTacksOnly(enabled)
-    else:
-        _display_state(doc)["show_selected_tacks_only"] = enabled
+    _set_user_setting(doc, plugin_data.SHOW_SELECTED_TACKS_ONLY, enabled)
+    doc.Views.Redraw()
+    return enabled
+
+
+def highlight_selected_objects(doc):
+    return _bool_setting(doc, plugin_data.HIGHLIGHT_SELECTED_OBJECTS, True)
+
+
+def set_highlight_selected_objects(doc, enabled):
+    enabled = bool(enabled)
+    _set_user_setting(doc, plugin_data.HIGHLIGHT_SELECTED_OBJECTS, enabled)
     doc.Views.Redraw()
     return enabled
 

@@ -1,7 +1,9 @@
 """Python-owned Eto content for Tack's per-document dockable panel."""
 
+import functools
 import os
 import runpy
+import traceback
 
 import System
 
@@ -15,6 +17,22 @@ from TackRhinoPlugin import PluginBridge
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
 _ICON_SIZE = 20
 _PANEL_VIEWS = {}
+
+
+def _ui_callback(callback):
+    """Keep Python exceptions from escaping through Eto into Python.NET."""
+
+    @functools.wraps(callback)
+    def guarded(*args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except Exception:
+            Rhino.RhinoApp.WriteLine(
+                "Tack panel error:\n{}".format(traceback.format_exc())
+            )
+            return None
+
+    return guarded
 
 
 def _icon_image(panel, name, color, size=_ICON_SIZE):
@@ -314,9 +332,7 @@ class _PanelView:
             "Tack Settings",
             _ICON_SIZE - 4,
         )
-        settings.Click += lambda sender, event: self._defer_command(
-            "settings"
-        )
+        settings.Click += self._settings
 
         bar.AddRow(
             add,
@@ -343,6 +359,7 @@ class _PanelView:
         layout.Add(control, yscale=True)
         return layout
 
+    @_ui_callback
     def _toggle_browser(self, sender, event):
         self._set_browser(not self._show_tacks)
 
@@ -368,11 +385,13 @@ class _PanelView:
             tack_list=show_tacks,
         )
 
+    @_ui_callback
     def _size_browser_area(self, sender, event):
         height = self._content_splitter.Height
         if height > 0:
             self._content_splitter.Position = int(height * 0.6)
 
+    @_ui_callback
     def _lock_splitter(self, sender, event):
         height = self._content_splitter.Height
         if height > 0:
@@ -399,17 +418,24 @@ class _PanelView:
             _ICON_SIZE,
         )
 
+    @_ui_callback
     def _add(self, sender, event):
         self._defer_command("add", refresh=True)
 
+    @_ui_callback
     def _toggle_display(self, sender, event):
         from tack import plane_link
 
         action = "hide" if plane_link.display_enabled(self._doc) else "show"
         self._defer_command(action, update_display=True)
 
+    @_ui_callback
     def _clear(self, sender, event):
         self._defer_command("clear", refresh=True)
+
+    @_ui_callback
+    def _settings(self, sender, event):
+        self._defer_command("settings")
 
     def _defer_command(self, action, refresh=False, update_display=False):
         forms.Application.Instance.AsyncInvoke(
@@ -449,8 +475,6 @@ class _PanelView:
 
                 self._update_display_button(plane_link.display_enabled(self._doc))
         except Exception:
-            import traceback
-
             Rhino.RhinoApp.WriteLine(traceback.format_exc())
 
     @staticmethod
@@ -536,10 +560,11 @@ class _PanelView:
             "Yes" if child_movement_allowed else "No"
         )
         self._reset_transform.Visible = child_movement_allowed
-        self._reset_transform.Enabled = (
+        self._reset_transform.Enabled = child_movement_allowed and (
             link["current_transform"] != link["original_transform"]
         )
 
+    @_ui_callback
     def _reset_selected_transform(self, sender, event):
         from tack import plane_link
 
@@ -551,14 +576,17 @@ class _PanelView:
             Rhino.RhinoApp.WriteLine("The selected Tack cannot reset its transform.")
         self.refresh()
 
+    @_ui_callback
     def _tree_selection_changed(self, sender, event):
         if not self._refreshing:
             self._apply_selection(self._tree.SelectedItem)
 
+    @_ui_callback
     def _tack_list_selection_changed(self, sender, event):
         if not self._refreshing:
             self._apply_selection(self._tack_list.SelectedItem, tack_list=True)
 
+    @_ui_callback
     def _tack_list_mouse_down(self, sender, event):
         self._set_context_item(self._tack_list, event)
 
@@ -573,6 +601,7 @@ class _PanelView:
             link_id = direct[0] if direct else None
         return link_id
 
+    @_ui_callback
     def _context_menu_opening(self, sender, event):
         link_id = self._context_link_id()
         self._context_header.Text = (
@@ -580,6 +609,7 @@ class _PanelView:
         )
         self._select_object_menu_item.Enabled = self._context_item is not None
 
+    @_ui_callback
     def _select_context_object(self, sender, event):
         self._select_tree_object(self._context_item)
 
@@ -597,6 +627,7 @@ class _PanelView:
             Rhino.RhinoApp.WriteLine("The Tack object could not be selected.")
         self._doc.Views.Redraw()
 
+    @_ui_callback
     def _remove_selected(self, sender, event):
         link_ids = self._selected_link_ids()
         count = len(link_ids)
@@ -757,21 +788,23 @@ def _install_panel(doc, panel, panel_instance_id):
     panel.SetPythonContent(view.control)
 
 
-def install(document_serial_number, panel_instance_id=None):
+def install(document_serial_number, panel_instance_id=None, _all_instances=False):
     """Install Python Eto content into one or more native panel instances."""
     doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(document_serial_number)
     if doc is None:
         raise RuntimeError("Tack panel document is unavailable.")
 
-    if panel_instance_id is None and hasattr(
-        PluginBridge, "GetPanelInstanceIds"
-    ):
+    if not _all_instances and hasattr(PluginBridge, "GetPanelInstanceIds"):
         panel_instance_ids = tuple(
             PluginBridge.GetPanelInstanceIds(document_serial_number)
         )
         if panel_instance_ids:
             for instance_id in panel_instance_ids:
-                install(document_serial_number, str(instance_id))
+                install(
+                    document_serial_number,
+                    str(instance_id),
+                    _all_instances=True,
+                )
             return
 
     if panel_instance_id is not None and hasattr(

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 
@@ -14,6 +15,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
   public partial class ProjectPlugin
   {
     const string DevelopmentRootFile = "development-python-root.txt";
+    const string SettingsKey = "PythonSettingsJson";
     static readonly Guid RhinoCodePluginId =
       new Guid("c9cba87a-23ce-4f15-a918-97645c05cde7");
     static bool s_restoreScheduled;
@@ -37,54 +39,60 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       return PluginDocumentData.SetJson(documentSerialNumber, json);
     }
 
-    public static bool DefaultDisplayEnabled
+    public static string GetSettingsJson()
     {
-      get => Instance == null || Instance.Settings.GetBool("DefaultDisplayEnabled", true);
+      if (Instance?.Settings == null)
+        return "{}";
+
+      string json;
+      if (Instance.Settings.TryGetString(SettingsKey, out json))
+        return string.IsNullOrWhiteSpace(json) ? "{}" : json;
+
+      json = LegacySettingsJson();
+      Instance.Settings.SetString(SettingsKey, json);
+      return json;
     }
 
-    public static void SaveDisplayPreference(string action)
+    public static void SetSettingsJson(string json)
     {
-      if (Instance != null && (action == "show" || action == "hide"))
-        Instance.Settings.SetBool("DefaultDisplayEnabled", action == "show");
+      if (Instance?.Settings != null)
+        Instance.Settings.SetString(
+          SettingsKey,
+          string.IsNullOrWhiteSpace(json) ? "{}" : json);
     }
 
-    public static bool ShowSelectedTacksOnly
+    static string LegacySettingsJson()
     {
-      get => Instance != null
-        && Instance.Settings != null
-        && Instance.Settings.GetBool("ShowSelectedTacksOnly", false);
+      var settings = Instance.Settings;
+      return "{"
+        + "\"default_display_enabled\":"
+        + JsonBool(settings.GetBool("DefaultDisplayEnabled", true))
+        + ",\"show_selected_tacks_only\":"
+        + JsonBool(settings.GetBool("ShowSelectedTacksOnly", false))
+        + ",\"highlight_selected_objects\":"
+        + JsonBool(settings.GetBool("HighlightSelectedObjects", true))
+        + ",\"add_tack_translation\":"
+        + JsonBool(settings.GetBool("AddTackTranslation", true))
+        + ",\"add_tack_rotation\":"
+        + JsonBool(settings.GetBool("AddTackRotation", true))
+        + ",\"add_tack_attach\":"
+        + JsonBool(settings.GetBool("AddTackAttach", false))
+        + ",\"add_tack_invert\":"
+        + JsonBool(settings.GetBool("AddTackInvert", false))
+        + ",\"crosshair_size\":"
+        + settings.GetDouble("CrosshairSize", 20.0).ToString(
+          "R",
+          CultureInfo.InvariantCulture)
+        + ",\"crosshair_thickness\":"
+        + settings.GetDouble("CrosshairThickness", 2.0).ToString(
+          "R",
+          CultureInfo.InvariantCulture)
+        + "}";
     }
 
-    public static void SaveShowSelectedTacksOnly(bool enabled)
+    static string JsonBool(bool value)
     {
-      if (Instance != null && Instance.Settings != null)
-        Instance.Settings.SetBool("ShowSelectedTacksOnly", enabled);
-    }
-
-    public static double CrosshairSize
-    {
-      get => Instance == null || Instance.Settings == null
-        ? 20.0
-        : Instance.Settings.GetDouble("CrosshairSize", 20.0);
-    }
-
-    public static void SaveCrosshairSize(double size)
-    {
-      if (Instance != null && Instance.Settings != null)
-        Instance.Settings.SetDouble("CrosshairSize", size);
-    }
-
-    public static double CrosshairThickness
-    {
-      get => Instance == null || Instance.Settings == null
-        ? 2.0
-        : Instance.Settings.GetDouble("CrosshairThickness", 2.0);
-    }
-
-    public static void SaveCrosshairThickness(double thickness)
-    {
-      if (Instance != null && Instance.Settings != null)
-        Instance.Settings.SetDouble("CrosshairThickness", thickness);
+      return value ? "true" : "false";
     }
 
     protected override LoadReturnCode OnLoad(ref string errorMessage)
@@ -184,8 +192,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     {
       return RunPython(
         "from tack import actions\n"
-        + "actions.restore_open_documents(default_display_enabled="
-        + (DefaultDisplayEnabled ? "True" : "False") + ")\n",
+        + "actions.restore_open_documents()\n",
         "Tack startup restore failed");
     }
 

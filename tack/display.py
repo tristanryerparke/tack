@@ -71,10 +71,8 @@ def constrained_plane_transform(
 
 def _draw_bounding_box(display, geometry, color, thickness):
     bounding_box = geometry.GetBoundingBox(True)
-    if not bounding_box.IsValid:
-        return
-    for line in Rhino.Geometry.Box(bounding_box).GetEdges():
-        display.DrawLine(line, color, thickness)
+    if bounding_box.IsValid:
+        display.DrawBox(bounding_box, color, thickness)
 
 
 def _draw_brep_edges(display, brep, color, thickness):
@@ -112,6 +110,22 @@ def _draw_locked_wireframe(display, geometry):
         Rhino.ApplicationSettings.AppearanceSettings.LockedObjectColor,
         LOCKED_WIRE_THICKNESS,
     )
+
+
+def _draw_transformed_object(display, obj, transform):
+    """Draw an object with Tack's filtered dynamic transform."""
+    geometry = obj.Geometry
+    if isinstance(geometry, Rhino.Geometry.TextEntity):
+        display.PushModelTransform(transform)
+        try:
+            display.DrawText(
+                geometry,
+                obj.Attributes.DrawColor(obj.Document),
+            )
+        finally:
+            display.PopModelTransform()
+        return
+    display.DrawObject(obj, transform)
 
 
 def _draw_dotted_line(display, start, end, color, thickness, spacing):
@@ -194,7 +208,11 @@ class TransformPreviewConduit(Rhino.Display.DisplayConduit):
         _draw_locked_wireframe(event.Display, self.child.Geometry)
         self._drawing_child = True
         try:
-            event.Display.DrawObject(self.child, self.transform)
+            _draw_transformed_object(
+                event.Display,
+                self.child,
+                self.transform,
+            )
         finally:
             self._drawing_child = False
 
@@ -223,6 +241,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         self._previews = {}
         self._drawing_child = False
         self._active_command = None
+        self._selected_ids = ()
 
     def _matches(self, event):
         doc = getattr(event, "RhinoDoc", None)
@@ -284,14 +303,11 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             utils.find_object(doc, plane_link.selected_object_id(doc))
         )
 
-    def _selected_tack_geometries(self):
+    def _selected_tack_state(self, doc):
         from tack import plane_link
 
-        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
-        if doc is None:
-            return None
         selected_link_id = plane_link.selected_tack_id(doc)
-        state = next(
+        return next(
             (
                 state
                 for link_id, state in self.states.items()
@@ -299,6 +315,28 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             ),
             None,
         )
+
+    def _selected_object_ids(self):
+        from tack import plane_link
+
+        if not self.display_state["enabled"]:
+            return ()
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None or not plane_link.highlight_selected_objects(doc):
+            return ()
+        selected_object_id = plane_link.selected_object_id(doc)
+        if selected_object_id is not None:
+            return (selected_object_id,)
+        state = self._selected_tack_state(doc)
+        if state is None:
+            return ()
+        return (state["parent_id"], state["child_id"])
+
+    def _selected_tack_geometries(self):
+        doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(self.document_serial)
+        if doc is None:
+            return None
+        state = self._selected_tack_state(doc)
         if state is None:
             return None
         return (
@@ -457,6 +495,9 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 else:
                     continue
 
+                if preview_transform.IsIdentity:
+                    continue
+
                 previews[state["link_id"]] = {
                     "child": child,
                     "state": state,
@@ -483,6 +524,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
 
     def PreDrawObjects(self, event):
         if self._matches(event):
+            self._selected_ids = self._selected_object_ids()
             self._update(event.RhinoDoc)
 
     def PreDrawObject(self, event):
@@ -496,6 +538,14 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             and utils.same_id(obj.Id, preview["child"].Id)
             for preview in self._previews.values()
         ):
+            event.DrawObject = False
+            return
+        if event.Display.DrawingWires and any(
+            utils.same_id(obj.Id, selected_id)
+            for selected_id in self._selected_ids
+        ):
+            # Tack redraws these wires with a camera-facing Z bias. Omitting
+            # Rhino's coincident wires prevents the two colors from fighting.
             event.DrawObject = False
 
     def CalculateBoundingBox(self, event):
@@ -557,11 +607,15 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             _draw_locked_wireframe(event.Display, child.Geometry)
             self._drawing_child = True
             try:
-                event.Display.DrawObject(child, preview["transform"])
+                _draw_transformed_object(
+                    event.Display,
+                    child,
+                    preview["transform"],
+                )
             finally:
                 self._drawing_child = False
 
-        if not self.display_state["enabled"]:
+        if not self.display_state["enabled"] or not self._selected_ids:
             return
         selected_tack_geometries = self._selected_tack_geometries()
         selected_geometry = self._selected_geometry()

@@ -35,7 +35,7 @@ def show(doc):
 
     dialog = forms.Dialog[bool]()
     dialog.Title = "Tack Settings"
-    dialog.ClientSize = drawing.Size(280, 205)
+    dialog.ClientSize = drawing.Size(280, 230)
     dialog.Resizable = False
     Rhino.UI.EtoExtensions.UseRhinoStyle(dialog)
 
@@ -64,6 +64,12 @@ def show(doc):
     selected_only.CheckedChanged += lambda sender, event: (
         plane_link.set_show_selected_tacks_only(doc, bool(sender.Checked))
     )
+    highlight_selected = forms.CheckBox()
+    highlight_selected.Text = "Highlight Selected Objects"
+    highlight_selected.Checked = plane_link.highlight_selected_objects(doc)
+    highlight_selected.CheckedChanged += lambda sender, event: (
+        plane_link.set_highlight_selected_objects(doc, bool(sender.Checked))
+    )
 
     close = forms.Button()
     close.Text = "Close"
@@ -80,6 +86,7 @@ def show(doc):
     layout.AddRow(thickness_label)
     layout.AddRow(thickness_slider)
     layout.AddRow(selected_only)
+    layout.AddRow(highlight_selected)
     layout.Add(None)
     layout.Add(close_row, True)
     dialog.Content = layout

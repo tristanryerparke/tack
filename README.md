@@ -16,18 +16,19 @@ panel.
 ## Architecture
 
 The Script Editor project generates the native Python commands and combined
-Rhino plug-in. `csharp/TackScriptPlugin` provides the stable panel host,
-generic JSON document storage, and per-user settings. `tack/plugin_data.py`
-owns Tack's document-data convenience wrapper and link schema.
+Rhino plug-in. `csharp/TackScriptPlugin` provides the stable panel host and
+generic JSON document and per-user settings stores. `tack/plugin_data.py`
+wraps both stores, while `tack/plane_link_metadata.py` owns the link schema.
 
 In development, panel buttons run their `commands/*.py` entry files directly
 from this checkout. In production, the same buttons invoke generated native
 `Tack*` commands. Typed commands are generated native commands in both modes.
 
 Relationships and display visibility are stored in Tack's plug-in-owned
-document data. The default display visibility, crosshair size, and crosshair
-line width are stored in per-user plug-in settings. Display conduits are
-created per document and reject events from every other document.
+document data. The default display visibility, crosshair size, crosshair line
+width, and selected-object highlighting are stored together as JSON in per-user
+plug-in settings. Display conduits are created per document and reject events
+from every other document.
 
 ## Install on macOS
 

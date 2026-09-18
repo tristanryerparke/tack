@@ -226,6 +226,7 @@ def draw_preview(
     origin = plane.Origin
     x_axis = plane.XAxis
     y_axis = plane.YAxis
+    z_axis = plane.ZAxis
     half_extent = preview_half_extent(size)
     appearance = Rhino.ApplicationSettings.AppearanceSettings
 
@@ -256,6 +257,12 @@ def draw_preview(
         origin,
         origin + y_axis * half_extent,
         appearance.GridYAxisLineColor,
+        thickness,
+    )
+    display.DrawLine(
+        origin,
+        origin + z_axis * half_extent,
+        appearance.GridZAxisLineColor,
         thickness,
     )
 

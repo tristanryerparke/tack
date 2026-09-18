@@ -11,32 +11,14 @@ namespace TackRhinoPlugin
 
     public static string PythonRoot => ProjectPlugin.PythonRoot;
 
-    public static bool DefaultDisplayEnabled => ProjectPlugin.DefaultDisplayEnabled;
-
-    public static void SaveDisplayPreference(string action)
+    public static string GetSettingsJson()
     {
-      ProjectPlugin.SaveDisplayPreference(action);
+      return ProjectPlugin.GetSettingsJson();
     }
 
-    public static bool ShowSelectedTacksOnly => ProjectPlugin.ShowSelectedTacksOnly;
-
-    public static void SaveShowSelectedTacksOnly(bool enabled)
+    public static void SetSettingsJson(string json)
     {
-      ProjectPlugin.SaveShowSelectedTacksOnly(enabled);
-    }
-
-    public static double CrosshairSize => ProjectPlugin.CrosshairSize;
-
-    public static void SaveCrosshairSize(double size)
-    {
-      ProjectPlugin.SaveCrosshairSize(size);
-    }
-
-    public static double CrosshairThickness => ProjectPlugin.CrosshairThickness;
-
-    public static void SaveCrosshairThickness(double thickness)
-    {
-      ProjectPlugin.SaveCrosshairThickness(thickness);
+      ProjectPlugin.SetSettingsJson(json);
     }
 
     public static string GetDocumentDataJson(uint documentSerialNumber)
