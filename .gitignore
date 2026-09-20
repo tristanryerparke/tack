@@ -9,6 +9,8 @@ wheels/
 # C# build output
 csharp/**/bin/
 csharp/**/obj/
+utilities/**/bin/
+utilities/**/obj/
 
 # Virtual environments
 .venv

@@ -8,8 +8,7 @@ RHINO_PROJECT="$REPO_ROOT/tack.rhproj"
 GENERATED_ROOT="$REPO_ROOT/build/rh8"
 GENERATED_PROJECT="$GENERATED_ROOT/src/Tack/Tack.csproj"
 GENERATED_PLUGIN="$GENERATED_ROOT/Tack.rhp"
-TEMPLATE_ROOT="${RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT:-$REPO_ROOT/../rhino-python-plugin-template}"
-PROJECT_DATA_EXTRACTOR="$TEMPLATE_ROOT/utilities/ProjectDataExtractor/ProjectDataExtractor.csproj"
+PROJECT_DATA_EXTRACTOR="$REPO_ROOT/utilities/ProjectDataExtractor/ProjectDataExtractor.csproj"
 PLUGIN_NAME="Tack"
 MAC_PLUGINS_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}"
 INSTALL_DIR="$MAC_PLUGINS_DIR/$PLUGIN_NAME.rhp"
@@ -26,8 +25,6 @@ persistence extension, and installs one mutually exclusive plug-in bundle.
 Development mode reads Tack Python and panel command files from this checkout.
 Production mode packages a Tack Python snapshot and uses native commands.
 
-Environment:
-  RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT  Template checkout containing the shared extractor.
 EOF
 }
 
@@ -63,11 +60,6 @@ if [[ "$OSTYPE" != darwin* ]]; then
 fi
 if [[ ! -x "$RHINOCODE" ]]; then
   echo "RhinoCode CLI was not found: $RHINOCODE" >&2
-  exit 1
-fi
-if [[ ! -f "$PROJECT_DATA_EXTRACTOR" ]]; then
-  echo "Template project-data extractor was not found: $PROJECT_DATA_EXTRACTOR" >&2
-  echo "Set RHINO_PYTHON_PLUGIN_TEMPLATE_ROOT to the template checkout." >&2
   exit 1
 fi
 if [[ -z "$CONFIGURATION" ]]; then
