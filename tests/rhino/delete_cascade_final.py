@@ -3,6 +3,7 @@
 import sys
 import types
 
+import rhinoscriptsyntax as rs
 import scriptcontext as sc
 
 sys.modules.pop("common", None)
@@ -30,6 +31,8 @@ def final_delete_cascade():
     assert utils.find_object(doc, info["child_id"]) is not None, "No child"
     runtime = len(plane_link.states(doc, create=False))
     assert runtime == 1, "Runtime Tack not restored: {}".format(runtime)
+    rs.UnselectAllObjects()
+    assert rs.SelectObject(info["parent_id"])
     return {"link_present": True, "parent": True, "child": True, "runtime": runtime}
 
 

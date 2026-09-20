@@ -36,7 +36,7 @@ def document_data(doc):
 
 
 def set_document_data(doc, value):
-    """Persist a JSON-compatible object with Rhino undo support."""
+    """Persist a JSON-compatible object in Tack's document archive."""
     bridge = _bridge()
     if bridge is None or doc is None:
         return False

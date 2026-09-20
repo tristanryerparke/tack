@@ -1,4 +1,4 @@
-"""Persist Tack relationships in the Tack plug-in's private document data."""
+"""Persist Tack relationships on their parent and child Rhino objects."""
 
 import json
 import math
@@ -10,7 +10,7 @@ from tack import link_graph
 from tack import utils
 
 
-PLUGIN_INDEX_VERSION = 2
+LINKS_KEY = "Tack.Link"
 
 
 def _plugin_data():
@@ -19,75 +19,117 @@ def _plugin_data():
     return plugin_data
 
 
-def _compact_link(link):
-    compact = dict(link)
-    compact.pop("link_id", None)
-    for role in ("parent", "child"):
-        definition = dict(compact[role + "_plane"])
-        definition.pop("object_id", None)
-        compact[role + "_plane"] = definition
-    return compact
-
-
-def _inflate_link(link, expected_link_id=None):
-    if not isinstance(link, dict) or expected_link_id is None:
-        return None
-    if "link_id" in link:
-        return None
-    expanded = dict(link)
-    expanded["link_id"] = str(expected_link_id)
-    for role in ("parent", "child"):
-        definition = expanded.get(role + "_plane")
-        if not isinstance(definition, dict) or "object_id" in definition:
-            return None
-        definition = dict(definition)
-        definition["object_id"] = expanded.get(role + "_id")
-        expanded[role + "_plane"] = definition
-    return (
-        expanded
-        if validate(expanded, expected_link_id=expected_link_id)
-        else None
-    )
-
-
-def _validated_plugin_index(payload):
-    if not isinstance(payload, dict):
-        return {}
-    if payload.get("version") != PLUGIN_INDEX_VERSION:
-        return {}
-    entries = payload.get("links")
-    if not isinstance(entries, dict):
-        return {}
-
-    index = {}
-    for link_id, saved_link in entries.items():
-        link = _inflate_link(saved_link, expected_link_id=link_id)
-        if link is not None:
-            index[str(link_id)] = link
-    return index
-
-
-def _plugin_payload(index, display_enabled=None):
-    payload = {
-        "version": PLUGIN_INDEX_VERSION,
-        "links": {
-            link_id: _compact_link(link)
-            for link_id, link in index.items()
-        },
-    }
+def _document_state(display_enabled=None):
+    payload = {}
     if isinstance(display_enabled, bool):
         payload["display_enabled"] = display_enabled
     return payload
 
 
-def _read_index(doc):
-    return _validated_plugin_index(_plugin_data().document_data(doc))
-
-
 def _stored_display_enabled(doc):
-    payload = _plugin_data().document_data(doc)
-    value = payload.get("display_enabled")
+    value = _plugin_data().document_data(doc).get("display_enabled")
     return value if isinstance(value, bool) else None
+
+
+def _write_document_state(doc, display_enabled=None):
+    return bool(
+        _plugin_data().set_document_data(
+            doc,
+            _document_state(display_enabled),
+        )
+    )
+
+
+def _raw_links(obj):
+    if obj is None or not obj.Attributes.UserDictionary.ContainsKey(LINKS_KEY):
+        return {}
+    try:
+        value = json.loads(str(obj.Attributes.UserDictionary[LINKS_KEY]))
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def read_links(obj):
+    """Return valid links whose saved endpoint IDs include ``obj``."""
+    result = {}
+    for link_id, link in _raw_links(obj).items():
+        if not validate(link, expected_link_id=link_id):
+            continue
+        if not (
+            utils.same_id(obj.Id, link["parent_id"])
+            or utils.same_id(obj.Id, link["child_id"])
+        ):
+            continue
+        result[str(link_id)] = link
+    return result
+
+
+def _set_links(doc, obj, links):
+    if obj is None:
+        return False
+    has_saved_links = obj.Attributes.UserDictionary.ContainsKey(LINKS_KEY)
+    if not links and not has_saved_links:
+        return True
+    attributes = obj.Attributes.Duplicate()
+    if links:
+        attributes.UserDictionary.Set(
+            LINKS_KEY,
+            json.dumps(links, separators=(",", ":"), sort_keys=True),
+        )
+    else:
+        attributes.UserDictionary.Remove(LINKS_KEY)
+    return bool(doc.Objects.ModifyAttributes(obj.Id, attributes, True))
+
+
+def _object_update(doc, updates, object_id):
+    key = str(object_id).lower()
+    if key not in updates:
+        obj = utils.find_object(doc, object_id)
+        if obj is None:
+            return None
+        updates[key] = [obj, read_links(obj)]
+    return updates[key][1]
+
+
+def _apply_updates(doc, updates, description):
+    undo_record = doc.BeginUndoRecord(description)
+    try:
+        return all(
+            _set_links(doc, obj, links)
+            for obj, links in updates.values()
+        )
+    finally:
+        if undo_record:
+            doc.EndUndoRecord(undo_record)
+
+
+def _object_index(doc):
+    candidates = {}
+    for obj in doc.Objects:
+        if obj is None:
+            continue
+        for link_id, link in read_links(obj).items():
+            candidate = candidates.setdefault(
+                link_id,
+                {"link": link, "owners": [], "conflict": False},
+            )
+            if candidate["link"] != link:
+                candidate["conflict"] = True
+            candidate["owners"].append(obj.Id)
+
+    index = {}
+    for link_id, candidate in candidates.items():
+        link = candidate["link"]
+        owners = candidate["owners"]
+        if candidate["conflict"]:
+            continue
+        if not any(utils.same_id(owner, link["parent_id"]) for owner in owners):
+            continue
+        if not any(utils.same_id(owner, link["child_id"]) for owner in owners):
+            continue
+        index[link_id] = link
+    return index
 
 
 def display_enabled(doc, default_enabled=True):
@@ -96,20 +138,9 @@ def display_enabled(doc, default_enabled=True):
     return bool(default_enabled) if saved is None else saved
 
 
-def _write_index(doc, index, display_enabled=None):
-    if display_enabled is None:
-        display_enabled = _stored_display_enabled(doc)
-    return bool(
-        _plugin_data().set_document_data(
-            doc,
-            _plugin_payload(index, display_enabled),
-        )
-    )
-
-
 def set_display_enabled(doc, enabled):
-    """Persist this document's Tack visibility with its relationship data."""
-    return _write_index(doc, _read_index(doc), bool(enabled))
+    """Persist this document's Tack visibility outside the relationship graph."""
+    return _write_document_state(doc, bool(enabled))
 
 
 def _valid_transform(data):
@@ -158,7 +189,6 @@ def _new_link_id(index):
 
 def validate(link, expected_link_id=None):
     required_fields = {
-        "version",
         "link_id",
         "parent_id",
         "child_id",
@@ -182,8 +212,7 @@ def validate(link, expected_link_id=None):
     link_id = link.get("link_id")
     created_at = link.get("created_at")
     if (
-        link.get("version") != 1
-        or not _valid_link_id(link_id)
+        not _valid_link_id(link_id)
         or (
             created_at is not None
             and (not isinstance(created_at, str) or not created_at.strip())
@@ -228,7 +257,7 @@ def read_link(doc, link_id):
     return next(
         (
             link
-            for saved_id, link in _read_index(doc).items()
+            for saved_id, link in _object_index(doc).items()
             if utils.same_id(saved_id, link_id)
         ),
         None,
@@ -236,14 +265,8 @@ def read_link(doc, link_id):
 
 
 def all_links(doc):
-    """Read complete links from Tack's document-level relationship store."""
-    links = []
-    for link in _read_index(doc).values():
-        parent = utils.find_object(doc, link["parent_id"])
-        child = utils.find_object(doc, link["child_id"])
-        if parent is not None and child is not None:
-            links.append(link)
-    return links
+    """Return links with matching metadata on both live endpoint objects."""
+    return list(_object_index(doc).values())
 
 
 def save(doc, link):
@@ -254,40 +277,65 @@ def save(doc, link):
     if parent is None or child is None:
         return False
 
-    index = _read_index(doc)
-    for saved_link_id, saved_link in list(index.items()):
-        if same_object_pair(saved_link, link):
-            index.pop(saved_link_id)
-    index[link["link_id"]] = link
-    return _write_index(doc, index)
+    index = _object_index(doc)
+    replaced = [
+        saved_link
+        for saved_link in index.values()
+        if utils.same_id(saved_link["link_id"], link["link_id"])
+        or same_object_pair(saved_link, link)
+    ]
+    updates = {}
+    for saved_link in replaced:
+        for role in ("parent", "child"):
+            links = _object_update(doc, updates, saved_link[role + "_id"])
+            if links is None:
+                return False
+            links.pop(saved_link["link_id"], None)
+    for role in ("parent", "child"):
+        links = _object_update(doc, updates, link[role + "_id"])
+        if links is None:
+            return False
+        links[link["link_id"]] = link
+    return _apply_updates(doc, updates, "Tack links")
 
 
 def remove_many(doc, link_ids):
-    """Remove the requested persisted Tack relationships in one write."""
+    """Remove one or more relationships from both endpoint objects."""
     requested = tuple(link_ids)
     if not requested:
         return False
-    index = _read_index(doc)
     removed = [
-        saved_id
-        for saved_id in index
+        link
+        for saved_id, link in _object_index(doc).items()
         if any(utils.same_id(saved_id, link_id) for link_id in requested)
     ]
     if not removed:
         return False
-    for saved_id in removed:
-        index.pop(saved_id)
-    return _write_index(doc, index)
+
+    updates = {}
+    for link in removed:
+        for role in ("parent", "child"):
+            links = _object_update(doc, updates, link[role + "_id"])
+            if links is None:
+                return False
+            links.pop(link["link_id"], None)
+    return _apply_updates(doc, updates, "Remove Tack links")
 
 
 def remove(doc, link_id):
-    """Remove one persisted Tack relationship from this document."""
     return remove_many(doc, (link_id,))
 
 
 def clear(doc):
-    """Clear every persisted Tack relationship in this document."""
-    return _write_index(doc, {})
+    """Remove all Tack relationship metadata."""
+    updates = {
+        str(obj.Id).lower(): [obj, {}]
+        for obj in doc.Objects
+        if obj is not None and obj.Attributes.UserDictionary.ContainsKey(LINKS_KEY)
+    }
+    if not updates:
+        return True
+    return _apply_updates(doc, updates, "Clear Tack links")
 
 
 def create(
@@ -303,7 +351,7 @@ def create(
     translation=True,
     rotation=True,
 ):
-    index = _read_index(doc)
+    index = _object_index(doc)
     replacing_pair = {
         "parent_id": str(parent_id),
         "child_id": str(child_id),
@@ -319,7 +367,6 @@ def create(
     ):
         return None
     link = {
-        "version": 1,
         "link_id": _new_link_id(index),
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "parent_id": str(parent_id),

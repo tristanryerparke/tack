@@ -152,18 +152,6 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         "Tack panel initialization failed");
     }
 
-    internal static void SchedulePanelRefresh(uint documentSerialNumber)
-    {
-      Application.Instance.AsyncInvoke(() => RunPython(
-        "from tack import panel\n"
-        + "import Rhino\n"
-        + "_document = Rhino.RhinoDoc.FromRuntimeSerialNumber("
-        + documentSerialNumber + ")\n"
-        + "if _document is not None:\n"
-        + "    panel.refresh(_document)\n",
-        "Tack panel refresh failed"));
-    }
-
     static void OnEndOpenDocument(object sender, DocumentOpenEventArgs eventArgs)
     {
       ScheduleRestore();

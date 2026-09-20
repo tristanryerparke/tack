@@ -11,10 +11,10 @@ from tack import plugin_data
 from tack import utils
 
 
-STATES_KEY = "Tack.PlaneLinks.States"
-CONDUIT_KEY = "Tack.PlaneLinks.Conduit"
-DISPLAY_KEY = "Tack.PlaneLinks.Display"
-HANDLERS_KEY = "Tack.PlaneLinks.Handlers"
+STATES_KEY = "Tack.Link.States"
+CONDUIT_KEY = "Tack.Link.Conduit"
+DISPLAY_KEY = "Tack.Link.Display"
+HANDLERS_KEY = "Tack.Link.Handlers"
 _solving = False
 
 
@@ -308,8 +308,6 @@ def remove_links(doc, link_ids):
             active.pop(saved_link_id)
     if not active:
         _remove_runtime(doc)
-        if not document_runtime.has_nonempty_value(STATES_KEY):
-            unsubscribe()
     doc.Views.Redraw()
     return True
 
@@ -321,8 +319,6 @@ def remove_link(doc, link_id):
 def clear_document(doc):
     _remove_runtime(doc)
     metadata_cleared = plane_link_metadata.clear(doc)
-    if not document_runtime.has_nonempty_value(STATES_KEY):
-        unsubscribe()
     doc.Views.Redraw()
     return metadata_cleared
 
@@ -527,25 +523,22 @@ def _command_name(event):
     )
 
 
-def _prune_deleted_object_links(doc):
-    """Delete Tacks whose objects were deleted so undo can reinstate both."""
-    active = states(doc)
-    orphaned = [
+def _deactivate_missing_object_links(doc):
+    """Drop runtime links whose object metadata is no longer a complete pair."""
+    active = states(doc, create=False)
+    saved_ids = {
+        link["link_id"]
+        for link in plane_link_metadata.all_links(doc)
+    }
+    removed = [
         link_id
-        for link_id, state in active.items()
-        if utils.find_object(doc, state["parent_id"]) is None
-        or utils.find_object(doc, state["child_id"]) is None
+        for link_id in active
+        if link_id not in saved_ids
     ]
-    if not orphaned:
+    if not removed:
         return False
-    undo_record = doc.BeginUndoRecord("Tack links")
-    try:
-        for link_id in orphaned:
-            plane_link_metadata.remove(doc, link_id)
-            active.pop(link_id, None)
-    finally:
-        if undo_record:
-            doc.EndUndoRecord(undo_record)
+    for link_id in removed:
+        active.pop(link_id, None)
     if not active:
         _remove_runtime(doc)
     from tack import panel
@@ -566,7 +559,10 @@ def _synchronize_runtime_with_metadata(doc):
         if state is not None:
             active[link_id] = state
     if active:
-        _ensure_conduit(doc)
+        _ensure_conduit(
+            doc,
+            plane_link_metadata.display_enabled(doc),
+        )
     else:
         _remove_runtime(doc)
 
@@ -625,12 +621,18 @@ def EndCommandHandler(sender, event):
         doc.Views.Redraw()
         return
 
+    if not states(doc, create=False):
+        return
+
     _solving = True
     try:
-        _prune_deleted_object_links(doc)
+        _deactivate_missing_object_links(doc)
         _maintain_changed_states(doc)
     finally:
         _solving = False
+    from tack import panel
+
+    panel.refresh(doc)
     doc.Views.Redraw()
 
 

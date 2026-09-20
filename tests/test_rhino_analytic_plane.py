@@ -45,6 +45,30 @@ def test_blank_document_behaviors(rhino_instance):
 
 
 @pytest.mark.rhino
+def test_object_metadata_restores_removed_tack_with_native_undo(
+    rhino_instance,
+):
+    from rhino_flow import run_flow
+
+    setup, restored = run_flow(
+        [
+            ("script", RHINO_DIR / "object_metadata_undo_setup.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "object_metadata_undo_collect.py"),
+        ],
+        rhino_instance,
+    )
+
+    assert setup["removed"]
+    assert restored == {
+        "name": "object_metadata_undo_collect",
+        "link_id": setup["link_id"],
+        "restored": True,
+        "runtime": 1,
+    }
+
+
+@pytest.mark.rhino
 def test_undo_and_redo_restore_analytic_plane_relationship(
     _rhino_instance_for_document,
 ):
@@ -114,36 +138,24 @@ def test_deleting_tacked_object_removes_and_undo_reinstates(
             ("command", "_Delete _Enter"),
             ("script", RHINO_DIR / "delete_cascade_check.py"),
             ("command", "_Undo _Enter"),
-            ("script", RHINO_DIR / "delete_cascade_mid.py"),
-            ("command", "_Undo _Enter"),
             ("script", RHINO_DIR / "delete_cascade_final.py"),
             ("command", "_Delete _Enter"),
             ("script", RHINO_DIR / "delete_cascade_check.py"),
-            ("command", "_Undo _Enter"),
-            ("script", RHINO_DIR / "delete_cascade_mid.py"),
             ("command", "_Undo _Enter"),
             ("script", RHINO_DIR / "delete_cascade_final.py"),
         ],
         rhino_instance,
     )
 
-    setup, delete_child, mid_child, final_child = (
-        results[0],
-        results[1],
-        results[2],
-        results[3],
-    )
-    delete_parent, mid_parent, final_parent = results[4], results[5], results[6]
+    setup, delete_child, final_child, delete_parent, final_parent = results
 
     assert setup["link_id"]
     assert delete_child["victim"] == "child"
     assert not delete_child["link_present"]
-    assert mid_child["link"], "Undo did not restore the Tack data first"
     assert final_child["link_present"]
     assert final_child["runtime"] == 1
     assert delete_parent["victim"] == "parent"
     assert not delete_parent["link_present"]
-    assert mid_parent["link"], "Undo did not restore the Tack data first"
     assert final_parent["link_present"]
     assert final_parent["runtime"] == 1
 

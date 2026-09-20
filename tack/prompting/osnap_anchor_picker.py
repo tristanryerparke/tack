@@ -2,15 +2,17 @@
 
 import Rhino
 import System.Drawing
-import rhinoscriptsyntax as rs
 from Rhino.Commands import Result
 
 from tack import anchor_definitions
+from tack.prompting.utils import lock_other_objects, unlock_objects
 
 
 class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
+    """Displays a point at the object center that combined with a construction point, 
+    can be clicked as a tack reference point."""
     def __init__(self, point):
-        super(BoundingBoxCenterConduit, self).__init__()
+        super().__init__()
         self.point = point
 
     def DrawForeground(self, event):
@@ -60,27 +62,6 @@ def select_object(
         print("Select an object with a valid bounding box.")
 
 
-def _lock_other_objects(doc, target_id):
-    locked_ids = []
-    for candidate in doc.Objects:
-        if candidate is None or str(candidate.Id).lower() == str(target_id).lower():
-            continue
-        try:
-            if not rs.IsObjectLocked(candidate.Id) and rs.LockObject(candidate.Id):
-                locked_ids.append(candidate.Id)
-        except Exception:
-            pass
-    return locked_ids
-
-
-def _unlock_objects(object_ids):
-    for object_id in object_ids:
-        try:
-            rs.UnlockObject(object_id)
-        except Exception:
-            pass
-
-
 class AnchorPickSession:
     """Constrain one or more analytic anchor picks to a target object."""
 
@@ -98,7 +79,7 @@ class AnchorPickSession:
         self._center_conduit = BoundingBoxCenterConduit(self.bounding_box_center)
 
     def __enter__(self):
-        self._locked_ids = _lock_other_objects(self.doc, self.obj.Id)
+        self._locked_ids = lock_other_objects(self.doc, self.obj.Id)
         try:
             settings = Rhino.ApplicationSettings.ModelAidSettings
             self._osnap_was_enabled = settings.Osnap
@@ -119,7 +100,7 @@ class AnchorPickSession:
             settings.Osnap = self._osnap_was_enabled
         if self._project_was_enabled is not None:
             settings.ProjectSnapToCPlane = self._project_was_enabled
-        _unlock_objects(self._locked_ids)
+        unlock_objects(self._locked_ids)
         self._locked_ids = []
         self.doc.Views.Redraw()
         return False
