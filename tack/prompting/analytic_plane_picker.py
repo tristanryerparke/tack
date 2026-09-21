@@ -2,10 +2,8 @@
 
 import Rhino
 
-from tack import anchor_definitions
-from tack import analytic_plane
+from tack.anchors import analytic_plane, definitions
 from tack.prompting.osnap_anchor_picker import AnchorPickSession
-
 
 CIRCULAR_OPTION = "Circular"
 THREE_POINT_OPTION = "3Point"
@@ -38,11 +36,7 @@ class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
         if self.origin is None:
             return current, self.construction_plane.XAxis, self.construction_plane.YAxis
 
-        x_axis = (
-            _unit(self.x_point - self.origin)
-            if self.x_point is not None
-            else None
-        )
+        x_axis = _unit(self.x_point - self.origin) if self.x_point is not None else None
         if x_axis is None:
             x_axis = _unit(current - self.origin)
             if x_axis is None:
@@ -133,15 +127,15 @@ def _circular_plane_candidates(doc, obj):
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
     result = []
     for feature_type in (
-        anchor_definitions.CIRCULAR_EDGE_CENTER,
-        anchor_definitions.CURVE_CENTER,
+        definitions.CIRCULAR_EDGE_CENTER,
+        definitions.CURVE_CENTER,
     ):
-        for anchor, center in anchor_definitions.candidates(
+        for anchor, center in definitions.candidates(
             obj,
             feature_type,
             tolerance,
         ):
-            if feature_type == anchor_definitions.CIRCULAR_EDGE_CENTER:
+            if feature_type == definitions.CIRCULAR_EDGE_CENTER:
                 definition = {
                     "type": "circular_edge_plane",
                     "object_id": str(obj.Id),
@@ -204,8 +198,8 @@ def _pick_valid_y(session, construction_plane, origin, x_point):
 
 def _is_circular_center(definition):
     return definition.get("type") in (
-        anchor_definitions.CIRCULAR_EDGE_CENTER,
-        anchor_definitions.CURVE_CENTER,
+        definitions.CIRCULAR_EDGE_CENTER,
+        definitions.CURVE_CENTER,
     )
 
 
@@ -257,7 +251,7 @@ def _world_axes_result(obj, origin, origin_anchor):
 
 
 def _circular_result(obj, center, center_anchor):
-    if center_anchor["type"] == anchor_definitions.CIRCULAR_EDGE_CENTER:
+    if center_anchor["type"] == definitions.CIRCULAR_EDGE_CENTER:
         definition = {
             "type": "circular_edge_plane",
             "object_id": str(obj.Id),

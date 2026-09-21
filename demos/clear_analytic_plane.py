@@ -1,6 +1,6 @@
 """Run TackClear from source for interactive development.
 
-    uv run rhino-watch demos/clear_analytic_plane.py --debug
+uv run rhino-watch demos/clear_analytic_plane.py --debug
 """
 
 import os

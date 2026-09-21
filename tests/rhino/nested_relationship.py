@@ -3,19 +3,18 @@
 import sys
 import types
 
-import System
 import Rhino
 import scriptcontext as sc
+import System
 
 sys.modules.pop("common", None)
 from common import point_data, run_test
-
 
 MOVE = Rhino.Geometry.Vector3d(4, 6, 0)
 
 
 def _origin(doc, definition):
-    from tack import analytic_plane
+    from tack.anchors import analytic_plane
 
     plane = analytic_plane.resolve_definition(doc, definition)
     assert plane is not None
@@ -23,20 +22,24 @@ def _origin(doc, definition):
 
 
 def _assert_close(actual, expected, tolerance):
-    assert actual.DistanceTo(expected) <= tolerance, (
-        "Expected {}, got {}".format(expected, actual)
+    assert actual.DistanceTo(expected) <= tolerance, "Expected {}, got {}".format(
+        expected, actual
     )
 
 
 def verify_nested_relationship():
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.links import (
+        lifecycle,
+        repository,
+        runtime,
+        transforms,
+    )
 
     doc = sc.doc
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    plane_link._remove_runtime(doc)
-    assert plane_link.restore_document(doc, default_display_enabled=False) == 2
-    links = plane_link_metadata.all_links(doc)
+    runtime.remove_runtime(doc)
+    assert runtime.restore_document(doc, default_display_enabled=False) == 2
+    links = repository.all_links(doc)
     parent_ids = {link["parent_id"] for link in links}
     child_ids = {link["child_id"] for link in links}
     grandparent_id = next(iter(parent_ids - child_ids))
@@ -47,13 +50,13 @@ def verify_nested_relationship():
     second = by_parent[middle_id]
     before = _origin(doc, second["child_plane"])
 
-    transformed_grandparent = plane_link.transform_object_in_place(
+    transformed_grandparent = transforms.transform_object_in_place(
         doc,
         doc.Objects.Find(System.Guid.Parse(grandparent_id)),
         Rhino.Geometry.Transform.Translation(MOVE),
     )
     assert transformed_grandparent is not None
-    plane_link.EndCommandHandler(
+    lifecycle.end_command_handler(
         None,
         types.SimpleNamespace(CommandEnglishName="Move"),
     )

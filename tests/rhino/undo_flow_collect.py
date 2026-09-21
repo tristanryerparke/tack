@@ -2,15 +2,15 @@
 
 import sys
 
-import System
 import scriptcontext as sc
+import System
 
 sys.modules.pop("common", None)
 from common import point_data, run_flow_step
 
 
 def _origin(doc, definition):
-    from tack import analytic_plane
+    from tack.anchors import analytic_plane
 
     plane = analytic_plane.resolve_definition(doc, definition)
     assert plane is not None
@@ -18,13 +18,15 @@ def _origin(doc, definition):
 
 
 def collect_undo_flow():
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.links import (
+        repository,
+        runtime,
+    )
 
     doc = sc.doc
-    plane_link._remove_runtime(doc)
-    assert plane_link.restore_document(doc, default_display_enabled=False) == 1
-    link = plane_link_metadata.all_links(doc)[0]
+    runtime.remove_runtime(doc)
+    assert runtime.restore_document(doc, default_display_enabled=False) == 1
+    link = repository.all_links(doc)[0]
     parent = doc.Objects.Find(System.Guid.Parse(link["parent_id"]))
     child = doc.Objects.Find(System.Guid.Parse(link["child_id"]))
     assert parent is not None and child is not None

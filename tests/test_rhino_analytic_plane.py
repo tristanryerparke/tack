@@ -101,9 +101,7 @@ def test_undo_and_redo_restore_analytic_plane_relationship(
 def test_saved_analytic_links_restore_after_reopen(
     _rhino_instance_for_document,
 ):
-    reopened = _rhino_instance_for_document(
-        FIXTURES / "analytic_plane_restore.3dm"
-    )
+    reopened = _rhino_instance_for_document(FIXTURES / "analytic_plane_restore.3dm")
     restored = _run_script(reopened, "verify_restore.py")
     assert restored["name"] == "verify_restore"
     assert restored["link_id"]
@@ -164,9 +162,7 @@ def test_deleting_tacked_object_removes_and_undo_reinstates(
 def test_one_hundred_holes_drive_one_hundred_centered_cylinders(
     _rhino_instance_for_document,
 ):
-    rhino_instance = _rhino_instance_for_document(
-        FIXTURES / "perforated_100_holes.3dm"
-    )
+    rhino_instance = _rhino_instance_for_document(FIXTURES / "perforated_100_holes.3dm")
     result = _run_script(rhino_instance, "stress_100_holes.py")
 
     assert result["name"] == "stress_100_holes"

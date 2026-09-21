@@ -1,13 +1,16 @@
 """Print one DrawOverlay event-argument sample for each Rhino command.
 
-    uv run rhino-log tack/dynamic/handler.py --nostop
+uv run rhino-log tack/dynamic/handler.py --nostop
 """
 
 import Rhino
 import scriptcontext as sc
-from run_in_rhino.rhino_env.jsonl_logger import JsonlLogger
-from tack.dynamic.utils import get_current_command_name, has_selected_subobjects
 
+from run_in_rhino.rhino_env.jsonl_logger import JsonlLogger
+from tack.dynamic.command_state import (
+    get_current_command_name,
+    has_selected_subobjects,
+)
 
 logger = JsonlLogger(globals().get("RUN_IN_RHINO_LOG"))
 
@@ -16,13 +19,7 @@ HANDLERS_KEY = "tack.dynamic_draw_handler"
 _printed_for_command = False
 
 
-ALLOWED_COMMANDS = [
-    "Drag",
-    "Move",
-    "Rotate",
-    "Rotate3D"
-]
-
+ALLOWED_COMMANDS = ["Drag", "Move", "Rotate", "Rotate3D"]
 
 
 def on_draw_overlay(sender, event):

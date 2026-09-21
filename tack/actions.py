@@ -3,194 +3,32 @@
 import Rhino
 from Rhino.Commands import Result
 
-from tack import analytic_plane
-from tack import anchor_definitions
-from tack import display
-from tack import link_graph
-from tack import plane_link
-from tack import plane_link_metadata
-from tack import plugin_data
-from tack.prompting import analytic_plane_picker
-from tack.prompting.osnap_anchor_picker import select_object
-
-
-def _bool_setting(name, default):
-    value = plugin_data.setting(name, default)
-    return value if isinstance(value, bool) else default
-
-
-def _add_tack_parent_options():
-    return (
-        _bool_setting(plugin_data.ADD_TACK_TRANSLATION, True),
-        _bool_setting(plugin_data.ADD_TACK_ROTATION, True),
-        _bool_setting(plugin_data.ADD_TACK_ATTACH, False),
-    )
-
-
-def _save_add_tack_parent_options(translation, rotation, attach):
-    values = plugin_data.settings()
-    values.update(
-        {
-            plugin_data.ADD_TACK_TRANSLATION: bool(translation),
-            plugin_data.ADD_TACK_ROTATION: bool(rotation),
-            plugin_data.ADD_TACK_ATTACH: bool(attach),
-        }
-    )
-    plugin_data.set_settings(values)
-
-
-def _add_tack_invert():
-    return _bool_setting(plugin_data.ADD_TACK_INVERT, False)
-
-
-def _save_add_tack_invert(inverted):
-    plugin_data.set_setting(plugin_data.ADD_TACK_INVERT, bool(inverted))
+from tack.core import plugin_data
+from tack.display.plane_preview import PlaneDisplayConduit
+from tack.links import graph, repository, runtime, schema, transforms
+from tack.prompting.add_flow import (
+    pick_plane,
+    preview_placement,
+    select_child,
+    select_parent_and_degrees_of_freedom,
+)
 
 
 def _refresh_panel(doc):
-    from tack import panel
+    from tack.ui import panel
 
     panel.refresh(doc)
-
-
-def _pick_plane(doc, obj, role, rotation):
-    view = doc.Views.ActiveView
-    if view is None:
-        return None
-    picked = (
-        analytic_plane_picker.pick_plane(
-            doc,
-            obj,
-            view.ActiveViewport.ConstructionPlane(),
-        )
-        if rotation
-        else analytic_plane_picker.pick_origin(
-            doc,
-            obj,
-            view.ActiveViewport.ConstructionPlane(),
-        )
-    )
-    if picked is None:
-        return None
-    definition = picked["definition"]
-    plane = analytic_plane.resolve_definition(doc, definition)
-    if plane is None:
-        Rhino.RhinoApp.WriteLine(
-            "The {} Tack plane could not be resolved.".format(role)
-        )
-        return None
-    return definition, plane
-
-
-def _select_child(doc, parent_id):
-    while True:
-        child = select_object(
-            doc,
-            "Select child object",
-            allow_preselection=False,
-        )
-        if child is None:
-            return None
-        if not str(child.Id).lower() == str(parent_id).lower():
-            return child
-        Rhino.RhinoApp.WriteLine("Select a child different from the parent.")
-
-
-def _select_parent_and_degrees_of_freedom(doc):
-    """Select the parent while configuring Tack's native command options."""
-    translation_enabled, rotation_enabled, attach_enabled = (
-        _add_tack_parent_options()
-    )
-    translation = Rhino.Input.Custom.OptionToggle(
-        translation_enabled, "Off", "On"
-    )
-    rotation = Rhino.Input.Custom.OptionToggle(rotation_enabled, "Off", "On")
-    attach = Rhino.Input.Custom.OptionToggle(attach_enabled, "Off", "On")
-
-    while True:
-        getter = Rhino.Input.Custom.GetObject()
-        getter.SetCommandPrompt("Select parent object")
-        getter.GeometryFilter = Rhino.DocObjects.ObjectType.AnyObject
-        getter.EnablePreSelect(True, True)
-        getter.AddOptionToggle("Translation", translation)
-        getter.AddOptionToggle("Rotation", rotation)
-        getter.AddOptionToggle("Attach", attach)
-        result = getter.Get()
-        if result == Rhino.Input.GetResult.Option:
-            _save_add_tack_parent_options(
-                bool(translation.CurrentValue),
-                bool(rotation.CurrentValue),
-                bool(attach.CurrentValue),
-            )
-            continue
-        if result != Rhino.Input.GetResult.Object:
-            return None
-        obj_ref = getter.Object(0)
-        parent = obj_ref.Object() if obj_ref is not None else None
-        if (
-            parent is not None
-            and anchor_definitions.bounding_box_center(parent) is not None
-        ):
-            return parent, {
-                "translation": bool(translation.CurrentValue),
-                "rotation": bool(rotation.CurrentValue),
-                "attach": bool(attach.CurrentValue),
-            }
-        Rhino.RhinoApp.WriteLine("Select an object with a valid bounding box.")
-
-
-def _preview_placement(
-    doc,
-    child,
-    parent_plane,
-    child_plane,
-    translation,
-    rotation,
-):
-    conduit = display.TransformPreviewConduit(
-        child,
-        parent_plane,
-        child_plane,
-        translation=translation,
-        rotation=rotation,
-    )
-    inverted = Rhino.Input.Custom.OptionToggle(_add_tack_invert(), "No", "Yes")
-    getter = Rhino.Input.Custom.GetOption()
-    getter.SetCommandPrompt("Preview the child placement")
-    getter.AcceptNothing(True)
-    if rotation:
-        getter.AddOptionToggle("Invert", inverted)
-
-    def redraw():
-        conduit.inverted = bool(inverted.CurrentValue)
-        doc.Views.Redraw()
-
-    conduit.Enabled = True
-    doc.Views.Redraw()
-    try:
-        while True:
-            result = getter.Get()
-            if result == Rhino.Input.GetResult.Nothing:
-                redraw()
-                return conduit.transform, conduit.inverted
-            if result != Rhino.Input.GetResult.Option:
-                return None
-            _save_add_tack_invert(bool(inverted.CurrentValue))
-            redraw()
-    finally:
-        conduit.Enabled = False
-        doc.Views.Redraw()
 
 
 def add(doc, default_display_enabled=True):
     if doc is None or doc.Views.ActiveView is None:
         return Result.Cancel
 
-    parent_selection = _select_parent_and_degrees_of_freedom(doc)
+    parent_selection = select_parent_and_degrees_of_freedom(doc)
     if parent_selection is None:
         return Result.Cancel
     parent, degrees_of_freedom = parent_selection
-    parent_result = _pick_plane(
+    parent_result = pick_plane(
         doc,
         parent,
         "parent",
@@ -200,22 +38,22 @@ def add(doc, default_display_enabled=True):
         return Result.Cancel
     parent_definition, parent_plane = parent_result
 
-    parent_display = display.PlaneDisplayConduit(parent_plane)
+    parent_display = PlaneDisplayConduit(parent_plane)
     parent_display.Enabled = True
     doc.Views.Redraw()
     try:
-        child = _select_child(doc, parent.Id)
+        child = select_child(doc, parent.Id)
         if child is None:
             return Result.Cancel
         replacing = any(
-            plane_link_metadata.same_object_pair(
+            schema.same_object_pair(
                 link,
                 {"parent_id": str(parent.Id), "child_id": str(child.Id)},
             )
-            for link in plane_link_metadata.all_links(doc)
+            for link in repository.all_links(doc)
         )
-        if not replacing and link_graph.would_create_cycle(
-            plane_link_metadata.all_links(doc),
+        if not replacing and graph.would_create_cycle(
+            repository.all_links(doc),
             parent.Id,
             child.Id,
         ):
@@ -227,7 +65,7 @@ def add(doc, default_display_enabled=True):
                 Rhino.UI.ShowMessageIcon.Warning,
             )
             return Result.Cancel
-        child_result = _pick_plane(
+        child_result = pick_plane(
             doc,
             child,
             "child",
@@ -236,16 +74,14 @@ def add(doc, default_display_enabled=True):
         if child_result is None:
             return Result.Cancel
         child_definition, child_plane = child_result
-        mode = (
-            "attached" if degrees_of_freedom["attach"] else "inherit_only"
-        )
+        mode = "attached" if degrees_of_freedom["attach"] else "inherit_only"
 
         inverted = False
         original_transform = None
         current_transform = None
         transformed_child = child
         if mode == "attached":
-            placement = _preview_placement(
+            placement = preview_placement(
                 doc,
                 child,
                 parent_plane,
@@ -257,7 +93,7 @@ def add(doc, default_display_enabled=True):
                 return Result.Cancel
             transform, inverted = placement
         else:
-            original_transform = plane_link.inherit_transform_data(
+            original_transform = transforms.inherit_transform_data(
                 parent_plane,
                 child_plane,
             )
@@ -266,7 +102,7 @@ def add(doc, default_display_enabled=True):
         undo_record = doc.BeginUndoRecord("Add Tack")
         try:
             if mode == "attached":
-                transformed_child = plane_link.transform_object_in_place(
+                transformed_child = transforms.transform_object_in_place(
                     doc,
                     child,
                     transform,
@@ -274,7 +110,7 @@ def add(doc, default_display_enabled=True):
                 if transformed_child is None:
                     return Result.Failure
             child_definition["object_id"] = str(transformed_child.Id)
-            link = plane_link_metadata.create(
+            link = repository.create(
                 doc,
                 parent.Id,
                 transformed_child.Id,
@@ -293,7 +129,7 @@ def add(doc, default_display_enabled=True):
             if undo_record:
                 doc.EndUndoRecord(undo_record)
 
-        if plane_link.install(doc, link, default_display_enabled) is None:
+        if runtime.install(doc, link, default_display_enabled) is None:
             return Result.Failure
         _refresh_panel(doc)
         return Result.Success
@@ -303,24 +139,24 @@ def add(doc, default_display_enabled=True):
 
 
 def show(doc):
-    if not plane_link.set_display_enabled(doc, True):
+    if not runtime.set_display_enabled(doc, True):
         Rhino.RhinoApp.WriteLine("No active Tacks to show.")
         return Result.Cancel
     return Result.Success
 
 
 def hide(doc):
-    if not plane_link.set_display_enabled(doc, False):
+    if not runtime.set_display_enabled(doc, False):
         Rhino.RhinoApp.WriteLine("No active Tacks to hide.")
         return Result.Cancel
     return Result.Success
 
 
 def remove(doc, link_id):
-    if doc is None or plane_link_metadata.read_link(doc, link_id) is None:
+    if doc is None or repository.read_link(doc, link_id) is None:
         Rhino.RhinoApp.WriteLine("The selected Tack no longer exists.")
         return Result.Cancel
-    if not plane_link.remove_link(doc, link_id):
+    if not runtime.remove_link(doc, link_id):
         return Result.Failure
     _refresh_panel(doc)
     Rhino.RhinoApp.WriteLine("Deleted Tack {}.".format(str(link_id)[:8]))
@@ -330,7 +166,7 @@ def remove(doc, link_id):
 def clear(doc):
     if doc is None:
         return Result.Cancel
-    count = len(plane_link_metadata.all_links(doc))
+    count = len(repository.all_links(doc))
     if not count:
         Rhino.RhinoApp.WriteLine("No Tacks to clear.")
         return Result.Cancel
@@ -342,7 +178,7 @@ def clear(doc):
     )
     if confirmation != Rhino.UI.ShowMessageResult.Yes:
         return Result.Cancel
-    if not plane_link.clear_document(doc):
+    if not runtime.clear_document(doc):
         return Result.Failure
     _refresh_panel(doc)
     Rhino.RhinoApp.WriteLine("Cleared {} Tack(s).".format(count))
@@ -351,13 +187,13 @@ def clear(doc):
 
 def restore_open_documents(default_display_enabled=None):
     if default_display_enabled is None:
-        default_display_enabled = _bool_setting(
-            plugin_data.DEFAULT_DISPLAY_ENABLED,
-            True,
+        saved_default = plugin_data.setting(plugin_data.DEFAULT_DISPLAY_ENABLED, True)
+        default_display_enabled = (
+            saved_default if isinstance(saved_default, bool) else True
         )
     restored = 0
     for doc in Rhino.RhinoDoc.OpenDocuments(False):
-        restored += plane_link.restore_document(doc, default_display_enabled)
+        restored += runtime.restore_document(doc, default_display_enabled)
         _refresh_panel(doc)
     if restored:
         Rhino.RhinoApp.WriteLine("Restored {} Tack(s).".format(restored))

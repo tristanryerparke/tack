@@ -6,14 +6,13 @@ import sys
 
 import Rhino
 import System
+from TackRhinoPlugin import PluginBridge
 
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.parasite import OutputParasite
-from TackRhinoPlugin import PluginBridge
-
 
 PACKAGE_NAME = "tack"
-PANEL_MODULE_NAME = PACKAGE_NAME + ".panel"
+PANEL_MODULE_NAME = PACKAGE_NAME + ".ui.panel"
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
 
 
@@ -28,11 +27,7 @@ def reload_panel():
 
     importlib.import_module(PACKAGE_NAME)
     module_names = sorted(
-        (
-            name
-            for name in tuple(sys.modules)
-            if name.startswith(PACKAGE_NAME + ".")
-        ),
+        (name for name in tuple(sys.modules) if name.startswith(PACKAGE_NAME + ".")),
         key=lambda name: name.count("."),
         reverse=True,
     )
@@ -49,9 +44,7 @@ def reload_panel():
     Rhino.UI.Panels.OpenPanel(PANEL_ID)
     panel_module.install(document.RuntimeSerialNumber)
     Rhino.RhinoApp.WriteLine(
-        "Reloaded Tack panel from source with {} module(s).".format(
-            len(module_names)
-        )
+        "Reloaded Tack panel from source with {} module(s).".format(len(module_names))
     )
 
 

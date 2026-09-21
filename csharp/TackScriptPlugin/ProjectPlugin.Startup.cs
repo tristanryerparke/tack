@@ -143,7 +143,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       string panelInstanceId)
     {
       return RunPython(
-        "from tack import panel\n"
+        "from tack.ui import panel\n"
         + "panel.install("
         + documentSerialNumber
         + ", "

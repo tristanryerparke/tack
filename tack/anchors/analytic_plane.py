@@ -4,8 +4,7 @@ import Rhino
 import System
 import System.Drawing
 
-from tack import anchor_definitions
-
+from tack.anchors import definitions
 
 CROSSHAIR_SIZE_MIN = 5
 CROSSHAIR_SIZE_MAX = 20
@@ -44,9 +43,9 @@ def _resolve_three_point_plane(doc, definition):
         return None
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    origin = anchor_definitions.resolve(obj, origin_definition, tolerance)
-    x_point = anchor_definitions.resolve(obj, x_definition, tolerance)
-    y_point = anchor_definitions.resolve(obj, y_definition, tolerance)
+    origin = definitions.resolve(obj, origin_definition, tolerance)
+    x_point = definitions.resolve(obj, x_definition, tolerance)
+    y_point = definitions.resolve(obj, y_definition, tolerance)
     if origin is None or x_point is None or y_point is None:
         return None
 
@@ -58,7 +57,7 @@ def _resolve_world_axes_plane(doc, definition):
     obj = _definition_object(doc, definition)
     if obj is None:
         return None
-    origin = anchor_definitions.resolve(
+    origin = definitions.resolve(
         obj,
         definition.get("origin_anchor"),
         max(doc.ModelAbsoluteTolerance, 1e-7),
@@ -95,7 +94,7 @@ def _resolve_circular_edge_plane(doc, definition):
         center_definition = definition["edge_center_anchor"]
     except Exception:
         return None
-    resolved = anchor_definitions.circular_edge(
+    resolved = definitions.circular_edge(
         obj,
         center_definition,
         max(doc.ModelAbsoluteTolerance, 1e-7),
@@ -113,7 +112,7 @@ def _resolve_circular_curve_plane(doc, definition):
         center_definition = definition["curve_center_anchor"]
     except Exception:
         return None
-    resolved = anchor_definitions.circular_curve(
+    resolved = definitions.circular_curve(
         obj,
         center_definition,
         max(doc.ModelAbsoluteTolerance, 1e-7),
@@ -146,14 +145,14 @@ def _valid_three_point_plane(definition):
         "x_axis_anchor",
         "y_axis_anchor",
     } and all(
-        anchor_definitions.validate(definition[name])
+        definitions.validate(definition[name])
         for name in ("origin_anchor", "x_axis_anchor", "y_axis_anchor")
     )
 
 
 def _valid_world_axes_plane(definition):
     return set(definition) == {"type", "object_id", "origin_anchor"} and (
-        anchor_definitions.validate(definition["origin_anchor"])
+        definitions.validate(definition["origin_anchor"])
     )
 
 
@@ -163,7 +162,7 @@ def _valid_circular_plane(definition, definition_type, field, anchor_type):
     anchor = definition[field]
     return (
         definition.get("type") == definition_type
-        and anchor_definitions.validate(anchor)
+        and definitions.validate(anchor)
         and anchor.get("type") == anchor_type
     )
 
@@ -181,14 +180,14 @@ def validate_definition(definition, expected_object_id=None):
             definition,
             "circular_edge_plane",
             "edge_center_anchor",
-            anchor_definitions.CIRCULAR_EDGE_CENTER,
+            definitions.CIRCULAR_EDGE_CENTER,
         )
         if definition_type == "circular_edge_plane"
         else _valid_circular_plane(
             definition,
             "circular_curve_plane",
             "curve_center_anchor",
-            anchor_definitions.CURVE_CENTER,
+            definitions.CURVE_CENTER,
         )
         if definition_type == "circular_curve_plane"
         else False
@@ -199,9 +198,10 @@ def validate_definition(definition, expected_object_id=None):
         object_id = System.Guid(str(definition["object_id"]))
     except Exception:
         return False
-    return expected_object_id is None or str(object_id).lower() == str(
-        expected_object_id
-    ).lower()
+    return (
+        expected_object_id is None
+        or str(object_id).lower() == str(expected_object_id).lower()
+    )
 
 
 def plane_border(origin, x_axis, y_axis, half_extent):

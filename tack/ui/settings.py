@@ -4,8 +4,8 @@ import Eto.Drawing as drawing
 import Eto.Forms as forms
 import Rhino
 
-from tack import analytic_plane
-from tack import plane_link
+from tack.anchors import analytic_plane
+from tack.links import runtime
 
 
 def _slider(dialog, label_text, minimum, maximum, value, on_change):
@@ -47,28 +47,28 @@ def show(doc):
         "Crosshair size",
         analytic_plane.CROSSHAIR_SIZE_MIN,
         analytic_plane.CROSSHAIR_SIZE_MAX,
-        plane_link.crosshair_size(doc),
-        lambda size: plane_link.set_crosshair_size(doc, size),
+        runtime.crosshair_size(doc),
+        lambda size: runtime.set_crosshair_size(doc, size),
     )
     thickness_label, thickness_slider = _slider(
         dialog,
         "Crosshair line width",
         analytic_plane.CROSSHAIR_THICKNESS_MIN,
         analytic_plane.CROSSHAIR_THICKNESS_MAX,
-        plane_link.crosshair_thickness(doc),
-        lambda thickness: plane_link.set_crosshair_thickness(doc, thickness),
+        runtime.crosshair_thickness(doc),
+        lambda thickness: runtime.set_crosshair_thickness(doc, thickness),
     )
     selected_only = forms.CheckBox()
     selected_only.Text = "Show Selected Tacks Only"
-    selected_only.Checked = plane_link.show_selected_tacks_only(doc)
+    selected_only.Checked = runtime.show_selected_tacks_only(doc)
     selected_only.CheckedChanged += lambda sender, event: (
-        plane_link.set_show_selected_tacks_only(doc, bool(sender.Checked))
+        runtime.set_show_selected_tacks_only(doc, bool(sender.Checked))
     )
     highlight_selected = forms.CheckBox()
     highlight_selected.Text = "Highlight Selected Objects"
-    highlight_selected.Checked = plane_link.highlight_selected_objects(doc)
+    highlight_selected.Checked = runtime.highlight_selected_objects(doc)
     highlight_selected.CheckedChanged += lambda sender, event: (
-        plane_link.set_highlight_selected_objects(doc, bool(sender.Checked))
+        runtime.set_highlight_selected_objects(doc, bool(sender.Checked))
     )
 
     close = forms.Button()

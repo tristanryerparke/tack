@@ -10,9 +10,8 @@ sys.modules.pop("common", None)
 from common import add_circle, circular_plane_definition, cleanup, point_data, run_test
 
 
-
 def _plane_origin(doc, definition):
-    from tack import analytic_plane
+    from tack.anchors import analytic_plane
 
     plane = analytic_plane.resolve_definition(doc, definition)
     assert plane is not None, "Analytic plane did not resolve"
@@ -20,16 +19,20 @@ def _plane_origin(doc, definition):
 
 
 def _assert_close(actual, expected, tolerance, label):
-    assert actual.DistanceTo(expected) <= tolerance, (
-        "{}: expected {}, got {}".format(label, expected, actual)
+    assert actual.DistanceTo(expected) <= tolerance, "{}: expected {}, got {}".format(
+        label, expected, actual
     )
 
 
 def verify_relationship_lifecycle():
-    from tack import analytic_plane
-    from tack import display
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.anchors import analytic_plane
+    from tack.links import (
+        lifecycle,
+        repository,
+        runtime,
+        state,
+        transforms,
+    )
 
     doc = sc.doc
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
@@ -42,14 +45,14 @@ def verify_relationship_lifecycle():
         parent_plane = analytic_plane.resolve_definition(doc, parent_definition)
         child_plane = analytic_plane.resolve_definition(doc, child_definition)
         assert parent_plane is not None and child_plane is not None
-        aligned_child = plane_link.transform_object_in_place(
+        aligned_child = transforms.transform_object_in_place(
             doc,
             doc.Objects.Find(child_id),
-            display.plane_to_plane_transform(parent_plane, child_plane),
+            transforms.plane_to_plane_transform(parent_plane, child_plane),
         )
         assert aligned_child is not None, "Could not align child plane"
 
-        link = plane_link_metadata.create(
+        link = repository.create(
             doc,
             parent_id,
             child_id,
@@ -58,12 +61,12 @@ def verify_relationship_lifecycle():
             False,
         )
         assert link is not None, "Could not create test relationship"
-        state = plane_link.install(doc, link)
-        assert state is not None, "Could not install test relationship"
-        assert plane_link.display_enabled(doc)
-        assert plane_link.set_display_enabled(doc, False)
-        assert not plane_link.display_enabled(doc)
-        assert plane_link.set_display_enabled(doc, True)
+        link_state = runtime.install(doc, link)
+        assert link_state is not None, "Could not install test relationship"
+        assert runtime.display_enabled(doc)
+        assert runtime.set_display_enabled(doc, False)
+        assert not runtime.display_enabled(doc)
+        assert runtime.set_display_enabled(doc, True)
 
         move = Rhino.Geometry.Vector3d(5, 3, 0)
         child_before = _plane_origin(doc, child_definition)
@@ -72,7 +75,7 @@ def verify_relationship_lifecycle():
             Rhino.Geometry.Transform.Translation(move),
             True,
         )
-        plane_link.EndCommandHandler(
+        lifecycle.end_command_handler(
             None,
             types.SimpleNamespace(CommandEnglishName="Move"),
         )
@@ -89,7 +92,7 @@ def verify_relationship_lifecycle():
             Rhino.Geometry.Transform.Translation(9, 0, 0),
             True,
         )
-        plane_link.EndCommandHandler(
+        lifecycle.end_command_handler(
             None,
             types.SimpleNamespace(CommandEnglishName="Move"),
         )
@@ -102,14 +105,14 @@ def verify_relationship_lifecycle():
         )
 
         assert doc.Objects.Delete(child_id, True)
-        plane_link.EndCommandHandler(
+        lifecycle.end_command_handler(
             None,
             types.SimpleNamespace(CommandEnglishName="Delete"),
         )
-        assert plane_link_metadata.read_link(doc, link["link_id"]) is None, (
+        assert repository.read_link(doc, link["link_id"]) is None, (
             "Deleting a child must delete its Tack"
         )
-        assert not plane_link.states(doc, create=False), (
+        assert not state.states(doc, create=False), (
             "Deleting a child must remove its runtime Tack"
         )
 

@@ -5,14 +5,11 @@ import os
 import runpy
 import traceback
 
-import System
-
 import Eto.Drawing as drawing
 import Eto.Forms as forms
 import Rhino
-
+import System
 from TackRhinoPlugin import PluginBridge
-
 
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
 _ICON_SIZE = 20
@@ -83,9 +80,7 @@ def _icon_image(panel, name, color, size=_ICON_SIZE):
 
 def _is_dark_theme():
     background = drawing.SystemColors.ControlBackground
-    luminance = (
-        0.299 * background.R + 0.587 * background.G + 0.114 * background.B
-    )
+    luminance = 0.299 * background.R + 0.587 * background.G + 0.114 * background.B
     return luminance < 128
 
 
@@ -112,11 +107,7 @@ def _object_display_name(doc, object_id):
     try:
         obj = _panel_object(doc, object_id)
         name = None if obj is None else obj.Attributes.Name
-        return (
-            str(name).strip()
-            if name and str(name).strip()
-            else _short_id(object_id)
-        )
+        return str(name).strip() if name and str(name).strip() else _short_id(object_id)
     except Exception:
         return _short_id(object_id)
 
@@ -149,11 +140,7 @@ def _object_type_label(doc, object_id):
         if object_type == Rhino.DocObjects.ObjectType.TextDot:
             return "Dot"
         if object_type == Rhino.DocObjects.ObjectType.Annotation:
-            return (
-                "Txt"
-                if isinstance(geometry, Rhino.Geometry.TextEntity)
-                else "Ann"
-            )
+            return "Txt" if isinstance(geometry, Rhino.Geometry.TextEntity) else "Ann"
         if object_type == Rhino.DocObjects.ObjectType.InstanceReference:
             return "Blk"
         if object_type == Rhino.DocObjects.ObjectType.Light:
@@ -289,7 +276,7 @@ class _PanelView:
         self.refresh()
 
     def _button_bar(self):
-        from tack import plane_link
+        from tack.links import runtime
 
         bar = forms.DynamicLayout()
         bar.DefaultSpacing = drawing.Size(2, 0)
@@ -314,7 +301,7 @@ class _PanelView:
             _ICON_SIZE - 4,
         )
         self._display.Click += self._toggle_display
-        self._update_display_button(plane_link.display_enabled(self._doc))
+        self._update_display_button(runtime.display_enabled(self._doc))
 
         clear = _icon_button(
             self._panel,
@@ -377,9 +364,7 @@ class _PanelView:
             "#9e9e9e",
             _ICON_SIZE - 4,
         )
-        self._browser_toggle.ToolTip = (
-            "Show Objects" if show_tacks else "Show Tacks"
-        )
+        self._browser_toggle.ToolTip = "Show Objects" if show_tacks else "Show Tacks"
         self._show_selection(
             self._tack_list.SelectedItem if show_tacks else self._tree.SelectedItem,
             tack_list=show_tacks,
@@ -424,9 +409,9 @@ class _PanelView:
 
     @_ui_callback
     def _toggle_display(self, sender, event):
-        from tack import plane_link
+        from tack.links import runtime
 
-        action = "hide" if plane_link.display_enabled(self._doc) else "show"
+        action = "hide" if runtime.display_enabled(self._doc) else "show"
         self._defer_command(action, update_display=True)
 
     @_ui_callback
@@ -471,9 +456,9 @@ class _PanelView:
             if refresh:
                 self.refresh()
             if update_display:
-                from tack import plane_link
+                from tack.links import runtime
 
-                self._update_display_button(plane_link.display_enabled(self._doc))
+                self._update_display_button(runtime.display_enabled(self._doc))
         except Exception:
             Rhino.RhinoApp.WriteLine(traceback.format_exc())
 
@@ -496,32 +481,30 @@ class _PanelView:
         return self._delete_link_id(self._selected_tag)
 
     def _selected_link_ids(self):
-        return () if self._selected_tag is None else self._selected_tag[
-            "direct_link_ids"
-        ]
+        return (
+            () if self._selected_tag is None else self._selected_tag["direct_link_ids"]
+        )
 
     def _show_selection(self, item, tack_list=False):
         tag = self._item_tag(item)
         self._selected_tag = tag
-        self._update_remove_button(
-            bool(() if tag is None else tag["direct_link_ids"])
-        )
+        self._update_remove_button(bool(() if tag is None else tag["direct_link_ids"]))
         if tack_list:
             self._update_tack_inspector(self._delete_link_id(tag))
         else:
             self._update_object_inspector(tag)
 
     def _apply_selection(self, item, tack_list=False):
-        from tack import plane_link
+        from tack.links import runtime
 
         tag = self._item_tag(item)
         self._show_selection(item, tack_list)
         if tack_list:
             self._selected_object_id = None
-            plane_link.set_tack_selection(self._doc, self._delete_link_id(tag))
+            runtime.set_tack_selection(self._doc, self._delete_link_id(tag))
             return
         self._selected_object_id = None if tag is None else tag["object_id"]
-        plane_link.set_tree_selection(self._doc, None, ())
+        runtime.set_tree_selection(self._doc, None, ())
         self._select_tree_object(tag)
 
     def _update_object_inspector(self, tag):
@@ -531,13 +514,9 @@ class _PanelView:
         )
 
     def _update_tack_inspector(self, link_id):
-        from tack import plane_link_metadata
+        from tack.links import repository, schema
 
-        link = (
-            None
-            if link_id is None
-            else plane_link_metadata.read_link(self._doc, link_id)
-        )
+        link = None if link_id is None else repository.read_link(self._doc, link_id)
         if link is None:
             self._tack_id.Text = "Select a Tack to inspect"
             self._tack_id.ToolTip = ""
@@ -547,7 +526,7 @@ class _PanelView:
             self._reset_transform.Visible = False
             self._reset_transform.Enabled = False
             return
-        child_movement_allowed = plane_link_metadata.link_mode(link) == "inherit_only"
+        child_movement_allowed = schema.link_mode(link) == "inherit_only"
         self._tack_id.Text = "Tack ID: {}".format(_short_id(link["link_id"]))
         self._tack_id.ToolTip = str(link["link_id"])
         self._translation_allowed.Text = "Translation allowed: {}".format(
@@ -566,10 +545,10 @@ class _PanelView:
 
     @_ui_callback
     def _reset_selected_transform(self, sender, event):
-        from tack import plane_link
+        from tack.links import runtime
 
         link_id = self._selected_link_id()
-        if link_id is None or not plane_link.reset_inherit_transform(
+        if link_id is None or not runtime.reset_inherit_transform(
             self._doc,
             link_id,
         ):
@@ -614,10 +593,10 @@ class _PanelView:
         self._select_tree_object(self._context_item)
 
     def _select_tree_object(self, tag):
-        from tack import utils
+        from tack.core import objects
 
         object_id = None if tag is None else tag["object_id"]
-        obj = utils.find_object(self._doc, object_id)
+        obj = objects.find_object(self._doc, object_id)
         if obj is None:
             if tag is not None:
                 Rhino.RhinoApp.WriteLine("The selected Tack object no longer exists.")
@@ -644,24 +623,24 @@ class _PanelView:
         )
         if confirmation != Rhino.UI.ShowMessageResult.Yes:
             return
-        from tack import plane_link
+        from tack.links import runtime
 
-        plane_link.remove_links(self._doc, link_ids)
+        runtime.remove_links(self._doc, link_ids)
         self.refresh()
 
     def refresh(self):
-        from tack import link_graph
-        from tack import plane_link
+        from tack.links import graph, runtime
+        from tack.links import state as link_state
 
-        selected_tack_id = plane_link.selected_tack_id(self._doc)
-        active = list(plane_link.states(self._doc, create=False).values())
+        selected_tack_id = runtime.selected_tack_id(self._doc)
+        active = list(link_state.states(self._doc, create=False).values())
         children_by_parent = {}
         incoming_by_child = {}
         object_ids = {}
         incoming = set()
         for state in active:
-            parent_key = link_graph.object_key(state["parent_id"])
-            child_key = link_graph.object_key(state["child_id"])
+            parent_key = graph.object_key(state["parent_id"])
+            child_key = graph.object_key(state["child_id"])
             object_ids[parent_key] = state["parent_id"]
             object_ids[child_key] = state["child_id"]
             children_by_parent.setdefault(parent_key, []).append(state)
@@ -699,9 +678,7 @@ class _PanelView:
             item.Tag = {
                 "object_id": object_ids[key],
                 "incoming_link_id": incoming_link_id,
-                "outgoing_link_ids": tuple(
-                    state["link_id"] for state in outgoing
-                ),
+                "outgoing_link_ids": tuple(state["link_id"] for state in outgoing),
                 "direct_link_ids": tuple(state["link_id"] for state in direct),
             }
             item.Expanded = True
@@ -711,10 +688,8 @@ class _PanelView:
                 return item
             next_path = path + (key,)
             for state in outgoing:
-                child_key = link_graph.object_key(state["child_id"])
-                item.Children.Add(
-                    tree_item(child_key, state["link_id"], next_path)
-                )
+                child_key = graph.object_key(state["child_id"])
+                item.Children.Add(tree_item(child_key, state["link_id"], next_path))
             return item
 
         root = forms.TreeGridItem()
@@ -735,15 +710,13 @@ class _PanelView:
                 "outgoing_link_ids": (state["link_id"],),
                 "direct_link_ids": (state["link_id"],),
             }
-            tack_row_by_link_id[str(state["link_id"])] = len(
-                tack_row_by_link_id
-            )
+            tack_row_by_link_id[str(state["link_id"])] = len(tack_row_by_link_id)
             tack_items.append(item)
 
         selected_tree_row = None
         if self._selected_object_id is not None:
             selected_tree_row = row_by_key.get(
-                link_graph.object_key(self._selected_object_id)
+                graph.object_key(self._selected_object_id)
             )
         selected_tack_row = (
             tack_row_by_link_id.get(str(selected_tack_id))
@@ -807,9 +780,7 @@ def install(document_serial_number, panel_instance_id=None, _all_instances=False
                 )
             return
 
-    if panel_instance_id is not None and hasattr(
-        PluginBridge, "GetPanelInstance"
-    ):
+    if panel_instance_id is not None and hasattr(PluginBridge, "GetPanelInstance"):
         panel = PluginBridge.GetPanelInstance(panel_instance_id)
     else:
         panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)

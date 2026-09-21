@@ -1,6 +1,5 @@
 import scriptcontext as sc
 
-
 REGISTRY_KEY = "Tack.Runtime.Documents"
 
 
@@ -68,7 +67,4 @@ def remove_document(doc):
 
 def has_nonempty_value(key):
     registry = _registry(False)
-    return bool(
-        registry
-        and any(values.get(key) for values in registry.values())
-    )
+    return bool(registry and any(values.get(key) for values in registry.values()))

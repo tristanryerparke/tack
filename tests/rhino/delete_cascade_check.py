@@ -2,8 +2,8 @@
 
 import sys
 
-import scriptcontext as sc
 import rhinoscriptsyntax as rs
+import scriptcontext as sc
 
 sys.modules.pop("common", None)
 from common import run_flow_step
@@ -12,23 +12,26 @@ STICKY_KEY = "Tack.DeleteCascade"
 
 
 def check_delete_cascade():
-    from tack import plane_link
-    from tack import plane_link_metadata
-    from tack import utils
+    from tack.core import objects
+    from tack.links import (
+        lifecycle,
+        repository,
+        state,
+    )
 
     doc = sc.doc
     info = sc.sticky[STICKY_KEY]
-    plane_link.subscribe()
-    parent = utils.find_object(doc, info["parent_id"]) is not None
-    child = utils.find_object(doc, info["child_id"]) is not None
+    lifecycle.subscribe()
+    parent = objects.find_object(doc, info["parent_id"]) is not None
+    child = objects.find_object(doc, info["child_id"]) is not None
     victim = "child" if not child else ("parent" if not parent else None)
     assert victim, "No Tacked object was deleted"
-    assert (
-        plane_link_metadata.read_link(doc, info["link_id"]) is None
-    ), "Tack survived {} deletion".format(victim)
-    assert (
-        not plane_link.states(doc, create=False)
-    ), "Runtime Tack survived {} deletion".format(victim)
+    assert repository.read_link(doc, info["link_id"]) is None, (
+        "Tack survived {} deletion".format(victim)
+    )
+    assert not state.states(doc, create=False), (
+        "Runtime Tack survived {} deletion".format(victim)
+    )
 
     if victim == "child" and parent:
         rs.UnselectAllObjects()

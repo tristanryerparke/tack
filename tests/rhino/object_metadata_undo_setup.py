@@ -12,14 +12,17 @@ STICKY_KEY = "Tack.ObjectMetadataUndo"
 
 
 def setup_object_metadata_undo():
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.links import (
+        repository,
+        runtime,
+        state,
+    )
 
     doc = sc.doc
     cleanup(doc)
     parent_id = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0))
     child_id = add_circle(doc, Rhino.Geometry.Point3d(10, 0, 0))
-    link = plane_link_metadata.create(
+    link = repository.create(
         doc,
         parent_id,
         child_id,
@@ -28,12 +31,12 @@ def setup_object_metadata_undo():
         False,
     )
     assert link is not None
-    assert plane_link.install(doc, link) is not None
+    assert runtime.install(doc, link) is not None
     doc.ClearUndoRecords(True)
 
-    assert plane_link.remove_link(doc, link["link_id"])
-    assert plane_link_metadata.read_link(doc, link["link_id"]) is None
-    assert not plane_link.states(doc, create=False)
+    assert runtime.remove_link(doc, link["link_id"])
+    assert repository.read_link(doc, link["link_id"]) is None
+    assert not state.states(doc, create=False)
     sc.sticky[STICKY_KEY] = {"link_id": link["link_id"]}
     return {"link_id": link["link_id"], "removed": True}
 

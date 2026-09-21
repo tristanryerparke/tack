@@ -44,8 +44,8 @@ def run_flow(actions, rhino_instance):
                 if command_callback is not None:
                     if payload.get("callback") != command_callback:
                         continue
-                    assert payload["succeeded"], (
-                        "Rhino command failed: {}".format(payload["command"])
+                    assert payload["succeeded"], "Rhino command failed: {}".format(
+                        payload["command"]
                     )
                     command_callback = None
                     if advance():

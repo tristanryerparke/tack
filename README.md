@@ -17,14 +17,16 @@ panel.
 
 The Script Editor project generates the native Python commands and combined
 Rhino plug-in. `csharp/TackScriptPlugin` provides the stable panel host and
-generic JSON document and per-user settings stores. `tack/plugin_data.py`
-wraps both stores, while `tack/plane_link_metadata.py` owns the link schema.
+generic JSON document and per-user settings stores. `tack/core/plugin_data.py`
+wraps both stores, while `tack/links/` owns relationship schemas, persistence,
+runtime indexing, transforms, and lifecycle handling.
 
 In development, panel buttons run their `commands/*.py` entry files directly
 from this checkout. In production, the same buttons invoke generated native
 `Tack*` commands. Typed commands are generated native commands in both modes.
 
-Relationships and display visibility are stored in Tack's plug-in-owned
+Full relationship data is stored on each parent object, with only the Tack ID
+stored on its child. Display visibility is stored in Tack's plug-in-owned
 document data. The default display visibility, crosshair size, crosshair line
 width, and selected-object highlighting are stored together as JSON in per-user
 plug-in settings. Display conduits are created per document and reject events
@@ -44,7 +46,7 @@ scripts/install-tack-rhino-plugin-mac.sh --mode production
 ```
 
 Restart Rhino after installation or a mode change. In development, reload the
-panel after editing `tack/panel.py`:
+panel after editing `tack/ui/panel.py`:
 
 ```bash
 uv run in-rhino scripts/reload-panel.py

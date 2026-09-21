@@ -40,7 +40,7 @@ extra-paths = [
 ]
 
 [[tool.ty.overrides]]
-include = ["**/tack/panel.py", "**/tack/plugin_data.py"]
+include = ["**/tack/ui/panel.py", "**/tack/core/plugin_data.py"]
 
 [tool.ty.overrides.rules]
 unresolved-import = "ignore"

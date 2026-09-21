@@ -12,21 +12,20 @@ STICKY_KEY = "Tack.ObjectMetadataUndo"
 
 
 def collect_object_metadata_undo():
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.links import lifecycle, repository, state
 
     doc = sc.doc
     link_id = sc.sticky[STICKY_KEY]["link_id"]
-    plane_link.subscribe()
-    plane_link.EndCommandHandler(
+    lifecycle.subscribe()
+    lifecycle.end_command_handler(
         None,
         types.SimpleNamespace(CommandEnglishName="Undo"),
     )
-    link = plane_link_metadata.read_link(doc, link_id)
+    link = repository.read_link(doc, link_id)
     assert link is not None
-    runtime = plane_link.states(doc, create=False)
-    assert link_id in runtime
-    return {"link_id": link_id, "restored": True, "runtime": len(runtime)}
+    runtime_states = state.states(doc, create=False)
+    assert link_id in runtime_states
+    return {"link_id": link_id, "restored": True, "runtime": len(runtime_states)}
 
 
 run_flow_step("object_metadata_undo_collect", collect_object_metadata_undo)

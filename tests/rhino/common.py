@@ -4,14 +4,12 @@ import json
 import sys
 from pathlib import Path
 
-import System
 import Rhino
-import scriptcontext as sc
+import System
 
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.env import install_sticky_environment
 from run_in_rhino.rhino_env.parasite import OutputParasite
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -31,9 +29,9 @@ def mark_test_object(doc, object_id):
 
 
 def cleanup(doc):
-    from tack import plane_link
+    from tack.links import runtime
 
-    plane_link.clear_document(doc)
+    runtime.clear_document(doc)
     object_ids = []
     for obj in doc.Objects:
         if obj is None:
@@ -70,9 +68,9 @@ def point_data(point):
 
 
 def _load_repository_tack():
-    loaded_link = sys.modules.get("tack.plane_link")
-    if loaded_link is not None:
-        loaded_link.unsubscribe()
+    loaded_lifecycle = sys.modules.get("tack.links.lifecycle")
+    if loaded_lifecycle is not None:
+        loaded_lifecycle.unsubscribe()
     for module_name in list(sys.modules):
         if module_name == "tack" or module_name.startswith("tack."):
             sys.modules.pop(module_name)
@@ -81,9 +79,7 @@ def _load_repository_tack():
 def run_test(name, action, use_environment=False):
     _load_repository_tack()
     connection = SocketConnection()
-    environment = (
-        install_sticky_environment(connection) if use_environment else None
-    )
+    environment = install_sticky_environment(connection) if use_environment else None
     with OutputParasite(connection, done_msg=True):
         payload = action(environment) if use_environment else action()
         payload["name"] = name

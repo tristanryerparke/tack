@@ -1,5 +1,4 @@
 import Rhino
-import scriptcontext as sc
 
 
 def get_current_command_name(event):

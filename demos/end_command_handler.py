@@ -2,9 +2,9 @@
 
 import Rhino
 import scriptcontext as sc
+
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.parasite import OutputParasite
-
 
 HANDLER_KEY = "tack.end_command_handler"
 

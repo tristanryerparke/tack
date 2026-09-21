@@ -9,7 +9,6 @@ import math
 
 import Rhino
 
-
 BOUNDING_BOX_CENTER = "bounding_box_center"
 BREP_VERTEX = "brep_vertex"
 POLYLINE_VERTEX = "polyline_vertex"
@@ -377,10 +376,9 @@ def _resolve_brep_vertex(obj, definition, tolerance):
 def _resolve_polyline_vertex(obj, definition, tolerance):
     curve = _curve(obj)
     index = definition["vertex_index"]
-    if (
-        not isinstance(curve, Rhino.Geometry.PolylineCurve)
-        or index >= _polyline_vertex_count(curve)
-    ):
+    if not isinstance(
+        curve, Rhino.Geometry.PolylineCurve
+    ) or index >= _polyline_vertex_count(curve):
         return None
     return curve.Point(index)
 
@@ -604,9 +602,8 @@ def _end_candidates(obj, component_type, component_index, tolerance):
         return candidates
     if isinstance(curve, Rhino.Geometry.PolylineCurve):
         return _candidates(obj, POLYLINE_VERTEX, tolerance)
-    return (
-        _candidates(obj, CURVE_START, tolerance)
-        + _candidates(obj, CURVE_END, tolerance)
+    return _candidates(obj, CURVE_START, tolerance) + _candidates(
+        obj, CURVE_END, tolerance
     )
 
 
@@ -730,10 +727,7 @@ def validate(definition):
 
 def circular_edge(obj, definition, tolerance):
     """Resolve a circular-edge anchor to its current Brep edge and circle."""
-    if (
-        not validate(definition)
-        or definition.get("type") != CIRCULAR_EDGE_CENTER
-    ):
+    if not validate(definition) or definition.get("type") != CIRCULAR_EDGE_CENTER:
         return None
     brep = _brep(obj)
     edge_index = definition["edge_index"]

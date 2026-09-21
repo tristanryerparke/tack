@@ -4,20 +4,19 @@ import sys
 import time
 import types
 
-import System
 import Rhino
 import scriptcontext as sc
+import System
 
 sys.modules.pop("common", None)
 from common import point_data, run_test
-
 
 RELATIONSHIP_COUNT = 100
 MOVE = Rhino.Geometry.Vector3d(12, 5, 0)
 
 
 def _origin(doc, definition):
-    from tack import analytic_plane
+    from tack.anchors import analytic_plane
 
     plane = analytic_plane.resolve_definition(doc, definition)
     assert plane is not None
@@ -25,18 +24,22 @@ def _origin(doc, definition):
 
 
 def verify_stress_fixture():
-    from tack import anchor_definitions
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.anchors import definitions
+    from tack.links import (
+        lifecycle,
+        repository,
+        runtime,
+        transforms,
+    )
 
     doc = sc.doc
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-    plane_link._remove_runtime(doc)
+    runtime.remove_runtime(doc)
     assert (
-        plane_link.restore_document(doc, default_display_enabled=False)
+        runtime.restore_document(doc, default_display_enabled=False)
         == RELATIONSHIP_COUNT
     )
-    links = plane_link_metadata.all_links(doc)
+    links = repository.all_links(doc)
     assert len(links) == RELATIONSHIP_COUNT
     parent_ids = {link["parent_id"] for link in links}
     assert len(parent_ids) == 1
@@ -45,27 +48,24 @@ def verify_stress_fixture():
 
     top_hole_centers = {
         round(point.X, 6)
-        for _, point in anchor_definitions.candidates(
+        for _, point in definitions.candidates(
             parent,
-            anchor_definitions.CIRCULAR_EDGE_CENTER,
+            definitions.CIRCULAR_EDGE_CENTER,
             tolerance,
         )
         if abs(point.Z - 10.0) <= tolerance
     }
     assert len(top_hole_centers) == RELATIONSHIP_COUNT
 
-    before = {
-        link["link_id"]: _origin(doc, link["child_plane"])
-        for link in links
-    }
+    before = {link["link_id"]: _origin(doc, link["child_plane"]) for link in links}
     started = time.perf_counter()
-    transformed_parent = plane_link.transform_object_in_place(
+    transformed_parent = transforms.transform_object_in_place(
         doc,
         parent,
         Rhino.Geometry.Transform.Translation(MOVE),
     )
     assert transformed_parent is not None
-    plane_link.EndCommandHandler(
+    lifecycle.end_command_handler(
         None,
         types.SimpleNamespace(CommandEnglishName="Move"),
     )

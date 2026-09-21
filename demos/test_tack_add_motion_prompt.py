@@ -1,6 +1,6 @@
 """Preview TackAdd's proposed degrees-of-freedom command-line prompt.
 
-    uv run rhino-watch demos/test_tack_add_motion_prompt.py --debug
+uv run rhino-watch demos/test_tack_add_motion_prompt.py --debug
 """
 
 import os

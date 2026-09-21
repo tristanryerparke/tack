@@ -5,11 +5,10 @@ import sys
 
 from Rhino.Commands import Result
 
-
 _PACKAGE_NAME = "tack"
 _PRESERVED_MODULES = {
-    _PACKAGE_NAME + ".command_runtime",
-    _PACKAGE_NAME + ".panel",
+    _PACKAGE_NAME + ".core.command_dispatch",
+    _PACKAGE_NAME + ".ui.panel",
 }
 
 
@@ -46,10 +45,10 @@ def run(action, doc, reload_modules=False):
         _reload_action_modules()
 
     if action == "settings":
-        settings = importlib.import_module(_PACKAGE_NAME + ".settings")
+        settings = importlib.import_module(_PACKAGE_NAME + ".ui.settings")
         return settings.show(doc)
 
-    plugin_data = importlib.import_module(_PACKAGE_NAME + ".plugin_data")
+    plugin_data = importlib.import_module(_PACKAGE_NAME + ".core.plugin_data")
     default_display_enabled = plugin_data.setting(
         plugin_data.DEFAULT_DISPLAY_ENABLED,
         True,

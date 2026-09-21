@@ -1,4 +1,4 @@
-from tack.link_graph import would_create_cycle
+from tack.links.graph import would_create_cycle
 
 
 def test_three_object_tack_loop_is_rejected():

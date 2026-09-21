@@ -2,7 +2,6 @@
 
 import json
 
-
 DEFAULT_DISPLAY_ENABLED = "default_display_enabled"
 SHOW_SELECTED_TACKS_ONLY = "show_selected_tacks_only"
 HIGHLIGHT_SELECTED_OBJECTS = "highlight_selected_objects"
@@ -64,9 +63,7 @@ def set_settings(value):
     if bridge is None:
         return False
     try:
-        bridge.SetSettingsJson(
-            json.dumps(value, separators=(",", ":"), sort_keys=True)
-        )
+        bridge.SetSettingsJson(json.dumps(value, separators=(",", ":"), sort_keys=True))
     except Exception:
         return False
     return True
