@@ -396,15 +396,21 @@ def inherit_target_child_plane(parent_plane, transform_data):
 
 
 def _planes_match(parent_plane, child_plane, inverted, tolerance):
-    effective_child = (
-        display.inverted_plane(child_plane)
-        if inverted
-        else child_plane
-    )
+    effective_child = display.inverted_plane(child_plane) if inverted else child_plane
     return (
         parent_plane.Origin.DistanceTo(effective_child.Origin) <= tolerance
         and parent_plane.XAxis * effective_child.XAxis >= 1.0 - tolerance
         and parent_plane.YAxis * effective_child.YAxis >= 1.0 - tolerance
+    )
+
+
+def _transform_data_matches(left, right, tolerance=1e-9):
+    if len(left) != len(right):
+        return False
+    return all(
+        abs(left_value - right_value)
+        <= tolerance * max(1.0, abs(left_value), abs(right_value))
+        for left_value, right_value in zip(left, right)
     )
 
 
@@ -452,11 +458,18 @@ def maintain(doc, state):
     rotation = plane_link_metadata.rotation_enabled(link)
     if plane_link_metadata.link_mode(link) == "inherit_only":
         if child_changed and not parent_changed:
-            updated = dict(link)
-            updated["current_transform"] = inherit_transform_data(
+            current_transform = inherit_transform_data(
                 parent_plane,
                 child_plane,
             )
+            if _transform_data_matches(
+                current_transform,
+                link["current_transform"],
+            ):
+                _refresh_serials(doc, state)
+                return True
+            updated = dict(link)
+            updated["current_transform"] = current_transform
             if not plane_link_metadata.save(doc, updated):
                 _show_broken_alert(state)
                 return False
@@ -523,41 +536,39 @@ def _command_name(event):
     )
 
 
-def _deactivate_missing_object_links(doc):
-    """Drop runtime links whose object metadata is no longer a complete pair."""
-    active = states(doc, create=False)
-    saved_ids = {
-        link["link_id"]
-        for link in plane_link_metadata.all_links(doc)
-    }
-    removed = [
-        link_id
-        for link_id in active
-        if link_id not in saved_ids
-    ]
-    if not removed:
-        return False
-    for link_id in removed:
-        active.pop(link_id, None)
-    if not active:
-        _remove_runtime(doc)
-    from tack import panel
-
-    panel.refresh(doc)
-    doc.Views.Redraw()
-    return True
-
-
-def _synchronize_runtime_with_metadata(doc):
-    active = states(doc)
+def _reconcile_runtime_with_metadata(doc):
+    """Match runtime states to current object metadata after every command."""
     saved = {link["link_id"]: link for link in plane_link_metadata.all_links(doc)}
+    active = states(doc, create=False)
+    if not active and not saved:
+        return (), False
+    if not active:
+        active = states(doc)
+
+    reconciled = False
+    pending = []
     for link_id in list(active):
         if link_id not in saved:
             active.pop(link_id, None)
+            reconciled = True
+
     for link_id, link in saved.items():
-        state = _new_state(doc, link)
-        if state is not None:
-            active[link_id] = state
+        state = active.get(link_id)
+        if state is None:
+            state = _new_state(doc, link)
+            if state is not None:
+                active[link_id] = state
+                pending.append(state)
+                reconciled = True
+            continue
+
+        if state["link"] != link:
+            state["link"] = link
+            state["parent_id"] = link["parent_id"]
+            state["child_id"] = link["child_id"]
+            pending.append(state)
+            reconciled = True
+
     if active:
         _ensure_conduit(
             doc,
@@ -565,6 +576,7 @@ def _synchronize_runtime_with_metadata(doc):
         )
     else:
         _remove_runtime(doc)
+    return tuple(pending), reconciled
 
 
 def _changed_states(doc):
@@ -580,14 +592,18 @@ def _changed_states(doc):
     return changed
 
 
-def _maintain_changed_states(doc):
-    """Settle parent-to-child chains within one native command completion."""
+def _maintain_changed_states(doc, pending=()):
+    """Settle changed and newly restored parent-to-child chains."""
+    pending = {state["link_id"]: state for state in pending}
     max_passes = len(states(doc, create=False)) + 1
     for _ in range(max_passes):
-        changed = _changed_states(doc)
-        if not changed:
+        candidates = pending
+        pending = {}
+        for state in _changed_states(doc):
+            candidates[state["link_id"]] = state
+        if not candidates:
             return
-        for state in changed:
+        for state in candidates.values():
             maintain(doc, state)
 
 
@@ -612,24 +628,17 @@ def EndCommandHandler(sender, event):
     if conduit is not None:
         conduit.command_ended()
 
-    is_undo_or_redo = _command_name(event).lower() in ("undo", "redo")
-    if is_undo_or_redo:
-        _synchronize_runtime_with_metadata(doc)
-        from tack import panel
-
-        panel.refresh(doc)
-        doc.Views.Redraw()
+    pending, reconciled = _reconcile_runtime_with_metadata(doc)
+    active = states(doc, create=False)
+    if not active and not reconciled:
         return
 
-    if not states(doc, create=False):
-        return
-
-    _solving = True
-    try:
-        _deactivate_missing_object_links(doc)
-        _maintain_changed_states(doc)
-    finally:
-        _solving = False
+    if active:
+        _solving = True
+        try:
+            _maintain_changed_states(doc, pending)
+        finally:
+            _solving = False
     from tack import panel
 
     panel.refresh(doc)
