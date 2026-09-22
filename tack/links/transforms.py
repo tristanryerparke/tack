@@ -24,13 +24,8 @@ _TRANSFORM_FIELDS = (
 )
 
 
-def inverted_plane(plane):
-    return Rhino.Geometry.Plane(plane.Origin, plane.XAxis, -plane.YAxis)
-
-
-def plane_to_plane_transform(parent_plane, child_plane, inverted=False):
-    source = inverted_plane(child_plane) if inverted else child_plane
-    return Rhino.Geometry.Transform.PlaneToPlane(source, parent_plane)
+def plane_to_plane_transform(parent_plane, child_plane):
+    return Rhino.Geometry.Transform.PlaneToPlane(child_plane, parent_plane)
 
 
 def constrained_target_child_plane(
@@ -46,35 +41,15 @@ def constrained_target_child_plane(
     return Rhino.Geometry.Plane(origin, x_axis, y_axis)
 
 
-def linked_target_child_plane(
-    parent_plane,
-    child_plane,
-    inverted=False,
-    translation=True,
-    rotation=True,
-):
-    target_plane = (
-        inverted_plane(parent_plane) if inverted and rotation else parent_plane
-    )
-    return constrained_target_child_plane(
-        target_plane,
-        child_plane,
-        translation,
-        rotation,
-    )
-
-
 def constrained_plane_transform(
     parent_plane,
     child_plane,
-    inverted=False,
     translation=True,
     rotation=True,
 ):
-    target_plane = linked_target_child_plane(
+    target_plane = constrained_target_child_plane(
         parent_plane,
         child_plane,
-        inverted,
         translation,
         rotation,
     )
@@ -133,12 +108,11 @@ def inherit_target_child_plane(parent_plane, transform_data):
     return relative_child if relative_child.IsValid else None
 
 
-def planes_match(parent_plane, child_plane, inverted, tolerance):
-    effective_child = inverted_plane(child_plane) if inverted else child_plane
+def planes_match(parent_plane, child_plane, tolerance):
     return (
-        parent_plane.Origin.DistanceTo(effective_child.Origin) <= tolerance
-        and parent_plane.XAxis * effective_child.XAxis >= 1.0 - tolerance
-        and parent_plane.YAxis * effective_child.YAxis >= 1.0 - tolerance
+        parent_plane.Origin.DistanceTo(child_plane.Origin) <= tolerance
+        and parent_plane.XAxis * child_plane.XAxis >= 1.0 - tolerance
+        and parent_plane.YAxis * child_plane.YAxis >= 1.0 - tolerance
     )
 
 

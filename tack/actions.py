@@ -5,7 +5,7 @@ from Rhino.Commands import Result
 
 from tack.core import plugin_data
 from tack.display.plane_preview import PlaneDisplayConduit
-from tack.links import graph, repository, runtime, schema, transforms
+from tack.links import repository, runtime, transforms
 from tack.prompting.add_flow import (
     pick_plane,
     preview_placement,
@@ -45,18 +45,7 @@ def add(doc, default_display_enabled=True):
         child = select_child(doc, parent.Id)
         if child is None:
             return Result.Cancel
-        replacing = any(
-            schema.same_object_pair(
-                link,
-                {"parent_id": str(parent.Id), "child_id": str(child.Id)},
-            )
-            for link in repository.all_links(doc)
-        )
-        if not replacing and graph.would_create_cycle(
-            repository.all_links(doc),
-            parent.Id,
-            child.Id,
-        ):
+        if repository.would_create_cycle(doc, parent.Id, child.Id):
             Rhino.UI.Dialogs.ShowMessage(
                 "This Tack would create a parent-child loop. "
                 "Tack loops are unstable and cannot be created.",
@@ -74,34 +63,18 @@ def add(doc, default_display_enabled=True):
         if child_result is None:
             return Result.Cancel
         child_definition, child_plane = child_result
-        mode = "attached" if degrees_of_freedom["attach"] else "inherit_only"
-
-        inverted = False
-        original_transform = None
-        current_transform = None
         transformed_child = child
-        if mode == "attached":
-            placement = preview_placement(
-                doc,
-                child,
-                parent_plane,
-                child_plane,
-                degrees_of_freedom["translation"],
-                degrees_of_freedom["rotation"],
-            )
-            if placement is None:
-                return Result.Cancel
-            transform, inverted = placement
-        else:
-            original_transform = transforms.inherit_transform_data(
-                parent_plane,
-                child_plane,
-            )
-            current_transform = list(original_transform)
-
         undo_record = doc.BeginUndoRecord("Add Tack")
         try:
-            if mode == "attached":
+            if degrees_of_freedom["attach"]:
+                transform = preview_placement(
+                    doc,
+                    child,
+                    parent_plane,
+                    child_plane,
+                )
+                if transform is None:
+                    return Result.Cancel
                 transformed_child = transforms.transform_object_in_place(
                     doc,
                     child,
@@ -116,12 +89,9 @@ def add(doc, default_display_enabled=True):
                 transformed_child.Id,
                 parent_definition,
                 child_definition,
-                inverted,
-                mode=mode,
-                original_transform=original_transform,
-                current_transform=current_transform,
                 translation=degrees_of_freedom["translation"],
                 rotation=degrees_of_freedom["rotation"],
+                allow_child_movement=degrees_of_freedom["allow_child_movement"],
             )
             if link is None:
                 return Result.Failure

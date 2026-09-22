@@ -42,7 +42,13 @@ def reload_panel():
     importlib.invalidate_caches()
     panel_module = importlib.import_module(PANEL_MODULE_NAME)
     Rhino.UI.Panels.OpenPanel(PANEL_ID)
-    panel_module.install(document.RuntimeSerialNumber)
+    panel_instance_ids = tuple(
+        PluginBridge.GetPanelInstanceIds(document.RuntimeSerialNumber)
+    )
+    if not panel_instance_ids:
+        raise RuntimeError("No Tack panel instance is available to reload")
+    for panel_instance_id in panel_instance_ids:
+        panel_module.install(document.RuntimeSerialNumber, panel_instance_id)
     Rhino.RhinoApp.WriteLine(
         "Reloaded Tack panel from source with {} module(s).".format(len(module_names))
     )

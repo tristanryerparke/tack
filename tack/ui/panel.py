@@ -514,7 +514,7 @@ class _PanelView:
         )
 
     def _update_tack_inspector(self, link_id):
-        from tack.links import repository, schema
+        from tack.links import repository
 
         link = None if link_id is None else repository.read_link(self._doc, link_id)
         if link is None:
@@ -526,14 +526,14 @@ class _PanelView:
             self._reset_transform.Visible = False
             self._reset_transform.Enabled = False
             return
-        child_movement_allowed = schema.link_mode(link) == "inherit_only"
+        child_movement_allowed = link["allow_child_movement"]
         self._tack_id.Text = "Tack ID: {}".format(_short_id(link["link_id"]))
         self._tack_id.ToolTip = str(link["link_id"])
         self._translation_allowed.Text = "Translation allowed: {}".format(
-            "Yes" if link.get("translation", True) else "No"
+            "Yes" if link["translation"] else "No"
         )
         self._rotation_allowed.Text = "Rotation allowed: {}".format(
-            "Yes" if link.get("rotation", True) else "No"
+            "Yes" if link["rotation"] else "No"
         )
         self._child_movement.Text = "Child movement allowed: {}".format(
             "Yes" if child_movement_allowed else "No"
@@ -548,7 +548,7 @@ class _PanelView:
         from tack.links import runtime
 
         link_id = self._selected_link_id()
-        if link_id is None or not runtime.reset_inherit_transform(
+        if link_id is None or not runtime.reset_transform(
             self._doc,
             link_id,
         ):
@@ -629,7 +629,8 @@ class _PanelView:
         self.refresh()
 
     def refresh(self):
-        from tack.links import graph, runtime
+        from tack.core.objects import object_key
+        from tack.links import repository, runtime
         from tack.links import state as link_state
 
         selected_tack_id = runtime.selected_tack_id(self._doc)
@@ -639,19 +640,17 @@ class _PanelView:
         object_ids = {}
         incoming = set()
         for state in active:
-            parent_key = graph.object_key(state["parent_id"])
-            child_key = graph.object_key(state["child_id"])
-            object_ids[parent_key] = state["parent_id"]
-            object_ids[child_key] = state["child_id"]
+            parent_key = object_key(state.parent_id)
+            child_key = object_key(state.child_id)
+            object_ids[parent_key] = state.parent_id
+            object_ids[child_key] = state.child_id
             children_by_parent.setdefault(parent_key, []).append(state)
             incoming_by_child.setdefault(child_key, []).append(state)
             incoming.add(child_key)
 
         def link_sort_key(state):
-            return (
-                state["link"].get("created_at") or "",
-                str(state["link_id"]),
-            )
+            link = repository.read_link(self._doc, state.link_id, state.parent_id)
+            return ("" if link is None else link.created_at, str(state.link_id))
 
         for children in children_by_parent.values():
             children.sort(key=link_sort_key)
@@ -678,8 +677,8 @@ class _PanelView:
             item.Tag = {
                 "object_id": object_ids[key],
                 "incoming_link_id": incoming_link_id,
-                "outgoing_link_ids": tuple(state["link_id"] for state in outgoing),
-                "direct_link_ids": tuple(state["link_id"] for state in direct),
+                "outgoing_link_ids": tuple(state.link_id for state in outgoing),
+                "direct_link_ids": tuple(state.link_id for state in direct),
             }
             item.Expanded = True
             tree_rows.append(item)
@@ -688,8 +687,8 @@ class _PanelView:
                 return item
             next_path = path + (key,)
             for state in outgoing:
-                child_key = graph.object_key(state["child_id"])
-                item.Children.Add(tree_item(child_key, state["link_id"], next_path))
+                child_key = object_key(state.child_id)
+                item.Children.Add(tree_item(child_key, state.link_id, next_path))
             return item
 
         root = forms.TreeGridItem()
@@ -703,21 +702,19 @@ class _PanelView:
         tack_row_by_link_id = {}
         for state in sorted(active, key=link_sort_key):
             item = forms.GridItem()
-            item.Values = [str(state["link_id"])]
+            item.Values = [str(state.link_id)]
             item.Tag = {
-                "object_id": state["parent_id"],
+                "object_id": state.parent_id,
                 "incoming_link_id": None,
-                "outgoing_link_ids": (state["link_id"],),
-                "direct_link_ids": (state["link_id"],),
+                "outgoing_link_ids": (state.link_id,),
+                "direct_link_ids": (state.link_id,),
             }
-            tack_row_by_link_id[str(state["link_id"])] = len(tack_row_by_link_id)
+            tack_row_by_link_id[str(state.link_id)] = len(tack_row_by_link_id)
             tack_items.append(item)
 
         selected_tree_row = None
         if self._selected_object_id is not None:
-            selected_tree_row = row_by_key.get(
-                graph.object_key(self._selected_object_id)
-            )
+            selected_tree_row = row_by_key.get(object_key(self._selected_object_id))
         selected_tack_row = (
             tack_row_by_link_id.get(str(selected_tack_id))
             if selected_tack_id is not None
@@ -761,35 +758,13 @@ def _install_panel(doc, panel, panel_instance_id):
     panel.SetPythonContent(view.control)
 
 
-def install(document_serial_number, panel_instance_id=None, _all_instances=False):
-    """Install Python Eto content into one or more native panel instances."""
+def install(document_serial_number, panel_instance_id):
+    """Install Python Eto content into a native panel instance."""
     doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(document_serial_number)
     if doc is None:
         raise RuntimeError("Tack panel document is unavailable.")
 
-    if not _all_instances and hasattr(PluginBridge, "GetPanelInstanceIds"):
-        panel_instance_ids = tuple(
-            PluginBridge.GetPanelInstanceIds(document_serial_number)
-        )
-        if panel_instance_ids:
-            for instance_id in panel_instance_ids:
-                install(
-                    document_serial_number,
-                    str(instance_id),
-                    _all_instances=True,
-                )
-            return
-
-    if panel_instance_id is not None and hasattr(PluginBridge, "GetPanelInstance"):
-        panel = PluginBridge.GetPanelInstance(panel_instance_id)
-    else:
-        panel = Rhino.UI.Panels.GetPanel(PANEL_ID, doc)
+    panel = PluginBridge.GetPanelInstance(panel_instance_id)
     if panel is None:
         raise RuntimeError("Tack panel instance is unavailable.")
-
-    instance_id = (
-        panel_instance_id
-        if panel_instance_id is not None
-        else "legacy:{}".format(document_serial_number)
-    )
-    _install_panel(doc, panel, instance_id)
+    _install_panel(doc, panel, panel_instance_id)

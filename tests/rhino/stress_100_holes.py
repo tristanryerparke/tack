@@ -57,7 +57,7 @@ def verify_stress_fixture():
     }
     assert len(top_hole_centers) == RELATIONSHIP_COUNT
 
-    before = {link["link_id"]: _origin(doc, link["child_plane"]) for link in links}
+    before = {link["link_id"]: _origin(doc, link["child_plane_def"]) for link in links}
     started = time.perf_counter()
     transformed_parent = transforms.transform_object_in_place(
         doc,
@@ -73,7 +73,7 @@ def verify_stress_fixture():
 
     moved_child_count = 0
     for link in links:
-        after = _origin(doc, link["child_plane"])
+        after = _origin(doc, link["child_plane_def"])
         expected = before[link["link_id"]] + MOVE
         assert after.DistanceTo(expected) <= tolerance, (
             "Child {} did not follow its hole".format(link["link_id"])

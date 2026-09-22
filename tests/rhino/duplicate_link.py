@@ -27,7 +27,6 @@ def verify_duplicate_link_replacement():
             child_id,
             circular_plane_definition(parent_id),
             circular_plane_definition(child_id),
-            False,
         )
         assert first is not None, "Could not create the first Tack"
         assert runtime.install(doc, first) is not None
@@ -38,7 +37,7 @@ def verify_duplicate_link_replacement():
             parent_id,
             circular_plane_definition(child_id),
             circular_plane_definition(parent_id),
-            True,
+            allow_child_movement=True,
         )
         assert replacement is not None, "Could not create the replacement Tack"
         assert runtime.install(doc, replacement) is not None
@@ -47,7 +46,10 @@ def verify_duplicate_link_replacement():
         assert links == [replacement]
         assert repository.read_link(doc, first["link_id"]) is None
         assert set(state.states(doc)) == {replacement["link_id"]}
-        return {"link_count": len(links), "replacement_inverted": links[0]["inverted"]}
+        return {
+            "link_count": len(links),
+            "replacement_allows_child_movement": links[0]["allow_child_movement"],
+        }
     finally:
         cleanup(doc)
 

@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Reflection;
 
@@ -48,9 +47,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       if (Instance.Settings.TryGetString(SettingsKey, out json))
         return string.IsNullOrWhiteSpace(json) ? "{}" : json;
 
-      json = LegacySettingsJson();
-      Instance.Settings.SetString(SettingsKey, json);
-      return json;
+      return "{}";
     }
 
     public static void SetSettingsJson(string json)
@@ -61,39 +58,6 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
           string.IsNullOrWhiteSpace(json) ? "{}" : json);
     }
 
-    static string LegacySettingsJson()
-    {
-      var settings = Instance.Settings;
-      return "{"
-        + "\"default_display_enabled\":"
-        + JsonBool(settings.GetBool("DefaultDisplayEnabled", true))
-        + ",\"show_selected_tacks_only\":"
-        + JsonBool(settings.GetBool("ShowSelectedTacksOnly", false))
-        + ",\"highlight_selected_objects\":"
-        + JsonBool(settings.GetBool("HighlightSelectedObjects", true))
-        + ",\"add_tack_translation\":"
-        + JsonBool(settings.GetBool("AddTackTranslation", true))
-        + ",\"add_tack_rotation\":"
-        + JsonBool(settings.GetBool("AddTackRotation", true))
-        + ",\"add_tack_attach\":"
-        + JsonBool(settings.GetBool("AddTackAttach", false))
-        + ",\"add_tack_invert\":"
-        + JsonBool(settings.GetBool("AddTackInvert", false))
-        + ",\"crosshair_size\":"
-        + settings.GetDouble("CrosshairSize", 20.0).ToString(
-          "R",
-          CultureInfo.InvariantCulture)
-        + ",\"crosshair_thickness\":"
-        + settings.GetDouble("CrosshairThickness", 2.0).ToString(
-          "R",
-          CultureInfo.InvariantCulture)
-        + "}";
-    }
-
-    static string JsonBool(bool value)
-    {
-      return value ? "true" : "false";
-    }
 
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {

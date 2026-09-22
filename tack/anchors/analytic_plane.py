@@ -130,34 +130,57 @@ _DEFINITION_RESOLVERS = {
 }
 
 
+def _flipped_plane(plane):
+    return Rhino.Geometry.Plane(plane.Origin, plane.XAxis, -plane.YAxis)
+
+
+def flipped_definition(definition):
+    """Return the same saved plane selection with its Z orientation reversed."""
+    if not isinstance(definition, dict):
+        return None
+    flipped = dict(definition)
+    flipped["flipped"] = not bool(flipped.get("flipped", False))
+    return flipped
+
+
 def resolve_definition(doc, definition):
     if not isinstance(definition, dict):
         return None
     resolver = _DEFINITION_RESOLVERS.get(definition.get("type"))
-    return None if resolver is None else resolver(doc, definition)
+    plane = None if resolver is None else resolver(doc, definition)
+    return _flipped_plane(plane) if plane is not None and definition.get("flipped") else plane
+
+
+def _has_fields(definition, fields):
+    return set(definition).issubset(set(fields) | {"flipped"}) and set(fields).issubset(
+        definition
+    ) and isinstance(definition.get("flipped", False), bool)
 
 
 def _valid_three_point_plane(definition):
-    return set(definition) == {
-        "type",
-        "object_id",
-        "origin_anchor",
-        "x_axis_anchor",
-        "y_axis_anchor",
-    } and all(
+    return _has_fields(
+        definition,
+        {
+            "type",
+            "object_id",
+            "origin_anchor",
+            "x_axis_anchor",
+            "y_axis_anchor",
+        },
+    ) and all(
         definitions.validate(definition[name])
         for name in ("origin_anchor", "x_axis_anchor", "y_axis_anchor")
     )
 
 
 def _valid_world_axes_plane(definition):
-    return set(definition) == {"type", "object_id", "origin_anchor"} and (
+    return _has_fields(definition, {"type", "object_id", "origin_anchor"}) and (
         definitions.validate(definition["origin_anchor"])
     )
 
 
 def _valid_circular_plane(definition, definition_type, field, anchor_type):
-    if set(definition) != {"type", "object_id", field}:
+    if not _has_fields(definition, {"type", "object_id", field}):
         return False
     anchor = definition[field]
     return (

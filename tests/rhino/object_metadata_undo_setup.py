@@ -28,7 +28,6 @@ def setup_object_metadata_undo():
         child_id,
         circular_plane_definition(parent_id),
         circular_plane_definition(child_id),
-        False,
     )
     assert link is not None
     assert runtime.install(doc, link) is not None

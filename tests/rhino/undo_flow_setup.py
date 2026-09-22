@@ -29,8 +29,8 @@ def setup_undo_flow():
     assert runtime.restore_document(doc, default_display_enabled=False) == 1
     link = repository.all_links(doc)[0]
     parent_id = System.Guid.Parse(link["parent_id"])
-    child_before = _origin(doc, link["child_plane"])
-    parent_before = _origin(doc, link["parent_plane"])
+    child_before = _origin(doc, link["child_plane_def"])
+    parent_before = _origin(doc, link["parent_plane_def"])
     doc.ClearUndoRecords(True)
     rs.UnselectAllObjects()
     assert rs.SelectObject(parent_id)

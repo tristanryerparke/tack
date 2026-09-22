@@ -1,19 +1,31 @@
-"""Runtime lifecycle and display state for active Tack relationships."""
+"""Runtime lifecycle and display state for active Tack Links."""
+
+from dataclasses import replace
+
+import scriptcontext as sc
 
 from tack.core import documents, plugin_data
-from tack.links import preferences, repository, schema, solver, state
+from tack.core.objects import same_id
+from tack.links import preferences, repository, solver, state
 
-CONDUIT_KEY = "Tack.Link.Conduit"
-DISPLAY_KEY = "Tack.Link.Display"
+CONDUIT_KEY = "Tack.Conduit"
+DISPLAY_KEY = "Tack.Display"
+
+
+def active_conduit():
+    """Return the shared cross-document Tack conduit, if installed."""
+    return sc.sticky.get(CONDUIT_KEY)
+
+
+def states_for(doc):
+    return state.states(doc, create=False) or None
 
 
 def _display_state(doc, default_enabled=True):
     return documents.get_value(
         doc,
         DISPLAY_KEY,
-        lambda _: {
-            "enabled": bool(default_enabled),
-        },
+        lambda _: {"enabled": bool(default_enabled)},
     )
 
 
@@ -46,15 +58,8 @@ def _set_user_setting(doc, name, value):
 def crosshair_size(doc):
     from tack.anchors import analytic_plane
 
-    size = _number_setting(
-        doc,
-        plugin_data.CROSSHAIR_SIZE,
-        analytic_plane.CROSSHAIR_SIZE,
-    )
-    return max(
-        analytic_plane.CROSSHAIR_SIZE_MIN,
-        min(analytic_plane.CROSSHAIR_SIZE_MAX, size),
-    )
+    size = _number_setting(doc, plugin_data.CROSSHAIR_SIZE, analytic_plane.CROSSHAIR_SIZE)
+    return max(analytic_plane.CROSSHAIR_SIZE_MIN, min(analytic_plane.CROSSHAIR_SIZE_MAX, size))
 
 
 def set_crosshair_size(doc, size):
@@ -147,11 +152,7 @@ def set_tack_selection(doc, link_id):
 
 def display_enabled(doc):
     display_state = documents.try_get_value(doc, DISPLAY_KEY)
-    return (
-        preferences.display_enabled(doc)
-        if display_state is None
-        else bool(display_state["enabled"])
-    )
+    return preferences.display_enabled(doc) if display_state is None else bool(display_state["enabled"])
 
 
 def set_display_enabled(doc, enabled):
@@ -168,45 +169,60 @@ def set_display_enabled(doc, enabled):
 def ensure_conduit(doc, default_display_enabled=True):
     from tack.display.link_conduit import LinkedPlaneConduit
 
-    conduit = documents.try_get_value(doc, CONDUIT_KEY)
+    conduit = active_conduit()
     if conduit is None:
-        conduit = LinkedPlaneConduit(
-            doc.RuntimeSerialNumber,
-            state.states(doc),
-            _display_state(doc, default_display_enabled),
-        )
+        conduit = LinkedPlaneConduit()
         conduit.Enabled = True
-        documents.set_value(doc, CONDUIT_KEY, conduit)
+        sc.sticky[CONDUIT_KEY] = conduit
+    if doc is not None:
+        _display_state(doc, default_display_enabled)
     return conduit
 
 
-def remove_runtime(doc):
-    conduit = documents.remove_value(doc, CONDUIT_KEY)
+def remove_conduit():
+    conduit = sc.sticky.pop(CONDUIT_KEY, None)
     if conduit is not None:
         conduit.Enabled = False
         conduit.clear_preview()
-    documents.remove_value(doc, state.STATES_KEY)
+
+
+def deactivate_document(doc):
+    """Remove display resources while retaining invalid states for native Undo."""
+    conduit = active_conduit()
+    if conduit is not None:
+        conduit.forget_document(int(doc.RuntimeSerialNumber))
     documents.remove_value(doc, DISPLAY_KEY)
+    if not state.has_active_states():
+        remove_conduit()
+
+
+def remove_runtime(doc):
+    """Forget every temporary state for a closing document or full restore."""
+    state.clear_states(doc)
+    deactivate_document(doc)
 
 
 def install(doc, link, default_display_enabled=True):
+    """Start tracking one already-persisted Link in this Rhino session."""
     link_state = state.new_state(doc, link)
     if link_state is None:
         return None
-    active = state.states(doc)
-    for saved_link_id, saved_state in list(active.items()):
-        if schema.same_object_pair(saved_state, link):
-            active.pop(saved_link_id)
-    active[link["link_id"]] = link_state
-    saved_display_enabled = preferences.display_enabled(
-        doc,
-        default_display_enabled,
-    )
+    for saved_id, saved_state in list(state.states(doc).items()):
+        if saved_id != link.link_id and (
+            (
+                same_id(saved_state.parent_id, link.parent_id)
+                and same_id(saved_state.child_id, link.child_id)
+            )
+            or (
+                same_id(saved_state.parent_id, link.child_id)
+                and same_id(saved_state.child_id, link.parent_id)
+            )
+        ):
+            state.cache_state(doc, saved_state)
+    state.set_state(doc, link_state)
+    saved_display_enabled = preferences.display_enabled(doc, default_display_enabled)
     ensure_conduit(doc, saved_display_enabled)
-    preferences.set_display_enabled(
-        doc,
-        _display_state(doc, saved_display_enabled)["enabled"],
-    )
+    preferences.set_display_enabled(doc, _display_state(doc, saved_display_enabled)["enabled"])
     from tack.links import lifecycle
 
     lifecycle.subscribe()
@@ -216,20 +232,17 @@ def install(doc, link, default_display_enabled=True):
 
 def restore_document(doc, default_display_enabled=True):
     remove_runtime(doc)
-    active = state.states(doc)
     for link in repository.all_links(doc):
         link_state = state.new_state(doc, link)
         if link_state is not None:
-            active[link["link_id"]] = link_state
+            state.set_state(doc, link_state)
+    active = state.states(doc, create=False)
     if active:
-        ensure_conduit(
-            doc,
-            preferences.display_enabled(doc, default_display_enabled),
-        )
+        ensure_conduit(doc, preferences.display_enabled(doc, default_display_enabled))
         from tack.links import lifecycle
 
         lifecycle.subscribe()
-    elif not documents.has_nonempty_value(state.STATES_KEY):
+    elif not state.has_active_states():
         from tack.links import lifecycle
 
         lifecycle.unsubscribe()
@@ -237,41 +250,30 @@ def restore_document(doc, default_display_enabled=True):
     return len(active)
 
 
-def reset_inherit_transform(doc, link_id):
-    """Restore an Inherit Only Tack's current transform to its original one."""
+def reset_transform(doc, link_id):
     link = repository.read_link(doc, link_id)
-    if link is None or schema.link_mode(link) != "inherit_only":
+    if link is None or not link.allow_child_movement:
         return False
-    updated = dict(link)
-    updated["current_transform"] = list(link["original_transform"])
-    if not repository.save(doc, updated):
+    if not repository.save(
+        doc,
+        replace(link, current_transform=list(link.original_transform)),
+        replaced=(link,),
+    ):
         return False
-    link_state = next(
-        (
-            candidate
-            for candidate in state.states(doc, create=False).values()
-            if candidate["link_id"] == link_id
-        ),
-        None,
-    )
-    if link_state is None:
-        return False
-    link_state["link"] = updated
-    return solver.maintain(doc, link_state)
+    link_state = state.states(doc, create=False).get(link_id)
+    return link_state is not None and solver.maintain(doc, link_state)
 
 
 def remove_links(doc, link_ids):
-    """Remove one or more Tacks in one persisted relationship update."""
     requested = tuple(link_ids)
     if not repository.remove_many(doc, requested):
         return False
-
-    active = state.states(doc, create=False)
-    for saved_link_id in list(active):
-        if any(saved_link_id == link_id for link_id in requested):
-            active.pop(saved_link_id)
-    if not active:
-        remove_runtime(doc)
+    for link_id in requested:
+        link_state = state.states(doc, create=False).get(link_id)
+        if link_state is not None:
+            state.cache_state(doc, link_state)
+    if not state.states(doc, create=False):
+        deactivate_document(doc)
     doc.Views.Redraw()
     return True
 
@@ -281,7 +283,9 @@ def remove_link(doc, link_id):
 
 
 def clear_document(doc):
-    remove_runtime(doc)
+    for link_state in list(state.states(doc, create=False).values()):
+        state.cache_state(doc, link_state)
+    deactivate_document(doc)
     metadata_cleared = repository.clear(doc)
     doc.Views.Redraw()
     return metadata_cleared

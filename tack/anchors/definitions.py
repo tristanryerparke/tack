@@ -2,7 +2,7 @@
 
 Anchor dictionaries use the model documented in
 ``better-plane-selector-osnap-picker.md``: a ``type`` discriminator and only
-the metadata owned by that type's handler. There is no legacy universal index.
+the metadata owned by that type's handler.
 """
 
 import math

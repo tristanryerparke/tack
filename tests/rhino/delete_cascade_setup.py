@@ -27,7 +27,6 @@ def setup_delete_cascade():
         child_id,
         circular_plane_definition(parent_id),
         circular_plane_definition(child_id),
-        False,
     )
     assert link is not None, "Could not create test relationship"
     assert runtime.install(doc, link) is not None, "Could not install"

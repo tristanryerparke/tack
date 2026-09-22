@@ -75,7 +75,6 @@ def _create_restore_fixture(doc):
         child,
         _curve_plane(parent),
         _curve_plane(child),
-        False,
     )
     assert link is not None
     return _write(doc, "analytic_plane_restore.3dm"), link["link_id"]
@@ -93,7 +92,6 @@ def _create_nested_fixture(doc):
         parent,
         _curve_plane(grandparent),
         _curve_plane(parent),
-        False,
     )
     second = repository.create(
         doc,
@@ -101,7 +99,6 @@ def _create_nested_fixture(doc):
         child,
         _curve_plane(parent),
         _curve_plane(child),
-        False,
     )
     assert first is not None and second is not None
     return _write(doc, "nested_analytic_planes.3dm"), [
@@ -154,7 +151,6 @@ def _create_perforated_fixture(doc):
             child_id,
             _circular_edge_plane(doc, parent, top_center, tolerance),
             _circular_edge_plane(doc, child, top_center, tolerance),
-            False,
         )
         assert link is not None, "Could not create hole Tack {}".format(index)
         link_ids.append(link["link_id"])

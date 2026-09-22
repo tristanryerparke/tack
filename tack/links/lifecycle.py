@@ -1,12 +1,13 @@
-"""Rhino command and document event handlers for Tack relationships."""
+"""Rhino command and document event handlers for active Tack Links."""
 
 import Rhino
 import scriptcontext as sc
 
 from tack.core import documents
+from tack.core.objects import find_object, object_key
 from tack.links import preferences, repository, runtime, solver, state
 
-HANDLERS_KEY = "Tack.Link.Handlers"
+HANDLERS_KEY = "Tack.Handlers"
 _solving = False
 
 
@@ -19,54 +20,52 @@ def _command_name(event):
     )
 
 
+def _observed_links(doc):
+    """Read only endpoints with an active or cached Tack state."""
+    objects = state.candidate_objects(doc)
+    parents, _ = repository.observed_metadata(objects.values())
+    for link in parents.values():
+        for object_id in (link.parent_id, link.child_id):
+            obj = find_object(doc, object_id)
+            if obj is not None:
+                objects[object_key(obj.Id)] = obj
+    parents, child_owners = repository.observed_metadata(objects.values())
+    return repository.active_observed_links(parents, child_owners)
+
+
 def _reconcile_runtime_with_metadata(doc):
-    """Match runtime states to current object metadata after every command."""
-    saved = {link["link_id"]: link for link in repository.reconcile_links(doc)}
+    """Match LinkStates to recently changed object metadata without a full scan."""
+    saved = _observed_links(doc)
     active = state.states(doc, create=False)
-    if not active and not saved:
-        return (), False
-    if not active:
-        active = state.states(doc)
-
-    reconciled = False
-    pending = []
-    for link_id in list(active):
+    for link_id, link_state in list(active.items()):
         if link_id not in saved:
-            active.pop(link_id, None)
-            reconciled = True
+            state.cache_state(doc, link_state)
 
-    for link_id, link in saved.items():
-        link_state = active.get(link_id)
-        if link_state is None:
+    pending = []
+    for link in saved.values():
+        link_state = active.get(link.link_id)
+        if link_state is None or (
+            link_state.parent_id != link.parent_id or link_state.child_id != link.child_id
+        ):
             link_state = state.new_state(doc, link)
             if link_state is not None:
-                active[link_id] = link_state
-                pending.append(link_state)
-                reconciled = True
-            continue
-
-        if link_state["link"] != link:
-            link_state["link"] = link
-            link_state["parent_id"] = link["parent_id"]
-            link_state["child_id"] = link["child_id"]
+                state.set_state(doc, link_state)
+        if link_state is not None:
             pending.append(link_state)
-            reconciled = True
 
-    if active:
-        runtime.ensure_conduit(
-            doc,
-            preferences.display_enabled(doc),
-        )
+    state.keep_invalid_for_undo(doc)
+    if state.states(doc, create=False):
+        runtime.ensure_conduit(doc, preferences.display_enabled(doc))
     else:
-        runtime.remove_runtime(doc)
-    return tuple(pending), reconciled
+        runtime.deactivate_document(doc)
+    return tuple(pending)
 
 
 def begin_command_handler(sender, event):
     doc = Rhino.RhinoDoc.ActiveDoc
     if doc is None:
         return
-    conduit = documents.try_get_value(doc, runtime.CONDUIT_KEY)
+    conduit = runtime.active_conduit()
     if conduit is not None:
         conduit.command_began(_command_name(event))
 
@@ -79,21 +78,21 @@ def end_command_handler(sender, event):
     if doc is None:
         return
 
-    conduit = documents.try_get_value(doc, runtime.CONDUIT_KEY)
+    conduit = runtime.active_conduit()
     if conduit is not None:
         conduit.command_ended()
 
-    pending, reconciled = _reconcile_runtime_with_metadata(doc)
-    active = state.states(doc, create=False)
-    if not active and not reconciled:
+    pending = _reconcile_runtime_with_metadata(doc)
+    if not state.states(doc, create=False):
+        if not state.has_tracked_states():
+            unsubscribe()
         return
 
-    if active:
-        _solving = True
-        try:
-            solver.maintain_changed_states(doc, pending)
-        finally:
-            _solving = False
+    _solving = True
+    try:
+        solver.maintain_changed_states(doc, pending)
+    finally:
+        _solving = False
     from tack.ui import panel
 
     panel.refresh(doc)
@@ -109,18 +108,14 @@ def close_document_handler(sender, event):
     from tack.ui import panel
 
     panel.forget(doc)
-    if not documents.has_nonempty_value(state.STATES_KEY):
+    if not state.has_tracked_states():
         unsubscribe()
 
 
 def subscribe():
     if sc.sticky.get(HANDLERS_KEY) is not None:
         return
-    handlers = (
-        begin_command_handler,
-        end_command_handler,
-        close_document_handler,
-    )
+    handlers = (begin_command_handler, end_command_handler, close_document_handler)
     Rhino.Commands.Command.BeginCommand += begin_command_handler
     Rhino.Commands.Command.EndCommand += end_command_handler
     Rhino.RhinoDoc.CloseDocument += close_document_handler

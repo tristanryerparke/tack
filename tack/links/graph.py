@@ -1,14 +1,10 @@
 """Pure graph checks for directed Tack relationships."""
 
 
-def object_key(object_id):
-    return str(object_id).lower()
-
-
 def would_create_cycle(links, parent_id, child_id):
     """Return whether adding parent_id -> child_id closes a directed cycle."""
-    parent_key = object_key(parent_id)
-    child_key = object_key(child_id)
+    parent_key = str(parent_id).lower()
+    child_key = str(child_id).lower()
     if parent_key == child_key:
         return True
 
@@ -18,7 +14,7 @@ def would_create_cycle(links, parent_id, child_id):
         target = link.get("child_id")
         if source is None or target is None:
             continue
-        children.setdefault(object_key(source), set()).add(object_key(target))
+        children.setdefault(str(source).lower(), set()).add(str(target).lower())
 
     pending = [child_key]
     visited = set()

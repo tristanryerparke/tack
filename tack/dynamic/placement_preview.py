@@ -8,33 +8,16 @@ from tack.links.transforms import constrained_plane_transform
 
 
 class TransformPreviewConduit(Rhino.Display.DisplayConduit):
-    def __init__(
-        self,
-        child,
-        parent_plane,
-        child_plane,
-        inverted=False,
-        translation=True,
-        rotation=True,
-    ):
+    def __init__(self, child, parent_plane, child_plane):
         super().__init__()
         self.child = child
         self.parent_plane = parent_plane
         self.child_plane = child_plane
-        self.inverted = bool(inverted)
-        self.translation = bool(translation)
-        self.rotation = bool(rotation)
         self._drawing_child = False
 
     @property
     def transform(self):
-        return constrained_plane_transform(
-            self.parent_plane,
-            self.child_plane,
-            self.inverted,
-            self.translation,
-            self.rotation,
-        )
+        return constrained_plane_transform(self.parent_plane, self.child_plane)
 
     def CalculateBoundingBox(self, event):
         bounding_box = self.child.Geometry.GetBoundingBox(True)

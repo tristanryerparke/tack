@@ -31,8 +31,8 @@ def collect_undo_flow():
     child = doc.Objects.Find(System.Guid.Parse(link["child_id"]))
     assert parent is not None and child is not None
     return {
-        "parent": point_data(_origin(doc, link["parent_plane"])),
-        "child": point_data(_origin(doc, link["child_plane"])),
+        "parent": point_data(_origin(doc, link["parent_plane_def"])),
+        "child": point_data(_origin(doc, link["child_plane_def"])),
     }
 
 

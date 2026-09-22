@@ -33,7 +33,7 @@ def test_blank_document_behaviors(rhino_instance):
     assert all(count > 0 for count in anchor["candidate_counts"].values())
     assert result["duplicate_link"] == {
         "link_count": 1,
-        "replacement_inverted": True,
+        "replacement_allows_child_movement": True,
     }
     assert result["metadata_index"] == {
         "link_count": 2,

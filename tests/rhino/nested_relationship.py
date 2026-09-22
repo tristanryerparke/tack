@@ -48,7 +48,7 @@ def verify_nested_relationship():
     by_parent = {link["parent_id"]: link for link in links}
     first = by_parent[grandparent_id]
     second = by_parent[middle_id]
-    before = _origin(doc, second["child_plane"])
+    before = _origin(doc, second["child_plane_def"])
 
     transformed_grandparent = transforms.transform_object_in_place(
         doc,
@@ -61,8 +61,8 @@ def verify_nested_relationship():
         types.SimpleNamespace(CommandEnglishName="Move"),
     )
 
-    middle = _origin(doc, first["child_plane"])
-    child = _origin(doc, second["child_plane"])
+    middle = _origin(doc, first["child_plane_def"])
+    child = _origin(doc, second["child_plane_def"])
     _assert_close(middle, before + MOVE, tolerance)
     _assert_close(child, before + MOVE, tolerance)
     assert str(second["child_id"]).lower() == child_id.lower()

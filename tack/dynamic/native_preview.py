@@ -7,7 +7,7 @@ import Rhino
 from tack.anchors import analytic_plane
 from tack.core.objects import find_object, same_id
 from tack.display.drawing import draw_locked_wireframe, draw_transformed_object
-from tack.links import transforms
+from tack.links import repository, transforms
 
 _COPY_ENABLED_PATTERN = re.compile(r"\bcopy\s*=\s*yes\b", re.IGNORECASE)
 _ALLOWED_COMMANDS = {"drag", "move", "rotate", "rotate3d"}
@@ -20,9 +20,7 @@ def _dynamic_transform(rhino_object):
         available, transform = rhino_object.GetDynamicTransform()
     except Exception:  # noqa: BLE001 - Rhino objects can outlive their geometry
         return None
-    if not available or transform is None or transform.IsIdentity:
-        return None
-    return transform
+    return None if not available or transform is None or transform.IsIdentity else transform
 
 
 class NativeTransformPreview:
@@ -55,8 +53,6 @@ class NativeTransformPreview:
         return geometry
 
     def clear(self):
-        for preview in self._previews.values():
-            preview["state"]["dynamic_preview_active"] = False
         self._sources.clear()
         self._previews.clear()
 
@@ -68,19 +64,18 @@ class NativeTransformPreview:
         self.clear()
 
     def _preview_allowed(self):
-        if self._active_command not in _ALLOWED_COMMANDS:
-            return False
-        prompt = str(Rhino.RhinoApp.CommandPrompt or "")
-        return _COPY_ENABLED_PATTERN.search(prompt) is None
+        return self._active_command in _ALLOWED_COMMANDS and _COPY_ENABLED_PATTERN.search(
+            str(Rhino.RhinoApp.CommandPrompt or "")
+        ) is None
 
     def _capture(self, doc, link_state):
-        link = link_state["link"]
-        parent = find_object(doc, link_state["parent_id"])
-        child = find_object(doc, link_state["child_id"])
-        if parent is None or child is None:
+        link = repository.read_link(doc, link_state.link_id, link_state.parent_id)
+        parent = find_object(doc, link_state.parent_id)
+        child = find_object(doc, link_state.child_id)
+        if link is None or parent is None or child is None:
             return None
-        parent_plane = analytic_plane.resolve_definition(doc, link["parent_plane"])
-        child_plane = analytic_plane.resolve_definition(doc, link["child_plane"])
+        parent_plane = analytic_plane.resolve_definition(doc, link.parent_plane_def)
+        child_plane = analytic_plane.resolve_definition(doc, link.child_plane_def)
         if parent_plane is None or child_plane is None:
             return None
         return {
@@ -88,20 +83,15 @@ class NativeTransformPreview:
             "child_serial": int(child.RuntimeSerialNumber),
             "parent_plane": parent_plane,
             "child_plane": child_plane,
-            "inverted": bool(link["inverted"]),
-            "mode": link.get("mode", "attached"),
-            "translation": link.get("translation", True),
-            "rotation": link.get("rotation", True),
-            "state": link_state,
+            "link": link,
         }
 
     def _source_for(self, doc, link_state):
-        link_id = link_state["link_id"]
-        parent = find_object(doc, link_state["parent_id"])
-        child = find_object(doc, link_state["child_id"])
+        parent = find_object(doc, link_state.parent_id)
+        child = find_object(doc, link_state.child_id)
         if parent is None or child is None:
             return None
-        source = self._sources.get(link_id)
+        source = self._sources.get(link_state.link_id)
         if (
             source is not None
             and source["parent_serial"] == int(parent.RuntimeSerialNumber)
@@ -110,87 +100,71 @@ class NativeTransformPreview:
             return source
         source = self._capture(doc, link_state)
         if source is not None:
-            self._sources[link_id] = source
+            self._sources[link_state.link_id] = source
         return source
 
     def update(self, doc):
-        for preview in self._previews.values():
-            preview["state"]["dynamic_preview_active"] = False
-
-        states = [
-            link_state
-            for link_state in self.states.values()
-            if not link_state.get("busy") and not link_state.get("broken")
-        ]
         if not self._preview_allowed():
             self._sources.clear()
             self._previews = {}
             return
+        states = [link_state for link_state in self.states.values() if not link_state.busy]
 
         live_transforms = {}
         direct_dynamic_objects = set()
         for link_state in states:
-            for role in ("parent", "child"):
-                obj = find_object(doc, link_state[role + "_id"])
+            for object_id, is_parent in (
+                (link_state.parent_id, True),
+                (link_state.child_id, False),
+            ):
+                obj = find_object(doc, object_id)
                 dynamic_transform = _dynamic_transform(obj)
                 if dynamic_transform is None:
                     continue
-                object_key = str(obj.Id).lower()
-                direct_dynamic_objects.add(object_key)
-                if role == "parent":
-                    live_transforms[object_key] = dynamic_transform
+                object_id = str(obj.Id).lower()
+                direct_dynamic_objects.add(object_id)
+                if is_parent:
+                    live_transforms[object_id] = dynamic_transform
 
         previews = {}
         for _ in range(len(states) + 1):
             added_transform = False
             for link_state in states:
-                parent = find_object(doc, link_state["parent_id"])
-                child = find_object(doc, link_state["child_id"])
+                parent = find_object(doc, link_state.parent_id)
+                child = find_object(doc, link_state.child_id)
                 if parent is None or child is None:
                     continue
                 source = self._source_for(doc, link_state)
                 if source is None:
                     continue
+                link = source["link"]
 
                 parent_transform = live_transforms.get(str(parent.Id).lower())
-                child_is_directly_dynamic = (
-                    str(child.Id).lower() in direct_dynamic_objects
-                )
-                if parent_transform is not None and child_is_directly_dynamic:
-                    continue
-                if parent_transform is None:
+                child_is_directly_dynamic = str(child.Id).lower() in direct_dynamic_objects
+                if parent_transform is None or child_is_directly_dynamic:
                     continue
 
                 live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
                 live_parent_plane.Transform(parent_transform)
-                if not source["rotation"]:
+                if not link.rotation:
                     live_parent_plane = Rhino.Geometry.Plane(
                         live_parent_plane.Origin,
                         source["parent_plane"].XAxis,
                         source["parent_plane"].YAxis,
                     )
                 live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
-                if source["mode"] == "inherit_only":
-                    target_child_plane = transforms.inherit_target_child_plane(
-                        live_parent_plane,
-                        source["state"]["link"]["current_transform"],
-                    )
-                    if target_child_plane is None:
-                        continue
-                    target_child_plane = transforms.constrained_target_child_plane(
-                        target_child_plane,
-                        live_child_plane,
-                        source["translation"],
-                        source["rotation"],
-                    )
-                else:
-                    target_child_plane = transforms.linked_target_child_plane(
-                        live_parent_plane,
-                        live_child_plane,
-                        source["inverted"],
-                        source["translation"],
-                        source["rotation"],
-                    )
+                target_child_plane = transforms.inherit_target_child_plane(
+                    live_parent_plane,
+                    link.current_transform,
+                )
+                if target_child_plane is None:
+                    continue
+                target_child_plane = transforms.constrained_target_child_plane(
+                    target_child_plane,
+                    live_child_plane,
+                    link.translation,
+                    link.rotation,
+                )
                 preview_transform = Rhino.Geometry.Transform.PlaneToPlane(
                     live_child_plane,
                     target_child_plane,
@@ -198,22 +172,16 @@ class NativeTransformPreview:
                 if preview_transform.IsIdentity:
                     continue
 
-                previews[link_state["link_id"]] = {
+                previews[link_state.link_id] = {
                     "child": child,
-                    "state": link_state,
                     "parent_plane": live_parent_plane,
                     "child_plane": target_child_plane,
                     "transform": preview_transform,
                     "draw_child": not child_is_directly_dynamic,
                 }
-                link_state["dynamic_preview_active"] = True
-
-                child_key = str(child.Id).lower()
-                if (
-                    child_key not in live_transforms
-                    and child_key not in direct_dynamic_objects
-                ):
-                    live_transforms[child_key] = preview_transform
+                child_id = str(child.Id).lower()
+                if child_id not in live_transforms and child_id not in direct_dynamic_objects:
+                    live_transforms[child_id] = preview_transform
                     added_transform = True
             if not added_transform:
                 break
@@ -260,10 +228,6 @@ class NativeTransformPreview:
             draw_locked_wireframe(event.Display, child.Geometry)
             self._drawing_child = True
             try:
-                draw_transformed_object(
-                    event.Display,
-                    child,
-                    preview["transform"],
-                )
+                draw_transformed_object(event.Display, child, preview["transform"])
             finally:
                 self._drawing_child = False

@@ -58,7 +58,6 @@ def verify_relationship_lifecycle():
             child_id,
             parent_definition,
             child_definition,
-            False,
         )
         assert link is not None, "Could not create test relationship"
         link_state = runtime.install(doc, link)

@@ -12,7 +12,9 @@ from common import add_circle, circular_plane_definition, cleanup, run_test
 
 def verify_metadata_index():
     from tack.core import plugin_data
-    from tack.links import object_store, repository, schema
+    from tack.links import repository, schema
+    from tack.object_metadata import child as child_metadata
+    from tack.object_metadata import parent as parent_metadata
 
     doc = sc.doc
     cleanup(doc)
@@ -34,7 +36,6 @@ def verify_metadata_index():
                 child_a,
                 circular_plane_definition(parent_a),
                 circular_plane_definition(child_a),
-                False,
             ),
             repository.create(
                 doc,
@@ -42,7 +43,7 @@ def verify_metadata_index():
                 child_b,
                 circular_plane_definition(parent_b),
                 circular_plane_definition(child_b),
-                True,
+                allow_child_movement=True,
             ),
         ]
         assert all(links), "Could not persist analytic-plane links"
@@ -51,15 +52,11 @@ def verify_metadata_index():
             assert schema.validate(link)
             parent = doc.Objects.Find(System.Guid.Parse(str(link["parent_id"])))
             child = doc.Objects.Find(System.Guid.Parse(str(link["child_id"])))
-            assert parent.Attributes.UserDictionary.ContainsKey(object_store.LINKS_KEY)
-            assert object_store.read_parent_links(parent)[link["link_id"]] == link
-            assert child.Attributes.UserDictionary.ContainsKey(
-                object_store.LINK_REFS_KEY
-            )
-            assert link["link_id"] in object_store.read_link_refs(child)
-            assert not child.Attributes.UserDictionary.ContainsKey(
-                object_store.LINKS_KEY
-            )
+            assert parent.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
+            assert parent_metadata.links(parent)[link["link_id"]] == link
+            assert child.Attributes.UserDictionary.ContainsKey(child_metadata.KEY)
+            assert link["link_id"] in child_metadata.link_ids(child)
+            assert not child.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
 
         indexed = repository.all_links(doc)
         assert {link["link_id"] for link in indexed} == {
@@ -73,10 +70,8 @@ def verify_metadata_index():
         assert not repository.all_links(doc)
         for object_id in (parent_a, child_a, parent_b, child_b):
             obj = doc.Objects.Find(System.Guid.Parse(str(object_id)))
-            assert not obj.Attributes.UserDictionary.ContainsKey(object_store.LINKS_KEY)
-            assert not obj.Attributes.UserDictionary.ContainsKey(
-                object_store.LINK_REFS_KEY
-            )
+            assert not obj.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
+            assert not obj.Attributes.UserDictionary.ContainsKey(child_metadata.KEY)
         assert (
             str(
                 doc.Objects.Find(unrelated).Attributes.UserDictionary[
