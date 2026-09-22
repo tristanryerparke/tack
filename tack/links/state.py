@@ -24,7 +24,6 @@ class LinkState:
     child_plane: object
     parent_serial: int
     child_serial: int
-    show_child_plane: bool
     busy: bool = False
 
 
@@ -136,5 +135,4 @@ def new_state(doc, link):
         child_plane=Rhino.Geometry.Plane(child_plane),
         parent_serial=object_serial(parent),
         child_serial=object_serial(child),
-        show_child_plane=link.allow_child_movement,
     )

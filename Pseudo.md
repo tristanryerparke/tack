@@ -213,7 +213,7 @@ The complete class is [`NativeTransformPreview`](tack/dynamic/native_preview.py#
 4. Per-user plug-in settings
 	- [`plugin_data.settings()`](tack/core/plugin_data.py#L49) reads the Add options, default visibility, crosshair appearance, and panel display options from the plug-in settings.
 5. Temporary session state
-	- [`LinkState`](tack/links/state.py#L17) caches resolved planes, endpoint serials, and the busy/display flags.
+	- [`LinkState`](tack/links/state.py#L17) caches resolved planes, endpoint serials, and the busy flag.
 	- [`InvalidLinkState`](tack/links/state.py#L32) holds only a removed runtime state and its age so native Undo can reconnect it.
 	- [`documents.get_value()`](tack/core/documents.py#L20) stores these values per document beneath one `sc.sticky` registry.
 
@@ -246,6 +246,6 @@ Child.Attributes.UserDictionary["Tack.LinkRef"]
 > **Contradictory summary — what Tack does now:** The same shared conduit hosts persistent crosshairs, panel selection highlighting, and native transform previews across open documents. Each draw event is still filtered back to that event's document and its own runtime states.
 
 1. [`LinkedPlaneConduit`](tack/display/link_conduit.py#L14) is installed once in `sc.sticky`, with one [`NativeTransformPreview`](tack/dynamic/native_preview.py#L26) per document serial number.
-2. Tacks that allow Child movement display both crosshairs and a dotted line because [`new_state()`](tack/links/state.py#L122) sets `show_child_plane` from `allow_child_movement`. Other Tacks display the Parent crosshair.
+2. Every Tack draws both endpoint crosshairs and a dotted line between distinct endpoint origins. Attached endpoint crosshairs overlap, and the zero-length line is omitted.
 3. Tack visibility changes crosshairs/highlighting, but the conduit still runs native movement previews while active states exist.
 4. Closing a document calls [`close_document_handler()`](tack/links/lifecycle.py#L102), removes that document's runtime/display data, forgets its panel, and unsubscribes globally when no tracked states remain.

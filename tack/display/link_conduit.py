@@ -173,13 +173,10 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 parent_plane = (
                     preview.get("parent_plane") if preview is not None else link_state.parent_plane
                 )
-                planes = (parent_plane,)
-                if link_state.show_child_plane:
-                    child_plane = (
-                        preview.get("child_plane") if preview is not None else link_state.child_plane
-                    )
-                    planes = (parent_plane, child_plane)
-                for plane in planes:
+                child_plane = (
+                    preview.get("child_plane") if preview is not None else link_state.child_plane
+                )
+                for plane in (parent_plane, child_plane):
                     if plane is not None:
                         event.IncludeBoundingBox(
                             analytic_plane.bounding_box(plane, self._crosshair_size(doc))
@@ -238,14 +235,10 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         for link_id, link_state in self._crosshair_states(doc, context["states"]):
             preview = dynamic.preview_for(link_id)
             parent_plane = preview.get("parent_plane") if preview else link_state.parent_plane
-            if link_state.show_child_plane:
-                child_plane = preview.get("child_plane") if preview else link_state.child_plane
-                if parent_plane is None or child_plane is None:
-                    continue
-                for plane in (parent_plane, child_plane):
+            child_plane = preview.get("child_plane") if preview else link_state.child_plane
+            for plane in (parent_plane, child_plane):
+                if plane is not None:
                     analytic_plane.draw_preview(event.Display, plane, size, thickness)
-            elif parent_plane is not None:
-                analytic_plane.draw_preview(event.Display, parent_plane, size, thickness)
 
     def DrawForeground(self, event):
         context = self._context(event)
@@ -255,8 +248,6 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         dynamic = context["dynamic"]
         size = self._crosshair_size(doc)
         for link_id, link_state in self._crosshair_states(doc, context["states"]):
-            if not link_state.show_child_plane:
-                continue
             preview = dynamic.preview_for(link_id)
             parent_plane = preview.get("parent_plane") if preview else link_state.parent_plane
             child_plane = preview.get("child_plane") if preview else link_state.child_plane
