@@ -80,7 +80,7 @@ def active_observed_links(parents, child_owners, include_invalid=False):
 
 
 def _stored_links(doc):
-    """Return every valid Link stored by a currently present parent object."""
+    """Return every well-formed Link stored by a present parent object."""
     return observed_metadata(doc.Objects)[0]
 
 
@@ -89,8 +89,6 @@ def _child_owners(doc):
 
 
 def _is_active(doc, link, child_owners=None):
-    if not link.valid:
-        return False
     owners = _child_owners(doc) if child_owners is None else child_owners
     return object_key(link.child_id) in owners.get(link.link_id, ())
 
@@ -256,8 +254,9 @@ def create(
     translation=True,
     rotation=True,
     allow_child_movement=False,
+    relationship_transform=None,
 ):
-    """Persist a Tack's current parent-local Child-plane relationship."""
+    """Persist a Tack's current or explicitly supplied plane relationship."""
     replaced = _replacement_links(doc, parent_id, child_id)
     if not replaced and graph.would_create_cycle(_active_pairs(doc), parent_id, child_id):
         return None
@@ -268,13 +267,17 @@ def create(
     resolved_child = analytic_plane.resolve_definition(doc, child_plane)
     if resolved_parent is None or resolved_child is None:
         return None
-    original_transform = transforms.inherit_transform_data(
-        resolved_parent,
-        resolved_child,
-    )
+    if relationship_transform is None:
+        relationship_transform = transforms.inherit_transform_data(
+            resolved_parent,
+            resolved_child,
+        )
+    elif not schema.valid_transform(relationship_transform):
+        return None
+    original_transform = list(relationship_transform)
     known_ids = {
+        *_stored_links(doc),
         *state.states(doc, create=False),
-        *state.invalid_states(doc, create=False),
         *(link.link_id for link in replaced),
     }
     link = Link(

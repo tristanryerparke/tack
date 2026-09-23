@@ -24,6 +24,27 @@ _TRANSFORM_FIELDS = (
 )
 
 
+def identity_transform_data():
+    return [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ]
+
+
 def plane_to_plane_transform(parent_plane, child_plane):
     return Rhino.Geometry.Transform.PlaneToPlane(child_plane, parent_plane)
 

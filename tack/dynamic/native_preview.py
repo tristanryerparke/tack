@@ -7,7 +7,7 @@ import Rhino
 from tack.anchors import analytic_plane
 from tack.core.objects import find_object, same_id
 from tack.display.drawing import draw_locked_wireframe, draw_transformed_object
-from tack.links import repository, transforms
+from tack.links import repository, state, transforms
 
 _COPY_ENABLED_PATTERN = re.compile(r"\bcopy\s*=\s*yes\b", re.IGNORECASE)
 _ALLOWED_COMMANDS = {"drag", "move", "rotate", "rotate3d"}
@@ -108,7 +108,11 @@ class NativeTransformPreview:
             self._sources.clear()
             self._previews = {}
             return
-        states = [link_state for link_state in self.states.values() if not link_state.busy]
+        states = [
+            link_state
+            for link_state in state.ordered_states(self.states)
+            if not link_state.busy
+        ]
 
         live_transforms = {}
         direct_dynamic_objects = set()
@@ -127,64 +131,59 @@ class NativeTransformPreview:
                     live_transforms[object_id] = dynamic_transform
 
         previews = {}
-        for _ in range(len(states) + 1):
-            added_transform = False
-            for link_state in states:
-                parent = find_object(doc, link_state.parent_id)
-                child = find_object(doc, link_state.child_id)
-                if parent is None or child is None:
-                    continue
-                source = self._source_for(doc, link_state)
-                if source is None:
-                    continue
-                link = source["link"]
+        for link_state in states:
+            parent = find_object(doc, link_state.parent_id)
+            child = find_object(doc, link_state.child_id)
+            if parent is None or child is None:
+                continue
+            source = self._source_for(doc, link_state)
+            if source is None:
+                continue
+            link = source["link"]
 
-                parent_transform = live_transforms.get(str(parent.Id).lower())
-                child_is_directly_dynamic = str(child.Id).lower() in direct_dynamic_objects
-                if parent_transform is None or child_is_directly_dynamic:
-                    continue
+            parent_transform = live_transforms.get(str(parent.Id).lower())
+            child_is_directly_dynamic = str(child.Id).lower() in direct_dynamic_objects
+            if parent_transform is None or child_is_directly_dynamic:
+                continue
 
-                live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
-                live_parent_plane.Transform(parent_transform)
-                if not link.rotation:
-                    live_parent_plane = Rhino.Geometry.Plane(
-                        live_parent_plane.Origin,
-                        source["parent_plane"].XAxis,
-                        source["parent_plane"].YAxis,
-                    )
-                live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
-                target_child_plane = transforms.inherit_target_child_plane(
-                    live_parent_plane,
-                    link.current_transform,
+            live_parent_plane = Rhino.Geometry.Plane(source["parent_plane"])
+            live_parent_plane.Transform(parent_transform)
+            if not link.rotation:
+                live_parent_plane = Rhino.Geometry.Plane(
+                    live_parent_plane.Origin,
+                    source["parent_plane"].XAxis,
+                    source["parent_plane"].YAxis,
                 )
-                if target_child_plane is None:
-                    continue
-                target_child_plane = transforms.constrained_target_child_plane(
-                    target_child_plane,
-                    live_child_plane,
-                    link.translation,
-                    link.rotation,
-                )
-                preview_transform = Rhino.Geometry.Transform.PlaneToPlane(
-                    live_child_plane,
-                    target_child_plane,
-                )
-                if preview_transform.IsIdentity:
-                    continue
+            live_child_plane = Rhino.Geometry.Plane(source["child_plane"])
+            target_child_plane = transforms.inherit_target_child_plane(
+                live_parent_plane,
+                link.current_transform,
+            )
+            if target_child_plane is None:
+                continue
+            target_child_plane = transforms.constrained_target_child_plane(
+                target_child_plane,
+                live_child_plane,
+                link.translation,
+                link.rotation,
+            )
+            preview_transform = Rhino.Geometry.Transform.PlaneToPlane(
+                live_child_plane,
+                target_child_plane,
+            )
+            if preview_transform.IsIdentity:
+                continue
 
-                previews[link_state.link_id] = {
-                    "child": child,
-                    "parent_plane": live_parent_plane,
-                    "child_plane": target_child_plane,
-                    "transform": preview_transform,
-                    "draw_child": not child_is_directly_dynamic,
-                }
-                child_id = str(child.Id).lower()
-                if child_id not in live_transforms and child_id not in direct_dynamic_objects:
-                    live_transforms[child_id] = preview_transform
-                    added_transform = True
-            if not added_transform:
-                break
+            previews[link_state.link_id] = {
+                "child": child,
+                "parent_plane": live_parent_plane,
+                "child_plane": target_child_plane,
+                "transform": preview_transform,
+                "draw_child": not child_is_directly_dynamic,
+            }
+            child_id = str(child.Id).lower()
+            if child_id not in live_transforms and child_id not in direct_dynamic_objects:
+                live_transforms[child_id] = preview_transform
 
         self._previews = previews
         if not previews:

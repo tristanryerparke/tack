@@ -77,6 +77,7 @@ class AnchorPickSession:
         self._locked_ids = []
         self._osnap_was_enabled = None
         self._project_was_enabled = None
+        self._snap_to_locked_was_enabled = None
         self._center_conduit = BoundingBoxCenterConduit(self.bounding_box_center)
 
     def __enter__(self):
@@ -85,8 +86,10 @@ class AnchorPickSession:
             settings = Rhino.ApplicationSettings.ModelAidSettings
             self._osnap_was_enabled = settings.Osnap
             self._project_was_enabled = settings.ProjectSnapToCPlane
+            self._snap_to_locked_was_enabled = settings.SnapToLocked
             settings.Osnap = True
             settings.ProjectSnapToCPlane = False
+            settings.SnapToLocked = False
             self._center_conduit.Enabled = self.include_bounding_box_center
             self.doc.Views.Redraw()
             return self
@@ -101,6 +104,8 @@ class AnchorPickSession:
             settings.Osnap = self._osnap_was_enabled
         if self._project_was_enabled is not None:
             settings.ProjectSnapToCPlane = self._project_was_enabled
+        if self._snap_to_locked_was_enabled is not None:
+            settings.SnapToLocked = self._snap_to_locked_was_enabled
         unlock_objects(self._locked_ids)
         self._locked_ids = []
         self.doc.Views.Redraw()

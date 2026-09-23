@@ -38,7 +38,10 @@ def add(doc, default_display_enabled=True):
         return Result.Cancel
     parent_definition, parent_plane = parent_result
 
-    parent_display = PlaneDisplayConduit(parent_plane)
+    parent_display = PlaneDisplayConduit(
+        parent_plane,
+        runtime.crosshair_size(doc),
+    )
     parent_display.Enabled = True
     doc.Views.Redraw()
     try:
@@ -64,6 +67,7 @@ def add(doc, default_display_enabled=True):
             return Result.Cancel
         child_definition, child_plane = child_result
         transformed_child = child
+        relationship_transform = None
         undo_record = doc.BeginUndoRecord("Add Tack")
         try:
             if degrees_of_freedom["attach"]:
@@ -82,6 +86,7 @@ def add(doc, default_display_enabled=True):
                 )
                 if transformed_child is None:
                     return Result.Failure
+                relationship_transform = transforms.identity_transform_data()
             child_definition["object_id"] = str(transformed_child.Id)
             link = repository.create(
                 doc,
@@ -92,6 +97,7 @@ def add(doc, default_display_enabled=True):
                 translation=degrees_of_freedom["translation"],
                 rotation=degrees_of_freedom["rotation"],
                 allow_child_movement=degrees_of_freedom["allow_child_movement"],
+                relationship_transform=relationship_transform,
             )
             if link is None:
                 return Result.Failure

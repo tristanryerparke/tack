@@ -1,5 +1,7 @@
 """Maintain active Tack Links after document changes."""
 
+from dataclasses import replace
+
 import Rhino
 
 from tack.anchors import analytic_plane
@@ -10,7 +12,7 @@ from tack.links import repository, state, transforms
 def _show_invalid_alert(doc, link_state):
     """Persist failure on the Link; its temporary state is then discarded."""
     repository.set_valid(doc, link_state.link_id, False, link_state.parent_id)
-    state.cache_state(doc, link_state)
+    state.remember_state(doc, link_state, reset=False)
     Rhino.UI.Dialogs.ShowMessage(
         "A Tack relationship can no longer resolve both saved planes. "
         "The child will stop following the parent.",
@@ -47,8 +49,6 @@ def maintain(doc, link_state):
         if transforms.transform_data_matches(current_transform, link.current_transform):
             state.refresh_serials(doc, link_state)
             return True
-        from dataclasses import replace
-
         if not repository.save(
             doc,
             replace(link, current_transform=current_transform),
@@ -95,31 +95,9 @@ def maintain(doc, link_state):
         link_state.busy = False
 
 
-def changed_states(doc):
-    changed = []
-    for link_state in state.states(doc, create=False).values():
-        if link_state.busy:
-            continue
-        parent = find_object(doc, link_state.parent_id)
-        child = find_object(doc, link_state.child_id)
-        if (
-            state.object_serial(parent) != link_state.parent_serial
-            or state.object_serial(child) != link_state.child_serial
-        ):
-            changed.append(link_state)
-    return changed
-
-
 def maintain_changed_states(doc, pending=()):
-    """Settle changed and newly restored parent-to-child chains."""
-    pending = {link_state.link_id: link_state for link_state in pending}
-    max_passes = len(state.states(doc, create=False)) + 1
-    for _ in range(max_passes):
-        candidates = pending
-        pending = {}
-        for link_state in changed_states(doc):
-            candidates[link_state.link_id] = link_state
-        if not candidates:
-            return
-        for link_state in candidates.values():
+    """Maintain changed Links once in parent-to-child topological order."""
+    pending_ids = {link_state.link_id for link_state in pending}
+    for link_state in state.ordered_states(state.states(doc, create=False)):
+        if link_state.link_id in pending_ids or state.changed(doc, link_state):
             maintain(doc, link_state)

@@ -187,7 +187,7 @@ def remove_conduit():
 
 
 def deactivate_document(doc):
-    """Remove display resources while retaining invalid states for native Undo."""
+    """Remove display resources while retaining recent endpoint IDs for Undo."""
     conduit = active_conduit()
     if conduit is not None:
         conduit.forget_document(int(doc.RuntimeSerialNumber))
@@ -218,7 +218,7 @@ def install(doc, link, default_display_enabled=True):
                 and same_id(saved_state.child_id, link.parent_id)
             )
         ):
-            state.cache_state(doc, saved_state)
+            state.remember_state(doc, saved_state)
     state.set_state(doc, link_state)
     saved_display_enabled = preferences.display_enabled(doc, default_display_enabled)
     ensure_conduit(doc, saved_display_enabled)
@@ -231,21 +231,50 @@ def install(doc, link, default_display_enabled=True):
 
 
 def restore_document(doc, default_display_enabled=True):
+    """Rebuild active states and the recovery log with one full document scan."""
     remove_runtime(doc)
-    for link in repository.all_links(doc):
+    recovered = []
+    parents, child_owners = repository.observed_metadata(doc.Objects)
+    links = repository.active_observed_links(
+        parents,
+        child_owners,
+        include_invalid=True,
+    )
+    for link_id, link in parents.items():
+        if link_id not in links:
+            state.remember_object_ids(doc, link.parent_id, link.child_id)
+    for link_id, owner_ids in child_owners.items():
+        if link_id not in parents:
+            state.remember_object_ids(doc, *owner_ids)
+    for link in links.values():
         link_state = state.new_state(doc, link)
-        if link_state is not None:
-            state.set_state(doc, link_state)
+        if link_state is None:
+            if link.valid:
+                repository.set_valid(doc, link.link_id, False, link.parent_id)
+            state.remember_object_ids(doc, link.parent_id, link.child_id)
+            continue
+        if not link.valid:
+            if not repository.set_valid(doc, link.link_id, True, link.parent_id):
+                state.remember_object_ids(doc, link.parent_id, link.child_id)
+                continue
+            link_state = state.new_state(doc, replace(link, valid=True))
+            if link_state is None:
+                state.remember_object_ids(doc, link.parent_id, link.child_id)
+                continue
+            recovered.append(link_state)
+        state.set_state(doc, link_state)
+
     active = state.states(doc, create=False)
     if active:
         ensure_conduit(doc, preferences.display_enabled(doc, default_display_enabled))
-        from tack.links import lifecycle
+    from tack.links import lifecycle
 
+    if state.has_tracked_states():
         lifecycle.subscribe()
-    elif not state.has_active_states():
-        from tack.links import lifecycle
-
+    else:
         lifecycle.unsubscribe()
+    if recovered:
+        solver.maintain_changed_states(doc, recovered)
     doc.Views.Redraw()
     return len(active)
 
@@ -271,7 +300,7 @@ def remove_links(doc, link_ids):
     for link_id in requested:
         link_state = state.states(doc, create=False).get(link_id)
         if link_state is not None:
-            state.cache_state(doc, link_state)
+            state.remember_state(doc, link_state)
     if not state.states(doc, create=False):
         deactivate_document(doc)
     doc.Views.Redraw()
@@ -284,7 +313,7 @@ def remove_link(doc, link_id):
 
 def clear_document(doc):
     for link_state in list(state.states(doc, create=False).values()):
-        state.cache_state(doc, link_state)
+        state.remember_state(doc, link_state)
     deactivate_document(doc)
     metadata_cleared = repository.clear(doc)
     doc.Views.Redraw()

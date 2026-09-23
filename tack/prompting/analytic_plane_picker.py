@@ -10,6 +10,12 @@ THREE_POINT_OPTION = "3Point"
 WORLD_OPTION = "World"
 
 
+def _crosshair_size(doc):
+    from tack.links import runtime
+
+    return runtime.crosshair_size(doc)
+
+
 def _dot(left, right):
     return left.X * right.X + left.Y * right.Y + left.Z * right.Z
 
@@ -26,11 +32,18 @@ def _perpendicular(vector, axis):
 
 
 class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
-    def __init__(self, construction_plane, origin=None, x_point=None):
+    def __init__(
+        self,
+        construction_plane,
+        origin=None,
+        x_point=None,
+        size=analytic_plane.CROSSHAIR_SIZE,
+    ):
         super(AxisPreviewGetPoint, self).__init__()
         self.construction_plane = construction_plane
         self.origin = origin
         self.x_point = x_point
+        self.size = size
 
     def axes(self, current):
         if self.origin is None:
@@ -60,6 +73,7 @@ class AxisPreviewGetPoint(Rhino.Input.Custom.GetPoint):
         analytic_plane.draw_preview(
             event.Display,
             self.preview_plane(event.CurrentPoint),
+            self.size,
         )
         super(AxisPreviewGetPoint, self).OnDynamicDraw(event)
 
@@ -90,10 +104,16 @@ def _live_circular_plane(candidates, point, tolerance):
 
 
 class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
-    def __init__(self, candidates, tolerance):
+    def __init__(
+        self,
+        candidates,
+        tolerance,
+        size=analytic_plane.CROSSHAIR_SIZE,
+    ):
         super(CircularPreviewGetPoint, self).__init__()
         self.candidates = candidates
         self.tolerance = tolerance
+        self.size = size
 
     def OnDynamicDraw(self, event):
         analytic_plane.draw_preview(
@@ -103,6 +123,7 @@ class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
                 event.CurrentPoint,
                 self.tolerance,
             ),
+            self.size,
         )
         super(CircularPreviewGetPoint, self).OnDynamicDraw(event)
 
@@ -110,8 +131,11 @@ class CircularPreviewGetPoint(Rhino.Input.Custom.GetPoint):
 class SmartOriginPreviewGetPoint(AxisPreviewGetPoint):
     """Use a circular plane at a center, otherwise use CPlane-style axes."""
 
-    def __init__(self, construction_plane, candidates, tolerance):
-        super(SmartOriginPreviewGetPoint, self).__init__(construction_plane)
+    def __init__(self, construction_plane, candidates, tolerance, size):
+        super(SmartOriginPreviewGetPoint, self).__init__(
+            construction_plane,
+            size=size,
+        )
         self.candidates = candidates
         self.tolerance = tolerance
 
@@ -159,15 +183,20 @@ def _circular_plane_candidates(doc, obj):
     return result
 
 
-def _getter_factory(construction_plane, origin=None, x_point=None):
-    return lambda: AxisPreviewGetPoint(construction_plane, origin, x_point)
+def _getter_factory(construction_plane, size, origin=None, x_point=None):
+    return lambda: AxisPreviewGetPoint(
+        construction_plane,
+        origin,
+        x_point,
+        size,
+    )
 
 
-def _pick_nonzero_x(session, construction_plane, origin):
+def _pick_nonzero_x(session, construction_plane, origin, size):
     while True:
         picked = session.pick(
             "Pick an analytic anchor for the X axis or choose World",
-            getter_factory=_getter_factory(construction_plane, origin),
+            getter_factory=_getter_factory(construction_plane, size, origin),
             options=(WORLD_OPTION,),
         )
         if picked is None or isinstance(picked, dict):
@@ -178,12 +207,13 @@ def _pick_nonzero_x(session, construction_plane, origin):
         print("The X-axis anchor must resolve away from the origin anchor.")
 
 
-def _pick_valid_y(session, construction_plane, origin, x_point):
+def _pick_valid_y(session, construction_plane, origin, x_point, size):
     while True:
         picked = session.pick(
             "Pick an analytic anchor for the Y axis",
             getter_factory=_getter_factory(
                 construction_plane,
+                size,
                 origin,
                 x_point,
             ),
@@ -210,6 +240,7 @@ def pick_circular_plane(doc, obj):
         print("The selected object has no resolvable circular center planes.")
         return None
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    size = _crosshair_size(doc)
 
     with AnchorPickSession(
         doc,
@@ -218,7 +249,11 @@ def pick_circular_plane(doc, obj):
     ) as session:
         picked = session.pick(
             "Center-snap to a circular Brep edge or circular curve",
-            getter_factory=lambda: CircularPreviewGetPoint(candidates, tolerance),
+            getter_factory=lambda: CircularPreviewGetPoint(
+                candidates,
+                tolerance,
+                size,
+            ),
             definition_filter=_is_circular_center,
             rejected_message=(
                 "Only a center snap on a circular Brep edge or circular curve "
@@ -300,10 +335,11 @@ def _circular_result_at_live_center(doc, obj, candidates, point, tolerance):
 def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
     """Pick a three-point plane, optionally exposing a Circular button."""
     circular_requested = False
+    size = _crosshair_size(doc)
     with AnchorPickSession(doc, obj) as session:
         origin_result = session.pick(
             "Pick an analytic anchor for the plane origin",
-            getter_factory=_getter_factory(construction_plane),
+            getter_factory=_getter_factory(construction_plane, size),
             options=(CIRCULAR_OPTION,) if allow_circular else (),
         )
         if isinstance(origin_result, dict):
@@ -312,7 +348,7 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
             return None
         else:
             origin, origin_definition = origin_result
-            x_result = _pick_nonzero_x(session, construction_plane, origin)
+            x_result = _pick_nonzero_x(session, construction_plane, origin, size)
             if x_result is None:
                 return None
             if isinstance(x_result, dict):
@@ -324,6 +360,7 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
                 construction_plane,
                 origin,
                 x_point,
+                size,
             )
             if y_result is None:
                 return None
@@ -364,10 +401,11 @@ def pick_three_point_plane(doc, obj, construction_plane, allow_circular=False):
 
 def pick_origin(doc, obj, construction_plane):
     """Pick one analytic anchor and preview it with construction-plane axes."""
+    size = _crosshair_size(doc)
     with AnchorPickSession(doc, obj) as session:
         picked = session.pick(
             "Pick an analytic anchor for the plane origin",
-            getter_factory=_getter_factory(construction_plane),
+            getter_factory=_getter_factory(construction_plane, size),
         )
     if picked is None:
         return None
@@ -378,6 +416,7 @@ def pick_origin(doc, obj, construction_plane):
 def pick_plane(doc, obj, construction_plane):
     """Pick a one-click circular plane or reconcile a three-point plane."""
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
+    size = _crosshair_size(doc)
     candidates = _circular_plane_candidates(doc, obj)
     with AnchorPickSession(doc, obj) as session:
         origin_result = session.pick(
@@ -388,10 +427,11 @@ def pick_plane(doc, obj, construction_plane):
                         construction_plane,
                         candidates,
                         tolerance,
+                        size,
                     )
                 )
                 if candidates
-                else _getter_factory(construction_plane)
+                else _getter_factory(construction_plane, size)
             ),
             options=(THREE_POINT_OPTION,),
         )
@@ -401,7 +441,7 @@ def pick_plane(doc, obj, construction_plane):
         if force_three_point:
             origin_result = session.pick(
                 "3Point mode: pick an analytic anchor for the plane origin",
-                getter_factory=_getter_factory(construction_plane),
+                getter_factory=_getter_factory(construction_plane, size),
             )
             if origin_result is None:
                 return None
@@ -422,7 +462,7 @@ def pick_plane(doc, obj, construction_plane):
             if circular_result is not None:
                 return circular_result
 
-        x_result = _pick_nonzero_x(session, construction_plane, origin)
+        x_result = _pick_nonzero_x(session, construction_plane, origin, size)
         if x_result is None:
             return None
         if isinstance(x_result, dict):
@@ -433,6 +473,7 @@ def pick_plane(doc, obj, construction_plane):
             construction_plane,
             origin,
             x_point,
+            size,
         )
         if y_result is None:
             return None

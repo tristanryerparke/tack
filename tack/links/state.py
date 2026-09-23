@@ -1,5 +1,6 @@
 """Temporary per-document state for Links active in this Rhino session."""
 
+from collections import deque
 from dataclasses import dataclass
 
 import Rhino
@@ -9,8 +10,8 @@ from tack.core import documents
 from tack.core.objects import find_object, object_key
 
 STATES_KEY = "Tack.LinkStates"
-INVALID_STATES_KEY = "Tack.InvalidLinkStates"
-INVALID_LINK_MAX_AGE = 200
+RECENT_OBJECTS_KEY = "Tack.RecentTackObjectIds"
+RECENT_OBJECT_MAX_AGE = 200
 
 
 @dataclass
@@ -27,56 +28,48 @@ class LinkState:
     busy: bool = False
 
 
-@dataclass
-class InvalidLinkState:
-    """A removed LinkState kept briefly so native Undo can restore it."""
-
-    state: LinkState
-    age: int = 0
-
-
 def states(doc, create=True):
     if create:
         return documents.get_value(doc, STATES_KEY, lambda _: {})
     return documents.try_get_value(doc, STATES_KEY) or {}
 
 
-def invalid_states(doc, create=True):
+def recent_object_ids(doc, create=True):
+    """Return recently removed/broken Tack endpoint IDs and their ages."""
     if create:
-        return documents.get_value(doc, INVALID_STATES_KEY, lambda _: {})
-    return documents.try_get_value(doc, INVALID_STATES_KEY) or {}
+        return documents.get_value(doc, RECENT_OBJECTS_KEY, lambda _: {})
+    return documents.try_get_value(doc, RECENT_OBJECTS_KEY) or {}
 
 
-def _tracked_object_ids(doc):
-    return {
-        object_key(object_id)
-        for link_state in list(states(doc, create=False).values())
-        + [entry.state for entry in invalid_states(doc, create=False).values()]
-        for object_id in (link_state.parent_id, link_state.child_id)
-    }
+def remember_object_ids(doc, *object_ids, reset=True):
+    recent = recent_object_ids(doc)
+    for object_id in object_ids:
+        if object_id is None:
+            continue
+        key = object_key(object_id)
+        if reset or key not in recent:
+            recent[key] = 0
+
+
+def remember_state(doc, link_state, reset=True):
+    """Discard one LinkState but retain its endpoint IDs for native Undo."""
+    states(doc, create=False).pop(link_state.link_id, None)
+    remember_object_ids(
+        doc,
+        link_state.parent_id,
+        link_state.child_id,
+        reset=reset,
+    )
 
 
 def set_state(doc, link_state):
     states(doc)[link_state.link_id] = link_state
-    invalid_states(doc).pop(link_state.link_id, None)
     return link_state
-
-
-def cache_state(doc, link_state, age=0):
-    """Keep only runtime data for a missing Link, never its definition."""
-    states(doc, create=False).pop(link_state.link_id, None)
-    invalid_states(doc)[link_state.link_id] = InvalidLinkState(link_state, age)
-
-
-def remove_state(doc, link_id):
-    removed = states(doc, create=False).pop(link_id, None)
-    invalid_states(doc, create=False).pop(link_id, None)
-    return removed
 
 
 def clear_states(doc):
     states(doc, create=False).clear()
-    invalid_states(doc, create=False).clear()
+    recent_object_ids(doc, create=False).clear()
 
 
 def has_active_states():
@@ -84,29 +77,72 @@ def has_active_states():
 
 
 def has_tracked_states():
-    return documents.has_matching_value(
-        STATES_KEY,
-        bool,
-    ) or documents.has_matching_value(INVALID_STATES_KEY, bool)
+    return documents.has_nonempty_value(STATES_KEY) or documents.has_nonempty_value(
+        RECENT_OBJECTS_KEY
+    )
 
 
 def candidate_objects(doc):
-    """Return only endpoints that have an active or cached Tack state."""
+    """Return active endpoints plus recently associated objects still present."""
+    object_ids = set(recent_object_ids(doc, create=False))
+    for link_state in states(doc, create=False).values():
+        object_ids.update(
+            (object_key(link_state.parent_id), object_key(link_state.child_id))
+        )
     objects = {}
-    for object_id in _tracked_object_ids(doc):
+    for object_id in object_ids:
         obj = find_object(doc, object_id)
         if obj is not None:
             objects[object_key(obj.Id)] = obj
     return objects
 
 
-def keep_invalid_for_undo(doc):
-    """Age missing states and discard only entries older than 200 commands."""
-    invalid = invalid_states(doc, create=False)
-    for link_id, entry in list(invalid.items()):
-        entry.age += 1
-        if entry.age >= INVALID_LINK_MAX_AGE:
-            invalid.pop(link_id, None)
+def age_recent_object_ids(doc):
+    """Forget stale endpoint IDs after 200 EndCommand reconciliations."""
+    recent = recent_object_ids(doc, create=False)
+    for object_id, age in list(recent.items()):
+        age += 1
+        if age >= RECENT_OBJECT_MAX_AGE:
+            recent.pop(object_id, None)
+        else:
+            recent[object_id] = age
+
+
+def ordered_states(link_states):
+    """Return parent-to-child LinkStates in stable topological order."""
+    items = list(
+        link_states.values() if hasattr(link_states, "values") else link_states
+    )
+    children = {}
+    indegree = {}
+    node_order = []
+    for link_state in items:
+        parent_id = object_key(link_state.parent_id)
+        child_id = object_key(link_state.child_id)
+        for object_id in (parent_id, child_id):
+            if object_id not in indegree:
+                indegree[object_id] = 0
+                node_order.append(object_id)
+        children.setdefault(parent_id, []).append(link_state)
+        indegree[child_id] += 1
+
+    pending = deque(object_id for object_id in node_order if indegree[object_id] == 0)
+    ordered = []
+    emitted = set()
+    while pending:
+        parent_id = pending.popleft()
+        for link_state in children.get(parent_id, ()):
+            if link_state.link_id in emitted:
+                continue
+            emitted.add(link_state.link_id)
+            ordered.append(link_state)
+            child_id = object_key(link_state.child_id)
+            indegree[child_id] -= 1
+            if indegree[child_id] == 0:
+                pending.append(child_id)
+
+    ordered.extend(item for item in items if item.link_id not in emitted)
+    return ordered
 
 
 def object_serial(obj):
@@ -116,6 +152,17 @@ def object_serial(obj):
 def refresh_serials(doc, link_state):
     link_state.parent_serial = object_serial(find_object(doc, link_state.parent_id))
     link_state.child_serial = object_serial(find_object(doc, link_state.child_id))
+
+
+def changed(doc, link_state):
+    if link_state.busy:
+        return False
+    return (
+        object_serial(find_object(doc, link_state.parent_id))
+        != link_state.parent_serial
+        or object_serial(find_object(doc, link_state.child_id))
+        != link_state.child_serial
+    )
 
 
 def new_state(doc, link):

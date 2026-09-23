@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from tack.anchors import analytic_plane
 from tack.core.objects import same_id
+from tack.links.transforms import identity_transform_data
 
 
 @dataclass(frozen=True)
@@ -115,24 +116,7 @@ def _legacy_link(data):
     child_plane_def = data["child_plane_def"]
     if data["inverted"]:
         child_plane_def = analytic_plane.flipped_definition(child_plane_def)
-    identity = [
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    ]
+    identity = identity_transform_data()
     return Link(
         link_id=data["link_id"],
         created_at=data["created_at"],

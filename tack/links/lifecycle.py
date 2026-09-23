@@ -1,5 +1,7 @@
 """Rhino command and document event handlers for active Tack Links."""
 
+from dataclasses import replace
+
 import Rhino
 import scriptcontext as sc
 
@@ -21,7 +23,7 @@ def _command_name(event):
 
 
 def _observed_links(doc):
-    """Read only endpoints with an active or cached Tack state."""
+    """Read metadata only from active and recently associated endpoints."""
     objects = state.candidate_objects(doc)
     parents, _ = repository.observed_metadata(objects.values())
     for link in parents.values():
@@ -30,30 +32,52 @@ def _observed_links(doc):
             if obj is not None:
                 objects[object_key(obj.Id)] = obj
     parents, child_owners = repository.observed_metadata(objects.values())
-    return repository.active_observed_links(parents, child_owners)
+    return repository.active_observed_links(
+        parents,
+        child_owners,
+        include_invalid=True,
+    )
 
 
 def _reconcile_runtime_with_metadata(doc):
-    """Match LinkStates to recently changed object metadata without a full scan."""
+    """Match runtime state to endpoint metadata without a full document scan."""
     saved = _observed_links(doc)
     active = state.states(doc, create=False)
     for link_id, link_state in list(active.items()):
-        if link_id not in saved:
-            state.cache_state(doc, link_state)
+        link = saved.get(link_id)
+        if link is None or not link.valid:
+            state.remember_state(doc, link_state)
 
     pending = []
     for link in saved.values():
         link_state = active.get(link.link_id)
-        if link_state is None or (
+        if link_state is not None and (
             link_state.parent_id != link.parent_id or link_state.child_id != link.child_id
         ):
+            state.remember_state(doc, link_state)
+            link_state = None
+
+        if link_state is None:
             link_state = state.new_state(doc, link)
-            if link_state is not None:
-                state.set_state(doc, link_state)
-        if link_state is not None:
+            if link_state is None:
+                if link.valid:
+                    repository.set_valid(doc, link.link_id, False, link.parent_id)
+                state.remember_object_ids(
+                    doc,
+                    link.parent_id,
+                    link.child_id,
+                    reset=link.valid,
+                )
+                continue
+            if not link.valid:
+                if not repository.set_valid(doc, link.link_id, True, link.parent_id):
+                    continue
+                link_state = state.new_state(doc, replace(link, valid=True))
+                if link_state is None:
+                    continue
+            state.set_state(doc, link_state)
             pending.append(link_state)
 
-    state.keep_invalid_for_undo(doc)
     if state.states(doc, create=False):
         runtime.ensure_conduit(doc, preferences.display_enabled(doc))
     else:
@@ -83,16 +107,19 @@ def end_command_handler(sender, event):
         conduit.command_ended()
 
     pending = _reconcile_runtime_with_metadata(doc)
-    if not state.states(doc, create=False):
-        if not state.has_tracked_states():
-            unsubscribe()
-        return
+    if state.states(doc, create=False):
+        _solving = True
+        try:
+            solver.maintain_changed_states(doc, pending)
+        finally:
+            _solving = False
 
-    _solving = True
-    try:
-        solver.maintain_changed_states(doc, pending)
-    finally:
-        _solving = False
+    state.age_recent_object_ids(doc)
+    if not state.states(doc, create=False):
+        runtime.deactivate_document(doc)
+    if not state.has_tracked_states():
+        unsubscribe()
+
     from tack.ui import panel
 
     panel.refresh(doc)
