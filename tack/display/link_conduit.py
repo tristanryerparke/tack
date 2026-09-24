@@ -1,18 +1,17 @@
-"""Persistent Tack crosshairs, selection highlights, and preview host conduit."""
+"""Persistent Tack axes, endpoint markers, selection highlights, and previews."""
 
 import Rhino
-import System.Drawing
 
 from tack.anchors import analytic_plane
 from tack.core.objects import find_object, same_id
-from tack.display.drawing import draw_dotted_line, draw_wireframe
+from tack.display.drawing import draw_dotted_line, draw_endpoint_point, draw_wireframe
 from tack.dynamic.native_preview import NativeTransformPreview
 
-TREE_SELECTION_WIRE_THICKNESS = 4
+TREE_SELECTION_WIRE_THICKNESS = 2
 
 
 class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
-    """Shared cross-document persistent planes and native-transform previews."""
+    """Shared cross-document Tack displays and native-transform previews."""
 
     def __init__(self):
         super().__init__()
@@ -65,6 +64,18 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
 
         return runtime.crosshair_thickness(doc)
 
+    def _link(self, doc, link_state):
+        from tack.links import repository
+
+        return repository.read_link(doc, link_state.link_id, link_state.parent_id)
+
+    @staticmethod
+    def _origins_contiguous(doc, parent_plane, child_plane):
+        return parent_plane.Origin.DistanceTo(child_plane.Origin) <= max(
+            doc.ModelAbsoluteTolerance,
+            1e-7,
+        )
+
     def _crosshair_states(self, doc, states):
         from tack.links import runtime
 
@@ -101,7 +112,9 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
     def _selected_object_ids(self, context):
         from tack.links import runtime
 
-        if not context["enabled"] or not runtime.highlight_selected_objects(context["doc"]):
+        if not context["enabled"] or not runtime.highlight_selected_objects(
+            context["doc"]
+        ):
             return ()
         doc = context["doc"]
         selected_object_id = runtime.selected_object_id(doc)
@@ -171,16 +184,31 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             for link_id, link_state in self._crosshair_states(doc, context["states"]):
                 preview = dynamic.preview_for(link_id)
                 parent_plane = (
-                    preview.get("parent_plane") if preview is not None else link_state.parent_plane
+                    preview.get("parent_plane")
+                    if preview is not None
+                    else link_state.parent_plane
                 )
                 child_plane = (
-                    preview.get("child_plane") if preview is not None else link_state.child_plane
+                    preview.get("child_plane")
+                    if preview is not None
+                    else link_state.child_plane
                 )
-                for plane in (parent_plane, child_plane):
-                    if plane is not None:
-                        event.IncludeBoundingBox(
-                            analytic_plane.bounding_box(plane, self._crosshair_size(doc))
+                link = self._link(doc, link_state)
+                if link is not None and link.rotation:
+                    for plane in (parent_plane, child_plane):
+                        if plane is not None:
+                            event.IncludeBoundingBox(
+                                analytic_plane.bounding_box(
+                                    plane,
+                                    self._crosshair_size(doc),
+                                )
+                            )
+                elif parent_plane is not None and child_plane is not None:
+                    event.IncludeBoundingBox(
+                        Rhino.Geometry.BoundingBox(
+                            [parent_plane.Origin, child_plane.Origin]
                         )
+                    )
         dynamic.include_bounding_boxes(event)
 
     def PostDrawObjects(self, event):
@@ -204,7 +232,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                     draw_wireframe(
                         event.Display,
                         parent_geometry,
-                        System.Drawing.Color.Red,
+                        analytic_plane.PARENT_COLOR,
                         TREE_SELECTION_WIRE_THICKNESS,
                     )
                 if child_geometry is not None:
@@ -233,12 +261,18 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         size = self._crosshair_size(doc)
         thickness = self._crosshair_thickness(doc)
         for link_id, link_state in self._crosshair_states(doc, context["states"]):
+            link = self._link(doc, link_state)
+            if link is None or not link.rotation:
+                continue
             preview = dynamic.preview_for(link_id)
-            parent_plane = preview.get("parent_plane") if preview else link_state.parent_plane
-            child_plane = preview.get("child_plane") if preview else link_state.child_plane
+            parent_plane = (
+                preview.get("parent_plane") if preview else link_state.parent_plane
+            )
+            child_plane = (
+                preview.get("child_plane") if preview else link_state.child_plane
+            )
             for plane in (parent_plane, child_plane):
-                if plane is not None:
-                    analytic_plane.draw_preview(event.Display, plane, size, thickness)
+                analytic_plane.draw_preview(event.Display, plane, size, thickness)
 
     def DrawForeground(self, event):
         context = self._context(event)
@@ -249,14 +283,37 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         size = self._crosshair_size(doc)
         for link_id, link_state in self._crosshair_states(doc, context["states"]):
             preview = dynamic.preview_for(link_id)
-            parent_plane = preview.get("parent_plane") if preview else link_state.parent_plane
-            child_plane = preview.get("child_plane") if preview else link_state.child_plane
-            if parent_plane is not None and child_plane is not None:
-                draw_dotted_line(
+            parent_plane = (
+                preview.get("parent_plane") if preview else link_state.parent_plane
+            )
+            child_plane = (
+                preview.get("child_plane") if preview else link_state.child_plane
+            )
+            if parent_plane is None or child_plane is None:
+                continue
+            if self._origins_contiguous(doc, parent_plane, child_plane):
+                draw_endpoint_point(
                     event.Display,
-                    parent_plane.Origin,
                     child_plane.Origin,
-                    analytic_plane.CROSSHAIR_COLOR,
-                    2,
-                    size / 20.0,
+                    analytic_plane.CHILD_COLOR,
                 )
+                continue
+            draw_dotted_line(
+                event.Display,
+                parent_plane.Origin,
+                child_plane.Origin,
+                analytic_plane.PARENT_COLOR,
+                analytic_plane.CHILD_COLOR,
+                2,
+                size / 20.0,
+            )
+            draw_endpoint_point(
+                event.Display,
+                parent_plane.Origin,
+                analytic_plane.PARENT_COLOR,
+            )
+            draw_endpoint_point(
+                event.Display,
+                child_plane.Origin,
+                analytic_plane.CHILD_COLOR,
+            )

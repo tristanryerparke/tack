@@ -13,6 +13,7 @@ from TackRhinoPlugin import PluginBridge
 
 PANEL_ID = System.Guid("F793A6F1-E37C-4F3C-A39A-65D4F720E8D2")
 _ICON_SIZE = 20
+INSPECTOR_HEIGHT = 90
 _PANEL_VIEWS = {}
 
 
@@ -259,18 +260,17 @@ class _PanelView:
         self._tacks_browser = self._browser("Tacks", self._tack_list)
         self._browser_area = forms.Panel()
         self._inspector_area = forms.Panel()
-        self._content_splitter = forms.Splitter()
-        self._content_splitter.Orientation = forms.SplitterOrientation.Vertical
-        self._content_splitter.Panel1 = self._browser_area
-        self._content_splitter.Panel2 = self._inspector_area
-        self._content_splitter.SizeChanged += self._size_browser_area
-        self._content_splitter.PositionChanged += self._lock_splitter
+        self._inspector_area.Height = INSPECTOR_HEIGHT
+        self._content = forms.DynamicLayout()
+        self._content.DefaultSpacing = drawing.Size(0, 0)
+        self._content.Add(self._browser_area, yscale=True)
+        self._content.Add(self._inspector_area)
 
         layout = forms.DynamicLayout()
         layout.Padding = drawing.Padding(5)
         layout.DefaultSpacing = drawing.Size(6, 6)
         layout.AddRow(self._button_bar())
-        layout.Add(self._content_splitter, yscale=True)
+        layout.Add(self._content, yscale=True)
         self.control = layout
         self._set_browser(True)
         self.refresh()
@@ -369,20 +369,6 @@ class _PanelView:
             self._tack_list.SelectedItem if show_tacks else self._tree.SelectedItem,
             tack_list=show_tacks,
         )
-
-    @_ui_callback
-    def _size_browser_area(self, sender, event):
-        height = self._content_splitter.Height
-        if height > 0:
-            self._content_splitter.Position = int(height * 0.6)
-
-    @_ui_callback
-    def _lock_splitter(self, sender, event):
-        height = self._content_splitter.Height
-        if height > 0:
-            position = int(height * 0.6)
-            if self._content_splitter.Position != position:
-                self._content_splitter.Position = position
 
     def _update_display_button(self, visible):
         state = "on" if visible else "off"

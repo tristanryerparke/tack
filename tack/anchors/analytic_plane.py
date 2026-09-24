@@ -6,10 +6,12 @@ import System.Drawing
 
 from tack.anchors import definitions
 
-CROSSHAIR_SIZE_MIN = 5
+CROSSHAIR_SIZE_MIN = 1
 CROSSHAIR_SIZE_MAX = 20
 CROSSHAIR_SIZE = float(CROSSHAIR_SIZE_MAX)
-CROSSHAIR_COLOR = System.Drawing.Color.Orange
+PARENT_COLOR = System.Drawing.Color.Red
+CHILD_COLOR = System.Drawing.Color.Orange
+CROSSHAIR_COLOR = CHILD_COLOR
 CROSSHAIR_THICKNESS_MIN = 1
 CROSSHAIR_THICKNESS_MAX = 5
 CROSSHAIR_THICKNESS = 2
@@ -17,10 +19,6 @@ CROSSHAIR_THICKNESS = 2
 
 def preview_half_extent(size=CROSSHAIR_SIZE):
     return float(size) * 0.5
-
-
-def preview_circle_radius(size=CROSSHAIR_SIZE):
-    return float(size) * 0.25
 
 
 def _definition_object(doc, definition):
@@ -148,13 +146,19 @@ def resolve_definition(doc, definition):
         return None
     resolver = _DEFINITION_RESOLVERS.get(definition.get("type"))
     plane = None if resolver is None else resolver(doc, definition)
-    return _flipped_plane(plane) if plane is not None and definition.get("flipped") else plane
+    return (
+        _flipped_plane(plane)
+        if plane is not None and definition.get("flipped")
+        else plane
+    )
 
 
 def _has_fields(definition, fields):
-    return set(definition).issubset(set(fields) | {"flipped"}) and set(fields).issubset(
-        definition
-    ) and isinstance(definition.get("flipped", False), bool)
+    return (
+        set(definition).issubset(set(fields) | {"flipped"})
+        and set(fields).issubset(definition)
+        and isinstance(definition.get("flipped", False), bool)
+    )
 
 
 def _valid_three_point_plane(definition):
@@ -227,75 +231,33 @@ def validate_definition(definition, expected_object_id=None):
     )
 
 
-def plane_border(origin, x_axis, y_axis, half_extent):
-    if x_axis is None or y_axis is None:
-        return []
-    return [
-        origin - x_axis * half_extent - y_axis * half_extent,
-        origin + x_axis * half_extent - y_axis * half_extent,
-        origin + x_axis * half_extent + y_axis * half_extent,
-        origin - x_axis * half_extent + y_axis * half_extent,
-    ]
-
-
 def draw_preview(
     display,
     plane,
     size=CROSSHAIR_SIZE,
     thickness=CROSSHAIR_THICKNESS,
 ):
+    """Draw the three oriented axes used while choosing a Tack plane."""
     if plane is None or not plane.IsValid:
         return
     origin = plane.Origin
-    x_axis = plane.XAxis
-    y_axis = plane.YAxis
-    z_axis = plane.ZAxis
     half_extent = preview_half_extent(size)
     appearance = Rhino.ApplicationSettings.AppearanceSettings
-
-    display.DrawLine(
-        origin,
-        origin - x_axis * half_extent,
-        CROSSHAIR_COLOR,
-        thickness,
-    )
-    display.DrawLine(
-        origin,
-        origin - y_axis * half_extent,
-        CROSSHAIR_COLOR,
-        thickness,
-    )
-    display.DrawCircle(
-        Rhino.Geometry.Circle(plane, preview_circle_radius(size)),
-        CROSSHAIR_COLOR,
-        thickness,
-    )
-    display.DrawLine(
-        origin,
-        origin + x_axis * half_extent,
-        appearance.GridXAxisLineColor,
-        thickness,
-    )
-    display.DrawLine(
-        origin,
-        origin + y_axis * half_extent,
-        appearance.GridYAxisLineColor,
-        thickness,
-    )
-    display.DrawLine(
-        origin,
-        origin + z_axis * half_extent,
-        appearance.GridZAxisLineColor,
-        thickness,
-    )
+    for axis, color in (
+        (plane.XAxis, appearance.GridXAxisLineColor),
+        (plane.YAxis, appearance.GridYAxisLineColor),
+        (plane.ZAxis, appearance.GridZAxisLineColor),
+    ):
+        display.DrawLine(origin, origin + axis * half_extent, color, thickness)
 
 
 def bounding_box(plane, size=CROSSHAIR_SIZE):
+    half_extent = preview_half_extent(size)
     return Rhino.Geometry.BoundingBox(
-        plane_border(
+        [
             plane.Origin,
-            plane.XAxis,
-            plane.YAxis,
-            preview_half_extent(size),
-        )
+            plane.Origin + plane.XAxis * half_extent,
+            plane.Origin + plane.YAxis * half_extent,
+            plane.Origin + plane.ZAxis * half_extent,
+        ]
     )

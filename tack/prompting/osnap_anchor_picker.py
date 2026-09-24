@@ -5,6 +5,7 @@ import System.Drawing
 from Rhino.Commands import Result
 
 from tack.anchors import definitions
+from tack.display.drawing import draw_endpoint_point
 from tack.prompting.object_locking import lock_other_objects, unlock_objects
 
 
@@ -17,18 +18,7 @@ class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
         self.point = point
 
     def DrawForeground(self, event):
-        event.Display.DrawPoint(
-            self.point,
-            Rhino.Display.PointStyle.Circle,
-            4,
-            System.Drawing.Color.Black,
-        )
-        event.Display.DrawPoint(
-            self.point,
-            Rhino.Display.PointStyle.Circle,
-            2,
-            System.Drawing.Color.White,
-        )
+        draw_endpoint_point(event.Display, self.point, System.Drawing.Color.Black)
 
 
 def select_object(

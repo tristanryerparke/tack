@@ -1,8 +1,11 @@
 """Shared low-level Rhino display drawing helpers."""
 
 import Rhino
+import System.Drawing
 
 LOCKED_WIRE_THICKNESS = 1
+POINT_BACKING_COLOR = System.Drawing.Color.White
+POINT_CORE_COLOR = System.Drawing.Color.White
 
 
 def _draw_bounding_box(display, geometry, color, thickness):
@@ -64,7 +67,38 @@ def draw_transformed_object(display, obj, transform):
     display.DrawObject(obj, transform)
 
 
-def draw_dotted_line(display, start, end, color, thickness, spacing):
+def draw_endpoint_point(display, point, ring_color):
+    """Draw a Rhino-style colored-ring point with a white core."""
+    display.DrawPoint(
+        point,
+        Rhino.Display.PointStyle.Circle,
+        6,
+        POINT_BACKING_COLOR,
+    )
+    display.DrawPoint(
+        point,
+        Rhino.Display.PointStyle.Circle,
+        4,
+        ring_color,
+    )
+    display.DrawPoint(
+        point,
+        Rhino.Display.PointStyle.Circle,
+        2,
+        POINT_CORE_COLOR,
+    )
+
+
+def _interpolate_color(start_color, end_color, amount):
+    return System.Drawing.Color.FromArgb(
+        int(start_color.A + (end_color.A - start_color.A) * amount),
+        int(start_color.R + (end_color.R - start_color.R) * amount),
+        int(start_color.G + (end_color.G - start_color.G) * amount),
+        int(start_color.B + (end_color.B - start_color.B) * amount),
+    )
+
+
+def draw_dotted_line(display, start, end, start_color, end_color, thickness, spacing):
     direction = end - start
     length = direction.Length
     if length <= 1e-7:
@@ -75,4 +109,10 @@ def draw_dotted_line(display, start, end, color, thickness, spacing):
     for index in range(dot_count):
         dot_start = start + direction * (index * step)
         dot_end = start + direction * (index * step + step * 0.35)
-        display.DrawLine(dot_start, dot_end, color, thickness)
+        amount = index / max(dot_count - 1, 1)
+        display.DrawLine(
+            dot_start,
+            dot_end,
+            _interpolate_color(start_color, end_color, amount),
+            thickness,
+        )

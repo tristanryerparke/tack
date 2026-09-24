@@ -44,7 +44,7 @@ def show(doc):
     layout.DefaultSpacing = drawing.Size(0, 2)
     size_label, size_slider = _slider(
         dialog,
-        "Crosshair size",
+        "Tack size",
         analytic_plane.CROSSHAIR_SIZE_MIN,
         analytic_plane.CROSSHAIR_SIZE_MAX,
         runtime.crosshair_size(doc),
