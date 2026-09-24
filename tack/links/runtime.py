@@ -6,7 +6,7 @@ import scriptcontext as sc
 
 from tack.core import documents, plugin_data
 from tack.core.objects import same_id
-from tack.links import preferences, repository, solver, state
+from tack.links import preferences, repository, solver, state, transforms
 
 CONDUIT_KEY = "Tack.Conduit"
 DISPLAY_KEY = "Tack.Display"
@@ -279,6 +279,21 @@ def restore_document(doc, default_display_enabled=True):
     return len(active)
 
 
+def resettable_links(doc):
+    """Return active child-movable Tacks whose relationship has changed."""
+    active_states = state.states(doc, create=False)
+    return tuple(
+        link
+        for link in repository.all_links(doc)
+        if link.allow_child_movement
+        and link.link_id in active_states
+        and not transforms.transform_data_matches(
+            link.current_transform,
+            link.original_transform,
+        )
+    )
+
+
 def reset_transform(doc, link_id):
     link = repository.read_link(doc, link_id)
     if link is None or not link.allow_child_movement:
@@ -291,6 +306,20 @@ def reset_transform(doc, link_id):
         return False
     link_state = state.states(doc, create=False).get(link_id)
     return link_state is not None and solver.maintain(doc, link_state)
+
+
+def reset_all_transforms(doc):
+    """Reset every deviated child-movable Tack in one undoable operation."""
+    links = resettable_links(doc)
+    if not links:
+        return False
+    undo_record = doc.BeginUndoRecord("Reset Moveable Tacks")
+    try:
+        results = [reset_transform(doc, link.link_id) for link in links]
+    finally:
+        if undo_record:
+            doc.EndUndoRecord(undo_record)
+    return all(results)
 
 
 def remove_links(doc, link_ids):

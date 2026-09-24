@@ -9,6 +9,7 @@ updates the child, with a live constrained preview during native transforms.
 - `TackShow`
 - `TackHide`
 - `TackClear`
+- `ResetMoveableTacks`
 
 The same actions are available at the top of the per-document Tack dockable
 panel.

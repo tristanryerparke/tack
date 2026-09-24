@@ -303,6 +303,17 @@ class _PanelView:
         self._display.Click += self._toggle_display
         self._update_display_button(runtime.display_enabled(self._doc))
 
+        self._reset_all = _icon_button(
+            self._panel,
+            "reset-child-movement-disabled",
+            "#9e9e9e",
+            "Reset all child-movable Tacks to their original relationships",
+            _ICON_SIZE - 4,
+        )
+        self._reset_all.Enabled = False
+        self._reset_all.Click += self._reset_all_transforms
+        self._update_reset_all_button(runtime.resettable_links(self._doc))
+
         clear = _icon_button(
             self._panel,
             "trash",
@@ -325,6 +336,7 @@ class _PanelView:
             add,
             self._display,
             self._remove,
+            self._reset_all,
             clear,
             self._browser_toggle,
             settings,
@@ -389,6 +401,19 @@ class _PanelView:
             _ICON_SIZE,
         )
 
+    def _update_reset_all_button(self, resettable_links):
+        enabled = bool(resettable_links)
+        tone = "dark" if _is_dark_theme() else "light"
+        self._reset_all.Enabled = enabled
+        self._reset_all.Image = _icon_image(
+            self._panel,
+            f"reset-child-movement-{tone}"
+            if enabled
+            else "reset-child-movement-disabled",
+            "#9e9e9e",
+            _ICON_SIZE - 4,
+        )
+
     @_ui_callback
     def _add(self, sender, event):
         self._defer_command("add", refresh=True)
@@ -418,6 +443,10 @@ class _PanelView:
             "add": ("TackAdd", "tack_add.py"),
             "show": ("TackShow", "tack_show.py"),
             "hide": ("TackHide", "tack_hide.py"),
+            "reset_moveable_tacks": (
+                "ResetMoveableTacks",
+                "tack_reset_moveable_tacks.py",
+            ),
             "clear": ("TackClear", "tack_clear.py"),
             "settings": ("TackSettings", "tack_settings.py"),
         }[action]
@@ -540,6 +569,10 @@ class _PanelView:
         ):
             Rhino.RhinoApp.WriteLine("The selected Tack cannot reset its transform.")
         self.refresh()
+
+    @_ui_callback
+    def _reset_all_transforms(self, sender, event):
+        self._defer_command("reset_moveable_tacks", refresh=True)
 
     @_ui_callback
     def _tree_selection_changed(self, sender, event):
@@ -722,6 +755,8 @@ class _PanelView:
             else self._tree.SelectedItem,
             tack_list=self._show_tacks,
         )
+        # lifecycle.end_command_handler calls refresh after every EndCommand.
+        self._update_reset_all_button(runtime.resettable_links(self._doc))
 
 
 def refresh(doc):

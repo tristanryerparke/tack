@@ -108,6 +108,7 @@ Generated commands:
   TackShow
   TackHide
   TackClear
+  ResetMoveableTacks
   TackSettings
 
 Restart Rhino to load this build or switch modes.

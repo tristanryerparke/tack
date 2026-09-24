@@ -142,6 +142,15 @@
       }
     },
     {
+      "id": "48f96a32-c4b6-4727-b8d3-a6d93d23d8ca",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "ResetMoveableTacks",
+      "uri": "commands/tack_reset_moveable_tacks.py"
+    },
+    {
       "id": "f72f643c-d1a2-4bc8-a62f-2872b9780159",
       "language": {
         "id": "*.*.python",

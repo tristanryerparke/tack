@@ -135,7 +135,21 @@ def remove(doc, link_id):
     if not runtime.remove_link(doc, link_id):
         return Result.Failure
     _refresh_panel(doc)
-    Rhino.RhinoApp.WriteLine("Deleted Tack {}.".format(str(link_id)[:8]))
+    Rhino.RhinoApp.WriteLine(f"Deleted Tack {str(link_id)[:8]}.")
+    return Result.Success
+
+
+def reset_moveable_tacks(doc):
+    if doc is None:
+        return Result.Cancel
+    count = len(runtime.resettable_links(doc))
+    if not count:
+        Rhino.RhinoApp.WriteLine("No moved child-movable Tacks to reset.")
+        return Result.Cancel
+    if not runtime.reset_all_transforms(doc):
+        return Result.Failure
+    _refresh_panel(doc)
+    Rhino.RhinoApp.WriteLine(f"Reset {count} child-movable Tack(s).")
     return Result.Success
 
 
@@ -147,7 +161,7 @@ def clear(doc):
         Rhino.RhinoApp.WriteLine("No Tacks to clear.")
         return Result.Cancel
     confirmation = Rhino.UI.Dialogs.ShowMessage(
-        "Clear all {} Tack(s) from this file?".format(count),
+        f"Clear all {count} Tack(s) from this file?",
         "Clear all Tacks",
         Rhino.UI.ShowMessageButton.YesNo,
         Rhino.UI.ShowMessageIcon.Warning,
@@ -157,7 +171,7 @@ def clear(doc):
     if not runtime.clear_document(doc):
         return Result.Failure
     _refresh_panel(doc)
-    Rhino.RhinoApp.WriteLine("Cleared {} Tack(s).".format(count))
+    Rhino.RhinoApp.WriteLine(f"Cleared {count} Tack(s).")
     return Result.Success
 
 
@@ -172,7 +186,7 @@ def restore_open_documents(default_display_enabled=None):
         restored += runtime.restore_document(doc, default_display_enabled)
         _refresh_panel(doc)
     if restored:
-        Rhino.RhinoApp.WriteLine("Restored {} Tack(s).".format(restored))
+        Rhino.RhinoApp.WriteLine(f"Restored {restored} Tack(s).")
     return Result.Success
 
 
@@ -180,6 +194,7 @@ _ACTIONS = {
     "add": add,
     "show": show,
     "hide": hide,
+    "reset_moveable_tacks": reset_moveable_tacks,
     "clear": clear,
 }
 
@@ -187,7 +202,7 @@ _ACTIONS = {
 def run(action, doc=None, default_display_enabled=True):
     implementation = _ACTIONS.get(action)
     if implementation is None:
-        raise ValueError("Unknown Tack action: {}".format(action))
+        raise ValueError(f"Unknown Tack action: {action}")
     active_doc = Rhino.RhinoDoc.ActiveDoc if doc is None else doc
     if active_doc is None:
         return Result.Cancel

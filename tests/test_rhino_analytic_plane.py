@@ -68,6 +68,33 @@ def test_object_metadata_restores_removed_tack_with_native_undo(
 
 
 @pytest.mark.rhino
+def test_reset_moveable_tacks_command_is_undoable(rhino_instance):
+    from rhino_flow import run_flow
+
+    setup, reset, undone = run_flow(
+        [
+            ("script", RHINO_DIR / "reset_moveable_tacks_setup.py"),
+            ("command", "_ResetMoveableTacks _Enter"),
+            ("script", RHINO_DIR / "reset_moveable_tacks_collect.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "reset_moveable_tacks_collect.py"),
+        ],
+        rhino_instance,
+    )
+
+    assert setup["child_moved"] != reset["child"]
+    assert reset == {
+        "name": "reset_moveable_tacks_collect",
+        "child": [0.0, 0.0, 0.0],
+        "at_original_relationship": True,
+        "resettable_count": 0,
+    }
+    assert undone["child"] == setup["child_moved"]
+    assert not undone["at_original_relationship"]
+    assert undone["resettable_count"] == 1
+
+
+@pytest.mark.rhino
 def test_undo_and_redo_restore_analytic_plane_relationship(
     _rhino_instance_for_document,
 ):

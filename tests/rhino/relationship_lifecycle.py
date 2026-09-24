@@ -19,8 +19,8 @@ def _plane_origin(doc, definition):
 
 
 def _assert_close(actual, expected, tolerance, label):
-    assert actual.DistanceTo(expected) <= tolerance, "{}: expected {}, got {}".format(
-        label, expected, actual
+    assert actual.DistanceTo(expected) <= tolerance, (
+        f"{label}: expected {expected}, got {actual}"
     )
 
 
@@ -58,6 +58,7 @@ def verify_relationship_lifecycle():
             child_id,
             parent_definition,
             child_definition,
+            allow_child_movement=True,
         )
         assert link is not None, "Could not create test relationship"
         link_state = runtime.install(doc, link)
@@ -95,13 +96,18 @@ def verify_relationship_lifecycle():
             None,
             types.SimpleNamespace(CommandEnglishName="Move"),
         )
+        child_after_child_move = _plane_origin(doc, child_definition)
+        assert child_after_child_move.DistanceTo(child_after_parent_move) > tolerance
+        assert tuple(runtime.resettable_links(doc)) == (repository.read_link(doc, link["link_id"]),)
+        assert runtime.reset_all_transforms(doc)
         child_after_correction = _plane_origin(doc, child_definition)
         _assert_close(
             child_after_correction,
             child_after_parent_move,
             tolerance,
-            "child correction",
+            "child reset",
         )
+        assert not runtime.resettable_links(doc)
 
         assert doc.Objects.Delete(child_id, True)
         lifecycle.end_command_handler(
@@ -118,6 +124,7 @@ def verify_relationship_lifecycle():
         return {
             "link_id": link["link_id"],
             "child_after_parent_move": point_data(child_after_parent_move),
+            "child_after_child_move": point_data(child_after_child_move),
             "child_after_correction": point_data(child_after_correction),
         }
     finally:
