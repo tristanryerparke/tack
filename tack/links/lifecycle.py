@@ -39,13 +39,16 @@ def _observed_links(doc):
     )
 
 
-def _reconcile_runtime_with_metadata(doc):
+def _reconcile_runtime_with_metadata(doc, command_name=None):
     """Match runtime state to endpoint metadata without a full document scan."""
     saved = _observed_links(doc)
     active = state.states(doc, create=False)
+    alert_on_missing = str(command_name).casefold() == "split"
     for link_id, link_state in list(active.items()):
         link = saved.get(link_id)
-        if link is None or not link.valid:
+        if link is None and alert_on_missing:
+            solver.invalidate(doc, link_state)
+        elif link is None or not link.valid:
             state.remember_state(doc, link_state)
 
     pending = []
@@ -106,7 +109,7 @@ def end_command_handler(sender, event):
     if conduit is not None:
         conduit.command_ended()
 
-    pending = _reconcile_runtime_with_metadata(doc)
+    pending = _reconcile_runtime_with_metadata(doc, _command_name(event))
     if state.states(doc, create=False):
         _solving = True
         try:

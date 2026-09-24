@@ -9,10 +9,7 @@ from tack.core.objects import find_object, same_id
 from tack.links import repository, state, transforms
 
 
-def _show_invalid_alert(doc, link_state):
-    """Persist failure on the Link; its temporary state is then discarded."""
-    repository.set_valid(doc, link_state.link_id, False, link_state.parent_id)
-    state.remember_state(doc, link_state, reset=False)
+def _show_invalid_alert():
     Rhino.UI.Dialogs.ShowMessage(
         "A Tack relationship can no longer resolve both saved planes. "
         "The child will stop following the parent.",
@@ -22,6 +19,13 @@ def _show_invalid_alert(doc, link_state):
     )
 
 
+def invalidate(doc, link_state):
+    """Persist failure on the Link; its temporary state is then discarded."""
+    repository.set_valid(doc, link_state.link_id, False, link_state.parent_id)
+    state.remember_state(doc, link_state, reset=False)
+    _show_invalid_alert()
+
+
 def maintain(doc, link_state):
     if link_state.busy:
         return False
@@ -29,13 +33,13 @@ def maintain(doc, link_state):
     parent = find_object(doc, link_state.parent_id)
     child = find_object(doc, link_state.child_id)
     if link is None or parent is None or child is None:
-        _show_invalid_alert(doc, link_state)
+        invalidate(doc, link_state)
         return False
 
     parent_plane = analytic_plane.resolve_definition(doc, link.parent_plane_def)
     child_plane = analytic_plane.resolve_definition(doc, link.child_plane_def)
     if parent_plane is None or child_plane is None:
-        _show_invalid_alert(doc, link_state)
+        invalidate(doc, link_state)
         return False
 
     link_state.parent_plane = Rhino.Geometry.Plane(parent_plane)
@@ -54,7 +58,7 @@ def maintain(doc, link_state):
             replace(link, current_transform=current_transform),
             replaced=(link,),
         ):
-            _show_invalid_alert(doc, link_state)
+            invalidate(doc, link_state)
             return False
         state.refresh_serials(doc, link_state)
         doc.Views.Redraw()
@@ -65,7 +69,7 @@ def maintain(doc, link_state):
         link.current_transform,
     )
     if target_child_plane is None:
-        _show_invalid_alert(doc, link_state)
+        invalidate(doc, link_state)
         return False
     target_child_plane = transforms.constrained_target_child_plane(
         target_child_plane,
@@ -83,7 +87,7 @@ def maintain(doc, link_state):
     try:
         transformed = transforms.transform_object_in_place(doc, child, correction)
         if transformed is None or not same_id(transformed.Id, child.Id):
-            _show_invalid_alert(doc, link_state)
+            invalidate(doc, link_state)
             return False
         resolved_child_plane = analytic_plane.resolve_definition(doc, link.child_plane_def)
         if resolved_child_plane is not None:

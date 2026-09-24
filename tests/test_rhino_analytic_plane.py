@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 RHINO_DIR = Path(__file__).with_name("rhino")
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -156,6 +155,39 @@ def test_deleting_tacked_object_removes_and_undo_reinstates(
     assert not delete_parent["link_present"]
     assert final_parent["link_present"]
     assert final_parent["runtime"] == 1
+
+
+@pytest.mark.rhino
+def test_splitting_either_tack_endpoint_requests_invalid_warning(
+    _rhino_instance_for_document,
+):
+    rhino_instance = _rhino_instance_for_document(FIXTURES / "split_tack_warning.3dm")
+    from rhino_flow import run_flow
+
+    results = run_flow(
+        [
+            ("script", RHINO_DIR / "split_warning_setup.py"),
+            ("command", "_Split _SelID {cutter_id} _Enter _Enter"),
+            ("script", RHINO_DIR / "split_warning_collect.py"),
+            ("command", "_Undo _Enter"),
+            ("script", RHINO_DIR / "split_warning_setup.py"),
+            ("command", "_Split _SelID {cutter_id} _Enter _Enter"),
+            ("script", RHINO_DIR / "split_warning_collect.py"),
+        ],
+        rhino_instance,
+    )
+
+    parent_setup, parent_result, child_setup, child_result = results
+    assert parent_setup["role"] == "parent"
+    assert child_setup["role"] == "child"
+    expected = {
+        "warning_count": 1,
+        "endpoint_present": False,
+        "link_present": False,
+        "runtime_count": 0,
+    }
+    assert {key: parent_result[key] for key in expected} == expected
+    assert {key: child_result[key] for key in expected} == expected
 
 
 @pytest.mark.rhino
