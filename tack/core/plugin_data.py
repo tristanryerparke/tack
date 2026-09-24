@@ -5,6 +5,7 @@ import json
 DEFAULT_DISPLAY_ENABLED = "default_display_enabled"
 SHOW_SELECTED_TACKS_ONLY = "show_selected_tacks_only"
 HIGHLIGHT_SELECTED_OBJECTS = "highlight_selected_objects"
+DYNAMIC_PREVIEWS_ENABLED = "dynamic_previews_enabled"
 ADD_TACK_TRANSLATION = "add_tack_translation"
 ADD_TACK_ROTATION = "add_tack_rotation"
 ADD_TACK_ATTACH = "add_tack_attach"

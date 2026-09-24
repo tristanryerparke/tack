@@ -34,6 +34,7 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             "serial": serial,
             "states": states,
             "enabled": runtime.display_enabled(doc),
+            "dynamic_previews_enabled": runtime.dynamic_previews_enabled(doc),
             "dynamic": self.dynamic_for(serial, states),
         }
 
@@ -154,14 +155,20 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
         if context is None:
             return
         self._frame_selection[context["serial"]] = self._selected_object_ids(context)
-        context["dynamic"].update(context["doc"])
+        dynamic = context["dynamic"]
+        if context["dynamic_previews_enabled"]:
+            dynamic.update(context["doc"])
+        else:
+            dynamic.clear()
 
     def PreDrawObject(self, event):
         context = self._context(event)
         if context is None:
             return
         obj = event.RhinoObject
-        if context["dynamic"].suppresses_object(obj):
+        if context["dynamic_previews_enabled"] and context["dynamic"].suppresses_object(
+            obj
+        ):
             event.DrawObject = False
             return
         if (
@@ -209,13 +216,15 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                             [parent_plane.Origin, child_plane.Origin]
                         )
                     )
-        dynamic.include_bounding_boxes(event)
+        if context["dynamic_previews_enabled"]:
+            dynamic.include_bounding_boxes(event)
 
     def PostDrawObjects(self, event):
         context = self._context(event)
         if context is None:
             return
-        context["dynamic"].draw_objects(event)
+        if context["dynamic_previews_enabled"]:
+            context["dynamic"].draw_objects(event)
 
         if not context["enabled"] or not self._frame_selection.get(context["serial"]):
             return
@@ -280,7 +289,6 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
             return
         doc = context["doc"]
         dynamic = context["dynamic"]
-        size = self._crosshair_size(doc)
         for link_id, link_state in self._crosshair_states(doc, context["states"]):
             preview = dynamic.preview_for(link_id)
             parent_plane = (
@@ -302,10 +310,8 @@ class LinkedPlaneConduit(Rhino.Display.DisplayConduit):
                 event.Display,
                 parent_plane.Origin,
                 child_plane.Origin,
-                analytic_plane.PARENT_COLOR,
                 analytic_plane.CHILD_COLOR,
-                2,
-                size / 20.0,
+                1,
             )
             draw_endpoint_point(
                 event.Display,

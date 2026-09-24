@@ -89,30 +89,9 @@ def draw_endpoint_point(display, point, ring_color):
     )
 
 
-def _interpolate_color(start_color, end_color, amount):
-    return System.Drawing.Color.FromArgb(
-        int(start_color.A + (end_color.A - start_color.A) * amount),
-        int(start_color.R + (end_color.R - start_color.R) * amount),
-        int(start_color.G + (end_color.G - start_color.G) * amount),
-        int(start_color.B + (end_color.B - start_color.B) * amount),
-    )
-
-
-def draw_dotted_line(display, start, end, start_color, end_color, thickness, spacing):
-    direction = end - start
-    length = direction.Length
-    if length <= 1e-7:
+def draw_dotted_line(display, start, end, color, thickness):
+    """Draw one native dotted line between Tack endpoints."""
+    if start.DistanceTo(end) <= 1e-7:
         return
-    dot_count = min(200, max(1, int(length / max(spacing, 1e-7))))
-    step = length / dot_count
-    direction.Unitize()
-    for index in range(dot_count):
-        dot_start = start + direction * (index * step)
-        dot_end = start + direction * (index * step + step * 0.35)
-        amount = index / max(dot_count - 1, 1)
-        display.DrawLine(
-            dot_start,
-            dot_end,
-            _interpolate_color(start_color, end_color, amount),
-            thickness,
-        )
+    # Two drawn pixels and six gap pixels, repeating: double the dotted pattern.
+    display.DrawPatternedLine(start, end, color, 0x0303, thickness)

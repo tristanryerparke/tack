@@ -122,6 +122,17 @@ def set_highlight_selected_objects(doc, enabled):
     return enabled
 
 
+def dynamic_previews_enabled(doc):
+    return _bool_setting(doc, plugin_data.DYNAMIC_PREVIEWS_ENABLED, True)
+
+
+def set_dynamic_previews_enabled(doc, enabled):
+    enabled = bool(enabled)
+    _set_user_setting(doc, plugin_data.DYNAMIC_PREVIEWS_ENABLED, enabled)
+    doc.Views.Redraw()
+    return enabled
+
+
 def selected_link_ids(doc):
     return _display_state(doc).get("selected_link_ids", ())
 

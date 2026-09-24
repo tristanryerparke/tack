@@ -19,6 +19,7 @@ def reload_conduit():
 
     runtime.remove_conduit()
     importlib.reload(drawing)
+    importlib.reload(runtime)
     importlib.reload(link_conduit)
 
     restored = 0

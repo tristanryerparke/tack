@@ -35,7 +35,7 @@ def show(doc):
 
     dialog = forms.Dialog[bool]()
     dialog.Title = "Tack Settings"
-    dialog.ClientSize = drawing.Size(280, 230)
+    dialog.ClientSize = drawing.Size(280, 255)
     dialog.Resizable = False
     Rhino.UI.EtoExtensions.UseRhinoStyle(dialog)
 
@@ -70,6 +70,12 @@ def show(doc):
     highlight_selected.CheckedChanged += lambda sender, event: (
         runtime.set_highlight_selected_objects(doc, bool(sender.Checked))
     )
+    dynamic_previews = forms.CheckBox()
+    dynamic_previews.Text = "Show Dynamic Tack Previews"
+    dynamic_previews.Checked = runtime.dynamic_previews_enabled(doc)
+    dynamic_previews.CheckedChanged += lambda sender, event: (
+        runtime.set_dynamic_previews_enabled(doc, bool(sender.Checked))
+    )
 
     close = forms.Button()
     close.Text = "Close"
@@ -87,6 +93,7 @@ def show(doc):
     layout.AddRow(thickness_slider)
     layout.AddRow(selected_only)
     layout.AddRow(highlight_selected)
+    layout.AddRow(dynamic_previews)
     layout.Add(None)
     layout.Add(close_row, True)
     dialog.Content = layout
