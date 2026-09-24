@@ -9,7 +9,6 @@ import scriptcontext as sc
 sys.modules.pop("common", None)
 from common import add_circle, cleanup, mark_test_object, run_test
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
 HOLE_COUNT = 100
@@ -28,11 +27,11 @@ def _curve_plane(object_id):
 
 
 def _circular_edge_plane(doc, obj, target, tolerance):
-    from tack import anchor_definitions
+    from tack.anchors import definitions
 
-    candidates = anchor_definitions.candidates(
+    candidates = definitions.candidates(
         obj,
-        anchor_definitions.CIRCULAR_EDGE_CENTER,
+        definitions.CIRCULAR_EDGE_CENTER,
         tolerance,
     )
     anchor, center = min(candidates, key=lambda item: item[1].DistanceTo(target))
@@ -66,43 +65,40 @@ def _write(doc, name):
 
 
 def _create_restore_fixture(doc):
-    from tack import plane_link_metadata
+    from tack.links import repository
 
     parent = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0), radius=4.0)
     child = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0), radius=2.0)
-    link = plane_link_metadata.create(
+    link = repository.create(
         doc,
         parent,
         child,
         _curve_plane(parent),
         _curve_plane(child),
-        False,
     )
     assert link is not None
     return _write(doc, "analytic_plane_restore.3dm"), link["link_id"]
 
 
 def _create_nested_fixture(doc):
-    from tack import plane_link_metadata
+    from tack.links import repository
 
     grandparent = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0), radius=6.0)
     parent = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0), radius=4.0)
     child = add_circle(doc, Rhino.Geometry.Point3d(0, 0, 0), radius=2.0)
-    first = plane_link_metadata.create(
+    first = repository.create(
         doc,
         grandparent,
         parent,
         _curve_plane(grandparent),
         _curve_plane(parent),
-        False,
     )
-    second = plane_link_metadata.create(
+    second = repository.create(
         doc,
         parent,
         child,
         _curve_plane(parent),
         _curve_plane(child),
-        False,
     )
     assert first is not None and second is not None
     return _write(doc, "nested_analytic_planes.3dm"), [
@@ -112,7 +108,7 @@ def _create_nested_fixture(doc):
 
 
 def _create_perforated_fixture(doc):
-    from tack import plane_link_metadata
+    from tack.links import repository
 
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
     length = (HOLE_COUNT + 1) * SPACING
@@ -149,13 +145,12 @@ def _create_perforated_fixture(doc):
         child_id = _add_cylinder(doc, center)
         child = doc.Objects.Find(child_id)
         top_center = Rhino.Geometry.Point3d(x, 0, HEIGHT)
-        link = plane_link_metadata.create(
+        link = repository.create(
             doc,
             parent_id,
             child_id,
             _circular_edge_plane(doc, parent, top_center, tolerance),
             _circular_edge_plane(doc, child, top_center, tolerance),
-            False,
         )
         assert link is not None, "Could not create hole Tack {}".format(index)
         link_ids.append(link["link_id"])

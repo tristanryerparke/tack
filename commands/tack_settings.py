@@ -1,19 +1,22 @@
 #! python 3
+"""Rhino command entry point for Tack settings."""
 
-import os
+import importlib
 import sys
 
-from Rhino.Commands import Result
+from TackRhinoPlugin import PluginBridge
 
+python_root = str(PluginBridge.PythonRoot)
+if python_root in sys.path:
+    sys.path.remove(python_root)
+sys.path.insert(0, python_root)
 
-python_root = os.path.join(
-    os.path.dirname(__rhino_command__.GetType().Assembly.Location),
-    "Python",
+from tack.core import command_dispatch
+
+if PluginBridge.IsDevelopmentMode:
+    command_dispatch = importlib.reload(command_dispatch)
+result = command_dispatch.run(
+    "settings",
+    __rhino_doc__,
+    reload_modules=PluginBridge.IsDevelopmentMode,
 )
-if python_root not in sys.path:
-    sys.path.insert(0, python_root)
-
-from tack import settings
-
-
-result = settings.show(__rhino_doc__)

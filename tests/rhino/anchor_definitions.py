@@ -10,14 +10,13 @@ sys.modules.pop("common", None)
 from common import cleanup, mark_test_object, run_test
 
 
-
 def _assert_resolves(obj, feature_type, tolerance):
-    from tack import anchor_definitions
+    from tack.anchors import definitions
 
-    candidates = anchor_definitions.candidates(obj, feature_type, tolerance)
+    candidates = definitions.candidates(obj, feature_type, tolerance)
     assert candidates, "No {} candidates".format(feature_type)
     for definition, point in candidates:
-        resolved = anchor_definitions.resolve(obj, definition, tolerance)
+        resolved = definitions.resolve(obj, definition, tolerance)
         assert resolved is not None, "Could not resolve {}".format(definition)
         assert resolved.DistanceTo(point) <= tolerance, (
             "Resolved point differs for {}".format(definition)
@@ -26,7 +25,7 @@ def _assert_resolves(obj, feature_type, tolerance):
 
 
 def verify_anchor_definitions():
-    from tack import anchor_definitions
+    from tack.anchors import definitions
 
     doc = sc.doc
     tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
@@ -81,62 +80,62 @@ def verify_anchor_definitions():
         counts = {
             "brep_vertex": _assert_resolves(
                 box,
-                anchor_definitions.BREP_VERTEX,
+                definitions.BREP_VERTEX,
                 tolerance,
             ),
             "brep_edge_midpoint": _assert_resolves(
                 box,
-                anchor_definitions.BREP_EDGE_MIDPOINT,
+                definitions.BREP_EDGE_MIDPOINT,
                 tolerance,
             ),
             "brep_face_center": _assert_resolves(
                 box,
-                anchor_definitions.BREP_FACE_CENTER,
+                definitions.BREP_FACE_CENTER,
                 tolerance,
             ),
             "curve_center": _assert_resolves(
                 circle,
-                anchor_definitions.CURVE_CENTER,
+                definitions.CURVE_CENTER,
                 tolerance,
             ),
             "curve_midpoint": _assert_resolves(
                 circle,
-                anchor_definitions.CURVE_MIDPOINT,
+                definitions.CURVE_MIDPOINT,
                 tolerance,
             ),
             "curve_quadrant": _assert_resolves(
                 circle,
-                anchor_definitions.CURVE_QUADRANT,
+                definitions.CURVE_QUADRANT,
                 tolerance,
             ),
             "curve_start": _assert_resolves(
                 line,
-                anchor_definitions.CURVE_START,
+                definitions.CURVE_START,
                 tolerance,
             ),
             "curve_end": _assert_resolves(
                 line,
-                anchor_definitions.CURVE_END,
+                definitions.CURVE_END,
                 tolerance,
             ),
             "polyline_vertex": _assert_resolves(
                 polyline,
-                anchor_definitions.POLYLINE_VERTEX,
+                definitions.POLYLINE_VERTEX,
                 tolerance,
             ),
             "polyline_segment_midpoint": _assert_resolves(
                 polyline,
-                anchor_definitions.POLYLINE_SEGMENT_MIDPOINT,
+                definitions.POLYLINE_SEGMENT_MIDPOINT,
                 tolerance,
             ),
             "circular_edge_center": _assert_resolves(
                 cylinder_object,
-                anchor_definitions.CIRCULAR_EDGE_CENTER,
+                definitions.CIRCULAR_EDGE_CENTER,
                 tolerance,
             ),
             "brep_edge_quadrant": _assert_resolves(
                 cylinder_object,
-                anchor_definitions.BREP_EDGE_QUADRANT,
+                definitions.BREP_EDGE_QUADRANT,
                 tolerance,
             ),
         }

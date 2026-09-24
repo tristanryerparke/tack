@@ -1,38 +1,20 @@
-"""Verify the document relationship index owns restore and clear traversal."""
+"""Verify endpoint object metadata owns the relationship graph."""
 
 import sys
 
 import Rhino
 import scriptcontext as sc
+import System
 
 sys.modules.pop("common", None)
-from common import add_circle, circular_plane_definition, cleanup, mark_test_object, run_test
-
-
-class _NoScanObjects:
-    def __init__(self, objects):
-        self._objects = objects
-
-    def Find(self, object_id):
-        return self._objects.Find(object_id)
-
-    def __getattr__(self, name):
-        return getattr(self._objects, name)
-
-    def __iter__(self):
-        raise AssertionError("relationship index must not enumerate document objects")
-
-
-class _NoScanDocument:
-    def __init__(self, doc):
-        self.RuntimeSerialNumber = doc.RuntimeSerialNumber
-        self.Strings = doc.Strings
-        self.Objects = _NoScanObjects(doc.Objects)
-
+from common import add_circle, circular_plane_definition, cleanup, run_test
 
 
 def verify_metadata_index():
-    from tack import plane_link_metadata
+    from tack.core import plugin_data
+    from tack.links import repository, schema
+    from tack.object_metadata import child as child_metadata
+    from tack.object_metadata import parent as parent_metadata
 
     doc = sc.doc
     cleanup(doc)
@@ -48,47 +30,56 @@ def verify_metadata_index():
         assert doc.Objects.ModifyAttributes(unrelated, attributes, True)
 
         links = [
-            plane_link_metadata.create(
+            repository.create(
                 doc,
                 parent_a,
                 child_a,
                 circular_plane_definition(parent_a),
                 circular_plane_definition(child_a),
-                False,
             ),
-            plane_link_metadata.create(
+            repository.create(
                 doc,
                 parent_b,
                 child_b,
                 circular_plane_definition(parent_b),
                 circular_plane_definition(child_b),
-                True,
+                allow_child_movement=True,
             ),
         ]
         assert all(links), "Could not persist analytic-plane links"
-        for object_id in (parent_a, child_a, parent_b, child_b):
-            assert not doc.Objects.Find(object_id).Attributes.UserDictionary.ContainsKey(
-                "Tack.PlaneLinks.v1"
-            )
 
-        indexed = plane_link_metadata.all_links(_NoScanDocument(doc))
+        for link in links:
+            assert schema.validate(link)
+            parent = doc.Objects.Find(System.Guid.Parse(str(link["parent_id"])))
+            child = doc.Objects.Find(System.Guid.Parse(str(link["child_id"])))
+            assert parent.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
+            assert parent_metadata.links(parent)[link["link_id"]] == link
+            assert child.Attributes.UserDictionary.ContainsKey(child_metadata.KEY)
+            assert link["link_id"] in child_metadata.link_ids(child)
+            assert not child.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
+
+        indexed = repository.all_links(doc)
         assert {link["link_id"] for link in indexed} == {
             link["link_id"] for link in links
         }
-        for link in links:
-            assert plane_link_metadata.validate(link)
-            assert link in indexed
+        document_data = plugin_data.document_data(doc)
+        assert "links" not in document_data
+        assert all("version" not in link for link in links)
 
-        assert plane_link_metadata.clear(_NoScanDocument(doc))
-        assert not plane_link_metadata.all_links(_NoScanDocument(doc))
-        assert not doc.Objects.Find(unrelated).Attributes.UserDictionary.ContainsKey(
-            "Tack.PlaneLinks.v1"
+        assert repository.clear(doc)
+        assert not repository.all_links(doc)
+        for object_id in (parent_a, child_a, parent_b, child_b):
+            obj = doc.Objects.Find(System.Guid.Parse(str(object_id)))
+            assert not obj.Attributes.UserDictionary.ContainsKey(parent_metadata.KEY)
+            assert not obj.Attributes.UserDictionary.ContainsKey(child_metadata.KEY)
+        assert (
+            str(
+                doc.Objects.Find(unrelated).Attributes.UserDictionary[
+                    "Tack.Test.Unrelated"
+                ]
+            )
+            == "preserve"
         )
-        assert str(
-            doc.Objects.Find(unrelated).Attributes.UserDictionary[
-                "Tack.Test.Unrelated"
-            ]
-        ) == "preserve"
         return {"link_count": len(links), "index_entries": len(indexed)}
     finally:
         cleanup(doc)

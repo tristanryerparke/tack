@@ -1,3 +1,4 @@
 {
-    "pendant.autoGenerateSessionNames": true
+    "pendant.autoGenerateSessionNames": true,
+    "pendant.editFromHereTarget": "new-editor"
 }

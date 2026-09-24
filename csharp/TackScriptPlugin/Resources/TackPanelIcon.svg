@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   fill="none"
+   fill-rule="evenodd"
+   stroke="black"
+   stroke-width="0.501"
+   stroke-linejoin="bevel"
+   stroke-miterlimit="10"
+   font-family="Times New Roman"
+   font-size="16"
+   style="font-variant-ligatures:none"
+   version="1.1"
+   overflow="visible"
+   width="36pt"
+   height="36pt"
+   viewBox="0 -36 36 36"
+   id="svg5"
+   sodipodi:docname="tack_5.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview5"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="pt"
+     inkscape:zoom="9.1936631"
+     inkscape:cx="20.720794"
+     inkscape:cy="21.373417"
+     inkscape:window-width="1680"
+     inkscape:window-height="930"
+     inkscape:window-x="0"
+     inkscape:window-y="30"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="Layer 1" />
+  <defs
+     id="defs1" />
+  <g
+     id="Layer 1"
+     transform="scale(1 -1)">
+    <ellipse
+       rx="12.084"
+       ry="12.085"
+       transform="translate(18.05 18.072) rotate(127.502)"
+       stroke-width="2.848"
+       stroke="#000000"
+       stroke-linecap="square"
+       id="ellipse2"
+       style="stroke:#dd4300;stroke-opacity:1" />
+    <path
+       d="M 16.49,20.447188 V 34.528 h 3 V 20.447188 Z"
+       stroke-width="0.686335"
+       stroke="none"
+       fill="#000000"
+       fill-rule="evenodd"
+       marker-start="none"
+       marker-end="none"
+       fill-opacity="1.000000"
+       id="path2"
+       style="fill:#964b4b;fill-opacity:1;stroke:none;stroke-opacity:1;paint-order:stroke fill markers" />
+    <path
+       d="m 20.371766,16.572 v 3 H 34.499 v -3 z"
+       stroke-width="0.681653"
+       stroke="none"
+       fill="#000000"
+       fill-rule="evenodd"
+       marker-start="none"
+       marker-end="none"
+       fill-opacity="1.000000"
+       id="path3"
+       style="fill:#4b964b;fill-opacity:1;paint-order:markers fill stroke;stroke:none;stroke-opacity:1;stroke-width:0.682;stroke-dasharray:none" />
+    <path
+       d="M 16.49,1.473 L 16.49,9.171 L 19.49,9.171 L 19.49,1.473 L 16.49,1.473 Z"
+       stroke-width="0.5"
+       stroke="none"
+       fill="#000000"
+       fill-rule="evenodd"
+       marker-start="none"
+       marker-end="none"
+       fill-opacity="1.000000"
+       id="path4"
+       style="fill:#dd4300;fill-opacity:1;paint-order:stroke fill markers" />
+    <path
+       d="M 1.539,16.572 L 1.539,19.572 L 9.14,19.572 L 9.14,16.572 L 1.539,16.572 Z"
+       stroke-width="0.5"
+       stroke="none"
+       fill="#000000"
+       fill-rule="evenodd"
+       marker-start="none"
+       marker-end="none"
+       fill-opacity="1.000000"
+       id="path5"
+       style="fill:#dd4300;fill-opacity:1;paint-order:stroke fill markers" />
+    <ellipse
+       rx="4.911"
+       ry="4.912"
+       transform="rotate(123.826,4.1968046,13.803428)"
+       fill="#000000"
+       stroke="#000000"
+       stroke-width="2.168"
+       stroke-linejoin="miter"
+       id="ellipse1"
+       style="font-variant-ligatures:none;fill:#ff9e00;fill-opacity:1;stroke:none" />
+  </g>
+</svg>

@@ -2,15 +2,18 @@
 
 import Rhino
 import System.Drawing
-import rhinoscriptsyntax as rs
 from Rhino.Commands import Result
 
-from tack import anchor_definitions
+from tack.anchors import definitions
+from tack.prompting.object_locking import lock_other_objects, unlock_objects
 
 
 class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
+    """Displays a point at the object center that combined with a construction point,
+    can be clicked as a tack reference point."""
+
     def __init__(self, point):
-        super(BoundingBoxCenterConduit, self).__init__()
+        super().__init__()
         self.point = point
 
     def DrawForeground(self, event):
@@ -55,30 +58,9 @@ def select_object(
                 return None
 
         obj = obj_ref.Object()
-        if obj is not None and anchor_definitions.bounding_box_center(obj) is not None:
+        if obj is not None and definitions.bounding_box_center(obj) is not None:
             return obj
         print("Select an object with a valid bounding box.")
-
-
-def _lock_other_objects(doc, target_id):
-    locked_ids = []
-    for candidate in doc.Objects:
-        if candidate is None or str(candidate.Id).lower() == str(target_id).lower():
-            continue
-        try:
-            if not rs.IsObjectLocked(candidate.Id) and rs.LockObject(candidate.Id):
-                locked_ids.append(candidate.Id)
-        except Exception:
-            pass
-    return locked_ids
-
-
-def _unlock_objects(object_ids):
-    for object_id in object_ids:
-        try:
-            rs.UnlockObject(object_id)
-        except Exception:
-            pass
 
 
 class AnchorPickSession:
@@ -89,22 +71,25 @@ class AnchorPickSession:
         self.obj = obj
         self.include_bounding_box_center = include_bounding_box_center
         self.tolerance = max(doc.ModelAbsoluteTolerance, 1e-7)
-        self.bounding_box_center = anchor_definitions.bounding_box_center(obj)
+        self.bounding_box_center = definitions.bounding_box_center(obj)
         if self.bounding_box_center is None:
             raise ValueError("The target object has no valid bounding box center")
         self._locked_ids = []
         self._osnap_was_enabled = None
         self._project_was_enabled = None
+        self._snap_to_locked_was_enabled = None
         self._center_conduit = BoundingBoxCenterConduit(self.bounding_box_center)
 
     def __enter__(self):
-        self._locked_ids = _lock_other_objects(self.doc, self.obj.Id)
+        self._locked_ids = lock_other_objects(self.doc, self.obj.Id)
         try:
             settings = Rhino.ApplicationSettings.ModelAidSettings
             self._osnap_was_enabled = settings.Osnap
             self._project_was_enabled = settings.ProjectSnapToCPlane
+            self._snap_to_locked_was_enabled = settings.SnapToLocked
             settings.Osnap = True
             settings.ProjectSnapToCPlane = False
+            settings.SnapToLocked = False
             self._center_conduit.Enabled = self.include_bounding_box_center
             self.doc.Views.Redraw()
             return self
@@ -119,7 +104,9 @@ class AnchorPickSession:
             settings.Osnap = self._osnap_was_enabled
         if self._project_was_enabled is not None:
             settings.ProjectSnapToCPlane = self._project_was_enabled
-        _unlock_objects(self._locked_ids)
+        if self._snap_to_locked_was_enabled is not None:
+            settings.SnapToLocked = self._snap_to_locked_was_enabled
+        unlock_objects(self._locked_ids)
         self._locked_ids = []
         self.doc.Views.Redraw()
         return False
@@ -150,10 +137,7 @@ class AnchorPickSession:
             if self.include_bounding_box_center:
                 getter.AddConstructionPoint(self.bounding_box_center)
                 getter.AddSnapPoint(self.bounding_box_center)
-            option_names = {
-                getter.AddOption(name): name
-                for name in options
-            }
+            option_names = {getter.AddOption(name): name for name in options}
 
             self.doc.Views.Redraw()
             try:
@@ -168,7 +152,7 @@ class AnchorPickSession:
                     self.include_bounding_box_center
                     and point.DistanceTo(self.bounding_box_center) <= self.tolerance
                 ):
-                    definition = {"type": anchor_definitions.BOUNDING_BOX_CENTER}
+                    definition = {"type": definitions.BOUNDING_BOX_CENTER}
                     if definition_filter is None or definition_filter(definition):
                         return point, definition
                     print(
@@ -188,7 +172,7 @@ class AnchorPickSession:
                     )
                     continue
 
-                derived = anchor_definitions.derive(
+                derived = definitions.derive(
                     obj_ref,
                     point,
                     getter.OsnapEventType,
@@ -204,9 +188,6 @@ class AnchorPickSession:
                     )
                     continue
 
-                print(
-                    "That snap cannot be derived unambiguously. "
-                    "Pick another snap."
-                )
+                print("That snap cannot be derived unambiguously. Pick another snap.")
             finally:
                 self.doc.Views.Redraw()

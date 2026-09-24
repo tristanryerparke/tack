@@ -9,7 +9,9 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff>=0.16.8",
     "run-in-rhino; python_version >= '3.13'",
+    "ty>=0.0.82",
 ]
 
 [tool.pytest.ini_options]
@@ -28,3 +30,20 @@ namespaces = true
 
 [tool.uv.sources]
 run-in-rhino = { path = "../run-in-rhino", editable = true }
+
+[tool.ty.environment]
+extra-paths = [
+    "stubs",
+    "/Users/tristanryerparke/.rhinocode/py39-rh8/site-stubs/rhino3d-8.35.26251.13002",
+    "/Users/tristanryerparke/.rhinocode/py39-rh8/site-rhinopython",
+    "/Users/tristanryerparke/projects-local/run-in-rhino",
+]
+
+[[tool.ty.overrides]]
+include = ["**/tack/ui/panel.py", "**/tack/core/plugin_data.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
+[tool.ruff.lint.isort]
+known-first-party = ["tack", "run_in_rhino"]

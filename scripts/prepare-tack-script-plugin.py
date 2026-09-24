@@ -27,8 +27,8 @@ def main():
     project_source = project_file.read_text()
     resource_item = (
         "  <ItemGroup>\n"
-        "    <EmbeddedResource Include=\"Plugin.Data.resources\" "
-        "LogicalName=\"Plugin.Data.resources\" />\n"
+        '    <EmbeddedResource Include="Plugin.Data.resources" '
+        'LogicalName="Plugin.Data.resources" />\n'
         "  </ItemGroup>\n"
     )
     if "Plugin.Data.resources" not in project_source:

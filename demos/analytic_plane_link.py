@@ -1,6 +1,6 @@
 """Run TackAdd from source for interactive development.
 
-    uv run rhino-watch demos/analytic_plane_link.py --debug
+uv run rhino-watch demos/analytic_plane_link.py --debug
 """
 
 import os

@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Reflection;
 
+using Eto.Forms;
+
 using Rhino;
 using Rhino.FileIO;
 using Rhino.PlugIns;
@@ -11,46 +13,51 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
 {
   public partial class ProjectPlugin
   {
+    const string DevelopmentRootFile = "development-python-root.txt";
+    const string SettingsKey = "PythonSettingsJson";
+    static readonly Guid RhinoCodePluginId =
+      new Guid("c9cba87a-23ce-4f15-a918-97645c05cde7");
     static bool s_restoreScheduled;
 
     public override PlugInLoadTime LoadTime => PlugInLoadTime.AtStartup;
 
-    public static bool DefaultDisplayEnabled
+    public static bool IsDevelopmentMode =>
+      File.Exists(Path.Combine(PluginDirectory(), DevelopmentRootFile));
+
+    public static string PythonRoot => ResolvePythonRoot();
+
+    public static string GetDocumentDataJson(uint documentSerialNumber)
     {
-      get => Instance == null || Instance.Settings.GetBool("DefaultDisplayEnabled", true);
+      return PluginDocumentData.GetJson(documentSerialNumber);
     }
 
-    public static void SaveDisplayPreference(string action)
+    public static bool SetDocumentDataJson(
+      uint documentSerialNumber,
+      string json)
     {
-      if (Instance != null && (action == "show" || action == "hide"))
-        Instance.Settings.SetBool("DefaultDisplayEnabled", action == "show");
+      return PluginDocumentData.SetJson(documentSerialNumber, json);
     }
 
-    public static double CrosshairSize
+    public static string GetSettingsJson()
     {
-      get => Instance == null || Instance.Settings == null
-        ? 20.0
-        : Instance.Settings.GetDouble("CrosshairSize", 20.0);
+      if (Instance?.Settings == null)
+        return "{}";
+
+      string json;
+      if (Instance.Settings.TryGetString(SettingsKey, out json))
+        return string.IsNullOrWhiteSpace(json) ? "{}" : json;
+
+      return "{}";
     }
 
-    public static void SaveCrosshairSize(double size)
+    public static void SetSettingsJson(string json)
     {
-      if (Instance != null && Instance.Settings != null)
-        Instance.Settings.SetDouble("CrosshairSize", size);
+      if (Instance?.Settings != null)
+        Instance.Settings.SetString(
+          SettingsKey,
+          string.IsNullOrWhiteSpace(json) ? "{}" : json);
     }
 
-    public static double CrosshairThickness
-    {
-      get => Instance == null || Instance.Settings == null
-        ? 2.0
-        : Instance.Settings.GetDouble("CrosshairThickness", 2.0);
-    }
-
-    public static void SaveCrosshairThickness(double thickness)
-    {
-      if (Instance != null && Instance.Settings != null)
-        Instance.Settings.SetDouble("CrosshairThickness", thickness);
-    }
 
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
@@ -84,7 +91,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       BinaryArchiveWriter archive,
       FileWriteOptions options)
     {
-      archive.WriteString(TackDocumentData.GetLinksJson(document.RuntimeSerialNumber));
+      archive.WriteString(PluginDocumentData.GetJson(document.RuntimeSerialNumber));
     }
 
     protected override void ReadDocument(
@@ -92,7 +99,21 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       BinaryArchiveReader archive,
       FileReadOptions options)
     {
-      TackDocumentData.LoadLinksJson(document, archive.ReadString());
+      PluginDocumentData.LoadJson(document, archive.ReadString());
+    }
+
+    internal static bool InstallPythonPanel(
+      uint documentSerialNumber,
+      string panelInstanceId)
+    {
+      return RunPython(
+        "from tack.ui import panel\n"
+        + "panel.install("
+        + documentSerialNumber
+        + ", "
+        + PythonString(panelInstanceId)
+        + ")\n",
+        "Tack panel initialization failed");
     }
 
     static void OnEndOpenDocument(object sender, DocumentOpenEventArgs eventArgs)
@@ -102,7 +123,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
 
     static void OnCloseDocument(object sender, DocumentEventArgs eventArgs)
     {
-      TackDocumentData.RemoveDocument(eventArgs.Document);
+      PluginDocumentData.Remove(eventArgs.Document);
     }
 
     static void ScheduleRestore()
@@ -111,31 +132,19 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         return;
 
       s_restoreScheduled = true;
-      Eto.Forms.Application.Instance.AsyncInvoke(() =>
+      Application.Instance.AsyncInvoke(() =>
       {
         s_restoreScheduled = false;
-        Initialize();
         if (!RestoreOpenDocuments())
           RhinoApp.WriteLine("Tack: saved relationships could not be restored.");
       });
-    }
-
-    internal static bool InstallPythonPanel(uint documentSerialNumber)
-    {
-      Initialize();
-      RhinoApp.WriteLine("Tack panel: starting Python content.");
-      return RunPython(
-        "from tack import panel\n"
-        + "panel.install(" + documentSerialNumber + ")\n",
-        "Tack panel initialization failed");
     }
 
     static bool RestoreOpenDocuments()
     {
       return RunPython(
         "from tack import actions\n"
-        + "actions.restore_open_documents(default_display_enabled="
-        + (DefaultDisplayEnabled ? "True" : "False") + ")\n",
+        + "actions.restore_open_documents()\n",
         "Tack startup restore failed");
     }
 
@@ -143,12 +152,26 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     {
       try
       {
+        var scripting = RhinoApp.GetPlugInObject(RhinoCodePluginId);
+        var createPython = scripting?.GetType().GetMethod(
+          "CreatePython3Script",
+          BindingFlags.Public | BindingFlags.Instance,
+          null,
+          Type.EmptyTypes,
+          null);
+        var python = createPython?.Invoke(scripting, null)
+          as Rhino.Runtime.PythonScript;
+        if (python == null)
+          throw new InvalidOperationException(
+            "Rhino's Python 3 service could not be loaded.");
+
         var source = "#! python 3\n"
           + "import sys\n"
           + "import Rhino\n"
-          + "_tack_python_root = " + PythonString(PythonRoot()) + "\n"
-          + "if _tack_python_root not in sys.path:\n"
-          + "    sys.path.insert(0, _tack_python_root)\n"
+          + "_tack_python_root = " + PythonString(PythonRoot) + "\n"
+          + "if _tack_python_root in sys.path:\n"
+          + "    sys.path.remove(_tack_python_root)\n"
+          + "sys.path.insert(0, _tack_python_root)\n"
           + "try:\n"
           + IndentPython(body)
           + "except Exception:\n"
@@ -157,19 +180,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
           + PythonString(failurePrefix + ":\\n")
           + " + traceback.format_exc())\n"
           + "    raise\n";
-        var rhinoCode = Type.GetType(
-          "Rhino.Runtime.Code.RhinoCode, Rhino.Runtime.Code");
-        var runScript = rhinoCode?.GetMethod(
-          "RunScript",
-          BindingFlags.Public | BindingFlags.Static,
-          null,
-          new[] { typeof(string) },
-          null);
-        if (runScript == null)
-          return false;
-
-        runScript.Invoke(null, new object[] { source });
-        return true;
+        return python.ExecuteScript(source);
       }
       catch (Exception exception)
       {
@@ -180,16 +191,28 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       }
     }
 
+    static string ResolvePythonRoot()
+    {
+      var marker = Path.Combine(PluginDirectory(), DevelopmentRootFile);
+      if (File.Exists(marker))
+      {
+        var developmentRoot = File.ReadAllText(marker).Trim();
+        if (Directory.Exists(developmentRoot))
+          return developmentRoot;
+        RhinoApp.WriteLine(
+          "Tack: development Python root is missing: " + developmentRoot);
+      }
+      return Path.Combine(PluginDirectory(), "Python");
+    }
+
+    static string PluginDirectory()
+    {
+      return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+    }
+
     static string IndentPython(string source)
     {
       return "    " + source.TrimEnd('\n').Replace("\n", "\n    ") + "\n";
-    }
-
-    static string PythonRoot()
-    {
-      return Path.Combine(
-        Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
-        "Python");
     }
 
     static string PythonString(string value)

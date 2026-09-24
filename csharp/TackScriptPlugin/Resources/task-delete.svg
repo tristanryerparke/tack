@@ -1,0 +1,14 @@
+<svg fill="none" fill-rule="evenodd" stroke="black" stroke-width="0.501" stroke-linejoin="bevel" stroke-miterlimit="10" font-family="Times New Roman" font-size="16" style="font-variant-ligatures:none" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" version="1.1" overflow="visible" width="12pt" height="12pt" viewBox="-2 -14 16 16">
+ <defs>
+  <linearGradient id="LinearGradient" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="9.789" y2="0.026" gradientTransform="translate(1.733 6.111)">
+   <stop offset="0" stop-color="#ff0000"/>
+   <stop offset="1" stop-color="#bf0000"/>
+  </linearGradient>
+ </defs>
+ <g id="Layer 1" transform="scale(1 -1)">
+  <g id="Group" stroke="none">
+   <path d="M 6.002,7.119 L 2.215,10.906 L 1.104,9.808 L 4.897,6.011 L 1.104,2.231 L 2.208,1.113 L 6.004,4.903 L 9.789,1.097 L 10.896,2.224 L 7.189,5.986 L 10.9,9.798 L 9.785,10.906 L 6.002,7.119 Z" stroke-linejoin="miter" marker-start="none" marker-end="none" fill="url(#LinearGradient)"/>
+   <path d="M 9.79,0.742 L 6.003,4.549 L 2.206,0.759 L 0.751,2.232 L 4.543,6.011 L 0.75,9.809 L 2.216,11.257 L 6.001,7.471 L 9.784,11.258 L 11.251,9.8 L 7.538,5.987 L 11.246,2.224 L 9.79,0.742 Z M 9.787,1.451 L 10.545,2.223 L 6.839,5.984 L 10.548,9.795 L 9.785,10.553 L 6.002,6.766 L 2.213,10.554 L 1.457,9.806 L 5.25,6.01 L 1.456,2.229 L 2.209,1.466 L 6.004,5.256 L 9.787,1.451 Z" stroke-width="0.5" fill="#7f0000" fill-rule="evenodd" marker-start="none" marker-end="none" fill-opacity="1.000000"/>
+  </g>
+ </g>
+</svg>

@@ -4,7 +4,7 @@ import sys
 import types
 
 
-MODULE_PATH = Path(__file__).parents[1] / "tack" / "document_runtime.py"
+MODULE_PATH = Path(__file__).parents[1] / "tack" / "core" / "documents.py"
 
 
 class FakeDocument:

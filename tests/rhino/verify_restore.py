@@ -8,21 +8,23 @@ sys.modules.pop("common", None)
 from common import run_test
 
 
-
 def verify_restore():
-    from tack import plane_link
-    from tack import plane_link_metadata
+    from tack.links import (
+        repository,
+        runtime,
+        state,
+    )
 
     doc = sc.doc
-    plane_link._remove_runtime(doc)
-    restored_count = plane_link.restore_document(doc, default_display_enabled=False)
-    links = plane_link_metadata.all_links(doc)
-    states = plane_link.states(doc, create=False)
+    runtime.remove_runtime(doc)
+    restored_count = runtime.restore_document(doc, default_display_enabled=False)
+    links = repository.all_links(doc)
+    states = state.states(doc, create=False)
 
     assert len(links) == 1
     assert restored_count == 1
     assert set(states) == {links[0]["link_id"]}
-    assert not plane_link.display_enabled(doc)
+    assert not runtime.display_enabled(doc)
     return {
         "link_id": links[0]["link_id"],
         "restored_count": restored_count,
