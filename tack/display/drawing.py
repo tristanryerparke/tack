@@ -6,6 +6,8 @@ import System.Drawing
 LOCKED_WIRE_THICKNESS = 1
 POINT_BACKING_COLOR = System.Drawing.Color.White
 POINT_CORE_COLOR = System.Drawing.Color.White
+SNAP_POINT_BACKING_COLOR = System.Drawing.Color.Black
+SNAP_POINT_COLOR = System.Drawing.Color.White
 
 
 def _draw_bounding_box(display, geometry, color, thickness):
@@ -86,6 +88,22 @@ def draw_endpoint_point(display, point, ring_color):
         Rhino.Display.PointStyle.Circle,
         2,
         POINT_CORE_COLOR,
+    )
+
+
+def draw_center_snap_point(display, point):
+    """Draw the object-center snap as a 2 px white circle with black backing."""
+    display.DrawPoint(
+        point,
+        Rhino.Display.PointStyle.Circle,
+        4,
+        SNAP_POINT_BACKING_COLOR,
+    )
+    display.DrawPoint(
+        point,
+        Rhino.Display.PointStyle.Circle,
+        2,
+        SNAP_POINT_COLOR,
     )
 
 

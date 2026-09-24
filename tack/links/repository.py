@@ -99,6 +99,11 @@ def all_links(doc, include_invalid=False):
     return list(active_observed_links(parents, children, include_invalid).values())
 
 
+def has_parent(doc, object_id):
+    """Return whether an active Tack already uses this object as its child."""
+    return any(same_id(link.child_id, object_id) for link in all_links(doc))
+
+
 def read_link(doc, link_id, parent_id=None, include_invalid=False):
     """Read one active Link directly from its parent object metadata."""
     if parent_id is not None:
@@ -258,6 +263,12 @@ def create(
 ):
     """Persist a Tack's current or explicitly supplied plane relationship."""
     replaced = _replacement_links(doc, parent_id, child_id)
+    replaced_ids = {link.link_id for link in replaced}
+    if any(
+        same_id(link.child_id, child_id) and link.link_id not in replaced_ids
+        for link in all_links(doc)
+    ):
+        return None
     if not replaced and graph.would_create_cycle(_active_pairs(doc), parent_id, child_id):
         return None
     from tack.anchors import analytic_plane

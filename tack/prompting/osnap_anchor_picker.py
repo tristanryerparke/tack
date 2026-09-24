@@ -1,11 +1,10 @@
 """Reusable OSnap picker for analytic anchor definitions."""
 
 import Rhino
-import System.Drawing
 from Rhino.Commands import Result
 
 from tack.anchors import definitions
-from tack.display.drawing import draw_endpoint_point
+from tack.display.drawing import draw_center_snap_point
 from tack.prompting.object_locking import lock_other_objects, unlock_objects
 
 
@@ -18,15 +17,16 @@ class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
         self.point = point
 
     def DrawForeground(self, event):
-        draw_endpoint_point(event.Display, self.point, System.Drawing.Color.Black)
+        draw_center_snap_point(event.Display, self.point)
 
 
 def select_object(
     doc,
     prompt="Select object to anchor",
     allow_preselection=True,
+    object_filter=None,
 ):
-    """Select an object whose geometry has a valid bounding box."""
+    """Select an allowed object whose geometry has a valid bounding box."""
     while True:
         if allow_preselection:
             result, obj_ref = Rhino.Input.RhinoGet.GetOneObject(
@@ -41,6 +41,10 @@ def select_object(
             getter.SetCommandPrompt(prompt)
             getter.GeometryFilter = Rhino.DocObjects.ObjectType.AnyObject
             getter.EnablePreSelect(False, True)
+            if object_filter is not None:
+                getter.SetCustomGeometryFilter(
+                    lambda obj, geometry, component_index: bool(object_filter(obj))
+                )
             if getter.Get() != Rhino.Input.GetResult.Object:
                 return None
             obj_ref = getter.Object(0)
@@ -48,7 +52,11 @@ def select_object(
                 return None
 
         obj = obj_ref.Object()
-        if obj is not None and definitions.bounding_box_center(obj) is not None:
+        if (
+            obj is not None
+            and (object_filter is None or object_filter(obj))
+            and definitions.bounding_box_center(obj) is not None
+        ):
             return obj
         print("Select an object with a valid bounding box.")
 

@@ -94,17 +94,32 @@ def pick_plane(doc, obj, role, rotation):
 
 
 def select_child(doc, parent_id):
+    from tack.core.objects import object_key, same_id
+    from tack.links import repository
+
+    existing_child_ids = {object_key(link.child_id) for link in repository.all_links(doc)}
     while True:
         child = select_object(
             doc,
             "Select child object",
             allow_preselection=False,
+            object_filter=lambda obj: (
+                obj is not None and not same_id(obj.Id, parent_id)
+            ),
         )
         if child is None:
             return None
-        if str(child.Id).lower() != str(parent_id).lower():
+        if object_key(child.Id) not in existing_child_ids:
             return child
-        Rhino.RhinoApp.WriteLine("Select a child different from the parent.")
+        child.Select(False)
+        doc.Views.Redraw()
+        Rhino.UI.Dialogs.ShowMessage(
+            "This object already has a parent Tack and cannot be selected as "
+            "a child.",
+            "Tack child already has a parent",
+            Rhino.UI.ShowMessageButton.OK,
+            Rhino.UI.ShowMessageIcon.Warning,
+        )
 
 
 def select_parent_and_degrees_of_freedom(doc):

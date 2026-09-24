@@ -82,16 +82,19 @@ def test_reset_moveable_tacks_command_is_undoable(rhino_instance):
         rhino_instance,
     )
 
+    assert setup["middle_moved"] != reset["middle"]
     assert setup["child_moved"] != reset["child"]
     assert reset == {
         "name": "reset_moveable_tacks_collect",
+        "middle": [0.0, 0.0, 0.0],
         "child": [0.0, 0.0, 0.0],
-        "at_original_relationship": True,
+        "at_original_relationships": True,
         "resettable_count": 0,
     }
+    assert undone["middle"] == setup["middle_moved"]
     assert undone["child"] == setup["child_moved"]
-    assert not undone["at_original_relationship"]
-    assert undone["resettable_count"] == 1
+    assert not undone["at_original_relationships"]
+    assert undone["resettable_count"] == 2
 
 
 @pytest.mark.rhino

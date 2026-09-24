@@ -290,17 +290,46 @@ def restore_document(doc, default_display_enabled=True):
     return len(active)
 
 
+def _at_original_relationship(doc, link):
+    from tack.anchors import analytic_plane
+
+    parent_plane = analytic_plane.resolve_definition(doc, link.parent_plane_def)
+    child_plane = analytic_plane.resolve_definition(doc, link.child_plane_def)
+    if parent_plane is None or child_plane is None:
+        return False
+    target_child_plane = transforms.inherit_target_child_plane(
+        parent_plane,
+        link.original_transform,
+    )
+    if target_child_plane is None:
+        return False
+    target_child_plane = transforms.constrained_target_child_plane(
+        target_child_plane,
+        child_plane,
+        link.translation,
+        link.rotation,
+    )
+    return transforms.planes_match(
+        target_child_plane,
+        child_plane,
+        max(doc.ModelAbsoluteTolerance, 1e-7),
+    )
+
+
 def resettable_links(doc):
-    """Return active child-movable Tacks whose relationship has changed."""
+    """Return active child-movable Tacks deviated from their original relation."""
     active_states = state.states(doc, create=False)
     return tuple(
         link
         for link in repository.all_links(doc)
         if link.allow_child_movement
         and link.link_id in active_states
-        and not transforms.transform_data_matches(
-            link.current_transform,
-            link.original_transform,
+        and (
+            not transforms.transform_data_matches(
+                link.current_transform,
+                link.original_transform,
+            )
+            or not _at_original_relationship(doc, link)
         )
     )
 
@@ -320,10 +349,15 @@ def reset_transform(doc, link_id):
 
 
 def reset_all_transforms(doc):
-    """Reset every deviated child-movable Tack in one undoable operation."""
-    links = resettable_links(doc)
-    if not links:
+    """Reset deviated child-movable Tacks parent-to-child in one undo step."""
+    links_by_id = {link.link_id: link for link in resettable_links(doc)}
+    if not links_by_id:
         return False
+    links = [
+        links_by_id[link_state.link_id]
+        for link_state in state.ordered_states(state.states(doc, create=False))
+        if link_state.link_id in links_by_id
+    ]
     undo_record = doc.BeginUndoRecord("Reset Moveable Tacks")
     try:
         results = [reset_transform(doc, link.link_id) for link in links]

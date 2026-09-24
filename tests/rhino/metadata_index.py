@@ -47,6 +47,16 @@ def verify_metadata_index():
             ),
         ]
         assert all(links), "Could not persist analytic-plane links"
+        assert repository.has_parent(doc, child_a)
+        assert not repository.has_parent(doc, parent_a)
+        second_parent = repository.create(
+            doc,
+            parent_b,
+            child_a,
+            circular_plane_definition(parent_b),
+            circular_plane_definition(child_a),
+        )
+        assert second_parent is None, "A Tack child must not accept a second parent"
 
         for link in links:
             assert schema.validate(link)
