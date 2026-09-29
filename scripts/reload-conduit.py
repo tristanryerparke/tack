@@ -8,7 +8,7 @@ from TackRhinoPlugin import PluginBridge
 
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.parasite import OutputParasite
-from tack.display import drawing, link_conduit
+from tack.display import conduit, drawing
 from tack.links import runtime, state
 
 
@@ -20,7 +20,7 @@ def reload_conduit():
     runtime.remove_conduit()
     importlib.reload(drawing)
     importlib.reload(runtime)
-    importlib.reload(link_conduit)
+    importlib.reload(conduit)
 
     restored = 0
     for document in Rhino.RhinoDoc.OpenDocuments(False):

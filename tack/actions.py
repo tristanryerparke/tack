@@ -62,6 +62,7 @@ def add(doc, default_display_enabled=True):
             child,
             "child",
             degrees_of_freedom["rotation"],
+            confirm_child_orientation=not degrees_of_freedom["attach"],
         )
         if child_result is None:
             return Result.Cancel
@@ -71,14 +72,17 @@ def add(doc, default_display_enabled=True):
         undo_record = doc.BeginUndoRecord("Add Tack")
         try:
             if degrees_of_freedom["attach"]:
-                transform = preview_placement(
+                placement = preview_placement(
                     doc,
                     child,
                     parent_plane,
+                    child_definition,
                     child_plane,
+                    degrees_of_freedom["rotation"],
                 )
-                if transform is None:
+                if placement is None:
                     return Result.Cancel
+                child_definition, child_plane, transform = placement
                 transformed_child = transforms.transform_object_in_place(
                     doc,
                     child,

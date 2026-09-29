@@ -58,8 +58,12 @@ def _set_user_setting(doc, name, value):
 def crosshair_size(doc):
     from tack.anchors import analytic_plane
 
-    size = _number_setting(doc, plugin_data.CROSSHAIR_SIZE, analytic_plane.CROSSHAIR_SIZE)
-    return max(analytic_plane.CROSSHAIR_SIZE_MIN, min(analytic_plane.CROSSHAIR_SIZE_MAX, size))
+    size = _number_setting(
+        doc, plugin_data.CROSSHAIR_SIZE, analytic_plane.CROSSHAIR_SIZE
+    )
+    return max(
+        analytic_plane.CROSSHAIR_SIZE_MIN, min(analytic_plane.CROSSHAIR_SIZE_MAX, size)
+    )
 
 
 def set_crosshair_size(doc, size):
@@ -98,6 +102,25 @@ def set_crosshair_thickness(doc, thickness):
     _set_user_setting(doc, plugin_data.CROSSHAIR_THICKNESS, float(thickness))
     doc.Views.Redraw()
     return thickness
+
+
+def dot_opacity(doc):
+    from tack.display import drawing
+
+    opacity = _number_setting(doc, plugin_data.DOT_OPACITY, drawing.POINT_OPACITY)
+    return max(drawing.POINT_OPACITY_MIN, min(drawing.POINT_OPACITY_MAX, opacity))
+
+
+def set_dot_opacity(doc, opacity):
+    from tack.display import drawing
+
+    opacity = max(
+        drawing.POINT_OPACITY_MIN,
+        min(drawing.POINT_OPACITY_MAX, int(opacity)),
+    )
+    _set_user_setting(doc, plugin_data.DOT_OPACITY, float(opacity))
+    doc.Views.Redraw()
+    return opacity
 
 
 def show_selected_tacks_only(doc):
@@ -163,7 +186,11 @@ def set_tack_selection(doc, link_id):
 
 def display_enabled(doc):
     display_state = documents.try_get_value(doc, DISPLAY_KEY)
-    return preferences.display_enabled(doc) if display_state is None else bool(display_state["enabled"])
+    return (
+        preferences.display_enabled(doc)
+        if display_state is None
+        else bool(display_state["enabled"])
+    )
 
 
 def set_display_enabled(doc, enabled):
@@ -178,7 +205,7 @@ def set_display_enabled(doc, enabled):
 
 
 def ensure_conduit(doc, default_display_enabled=True):
-    from tack.display.link_conduit import LinkedPlaneConduit
+    from tack.display.conduit import LinkedPlaneConduit
 
     conduit = active_conduit()
     if conduit is None:
@@ -233,7 +260,9 @@ def install(doc, link, default_display_enabled=True):
     state.set_state(doc, link_state)
     saved_display_enabled = preferences.display_enabled(doc, default_display_enabled)
     ensure_conduit(doc, saved_display_enabled)
-    preferences.set_display_enabled(doc, _display_state(doc, saved_display_enabled)["enabled"])
+    preferences.set_display_enabled(
+        doc, _display_state(doc, saved_display_enabled)["enabled"]
+    )
     from tack.links import lifecycle
 
     lifecycle.subscribe()

@@ -12,12 +12,13 @@ class BoundingBoxCenterConduit(Rhino.Display.DisplayConduit):
     """Displays a point at the object center that combined with a construction point,
     can be clicked as a tack reference point."""
 
-    def __init__(self, point):
+    def __init__(self, point, opacity):
         super().__init__()
         self.point = point
+        self.opacity = opacity
 
     def DrawForeground(self, event):
-        draw_center_snap_point(event.Display, self.point)
+        draw_center_snap_point(event.Display, self.point, self.opacity)
 
 
 def select_object(
@@ -76,7 +77,12 @@ class AnchorPickSession:
         self._osnap_was_enabled = None
         self._project_was_enabled = None
         self._snap_to_locked_was_enabled = None
-        self._center_conduit = BoundingBoxCenterConduit(self.bounding_box_center)
+        from tack.links import runtime
+
+        self._center_conduit = BoundingBoxCenterConduit(
+            self.bounding_box_center,
+            runtime.dot_opacity(doc),
+        )
 
     def __enter__(self):
         self._locked_ids = lock_other_objects(self.doc, self.obj.Id)

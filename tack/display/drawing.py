@@ -8,6 +8,14 @@ POINT_BACKING_COLOR = System.Drawing.Color.White
 POINT_CORE_COLOR = System.Drawing.Color.White
 SNAP_POINT_BACKING_COLOR = System.Drawing.Color.Black
 SNAP_POINT_COLOR = System.Drawing.Color.White
+POINT_OPACITY_MIN = 0
+POINT_OPACITY_MAX = 100
+POINT_OPACITY = 75
+
+
+def _point_color(color, opacity):
+    alpha = round(255 * max(POINT_OPACITY_MIN, min(POINT_OPACITY_MAX, opacity)) / 100)
+    return System.Drawing.Color.FromArgb(alpha, color)
 
 
 def _draw_bounding_box(display, geometry, color, thickness):
@@ -69,41 +77,41 @@ def draw_transformed_object(display, obj, transform):
     display.DrawObject(obj, transform)
 
 
-def draw_endpoint_point(display, point, ring_color):
+def draw_endpoint_point(display, point, ring_color, opacity=POINT_OPACITY):
     """Draw a Rhino-style colored-ring point with a white core."""
     display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         6,
-        POINT_BACKING_COLOR,
+        _point_color(POINT_BACKING_COLOR, opacity),
     )
     display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         4,
-        ring_color,
+        _point_color(ring_color, opacity),
     )
     display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         2,
-        POINT_CORE_COLOR,
+        _point_color(POINT_CORE_COLOR, opacity),
     )
 
 
-def draw_center_snap_point(display, point):
+def draw_center_snap_point(display, point, opacity=POINT_OPACITY):
     """Draw the object-center snap as a 2 px white circle with black backing."""
     display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         4,
-        SNAP_POINT_BACKING_COLOR,
+        _point_color(SNAP_POINT_BACKING_COLOR, opacity),
     )
     display.DrawPoint(
         point,
         Rhino.Display.PointStyle.Circle,
         2,
-        SNAP_POINT_COLOR,
+        _point_color(SNAP_POINT_COLOR, opacity),
     )
 
 

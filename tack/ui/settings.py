@@ -35,7 +35,7 @@ def show(doc):
 
     dialog = forms.Dialog[bool]()
     dialog.Title = "Tack Settings"
-    dialog.ClientSize = drawing.Size(280, 255)
+    dialog.ClientSize = drawing.Size(280, 290)
     dialog.Resizable = False
     Rhino.UI.EtoExtensions.UseRhinoStyle(dialog)
 
@@ -57,6 +57,14 @@ def show(doc):
         analytic_plane.CROSSHAIR_THICKNESS_MAX,
         runtime.crosshair_thickness(doc),
         lambda thickness: runtime.set_crosshair_thickness(doc, thickness),
+    )
+    opacity_label, opacity_slider = _slider(
+        dialog,
+        "Tack dot opacity",
+        0,
+        100,
+        runtime.dot_opacity(doc),
+        lambda opacity: runtime.set_dot_opacity(doc, opacity),
     )
     selected_only = forms.CheckBox()
     selected_only.Text = "Show Selected Tacks Only"
@@ -91,6 +99,8 @@ def show(doc):
     layout.AddRow(size_slider)
     layout.AddRow(thickness_label)
     layout.AddRow(thickness_slider)
+    layout.AddRow(opacity_label)
+    layout.AddRow(opacity_slider)
     layout.AddRow(selected_only)
     layout.AddRow(highlight_selected)
     layout.AddRow(dynamic_previews)

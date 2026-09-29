@@ -13,6 +13,7 @@ ADD_TACK_ALLOW_CHILD_MOVEMENT = "add_tack_allow_child_movement"
 ADD_TACK_FLIP_CHILD_PLANE = "add_tack_flip_child_plane"
 CROSSHAIR_SIZE = "crosshair_size"
 CROSSHAIR_THICKNESS = "crosshair_thickness"
+DOT_OPACITY = "dot_opacity"
 
 
 def _bridge():

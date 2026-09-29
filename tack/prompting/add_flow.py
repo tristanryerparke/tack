@@ -36,6 +36,14 @@ def _save_parent_options(translation, rotation, attach, allow_child_movement):
     plugin_data.set_settings(values)
 
 
+def _plane_with_child_flip(doc, definition, plane, flipped):
+    if not flipped:
+        return definition, plane
+    definition = analytic_plane.flipped_definition(definition)
+    flipped_plane = analytic_plane.resolve_definition(doc, definition)
+    return (definition, flipped_plane) if flipped_plane is not None else None
+
+
 def _flip_child_plane(doc, definition, plane, role, rotation):
     """Choose the Child plane's persisted orientation before creating a Tack."""
     if role != "child" or not rotation:
@@ -57,16 +65,17 @@ def _flip_child_plane(doc, definition, plane, role, rotation):
                 plugin_data.ADD_TACK_FLIP_CHILD_PLANE,
                 bool(flipped.CurrentValue),
             )
-            if not flipped.CurrentValue:
-                return definition, plane
-            definition = analytic_plane.flipped_definition(definition)
-            flipped_plane = analytic_plane.resolve_definition(doc, definition)
-            return (definition, flipped_plane) if flipped_plane is not None else None
+            return _plane_with_child_flip(
+                doc,
+                definition,
+                plane,
+                bool(flipped.CurrentValue),
+            )
         if result != Rhino.Input.GetResult.Option:
             return None
 
 
-def pick_plane(doc, obj, role, rotation):
+def pick_plane(doc, obj, role, rotation, confirm_child_orientation=True):
     view = doc.Views.ActiveView
     if view is None:
         return None
@@ -90,7 +99,11 @@ def pick_plane(doc, obj, role, rotation):
     if plane is None:
         Rhino.RhinoApp.WriteLine(f"The {role} Tack plane could not be resolved.")
         return None
-    return _flip_child_plane(doc, definition, plane, role, rotation)
+    return (
+        _flip_child_plane(doc, definition, plane, role, rotation)
+        if confirm_child_orientation
+        else (definition, plane)
+    )
 
 
 def select_child(doc, parent_id):
@@ -171,16 +184,64 @@ def select_parent_and_degrees_of_freedom(doc):
         Rhino.RhinoApp.WriteLine("Select an object with a valid bounding box.")
 
 
-def preview_placement(doc, child, parent_plane, child_plane):
-    """Preview the one-time full plane alignment performed by Attach."""
-    conduit = TransformPreviewConduit(child, parent_plane, child_plane)
+def preview_placement(
+    doc,
+    child,
+    parent_plane,
+    child_definition,
+    child_plane,
+    rotation,
+):
+    """Preview Attach placement while choosing the child plane orientation."""
+    flipped = (
+        Rhino.Input.Custom.OptionToggle(
+            _bool_setting(plugin_data.ADD_TACK_FLIP_CHILD_PLANE, False),
+            "No",
+            "Yes",
+        )
+        if rotation
+        else None
+    )
+    placement = _plane_with_child_flip(
+        doc,
+        child_definition,
+        child_plane,
+        bool(flipped.CurrentValue) if flipped is not None else False,
+    )
+    if placement is None:
+        return None
+    definition, plane = placement
+    conduit = TransformPreviewConduit(child, parent_plane, plane)
     getter = Rhino.Input.Custom.GetOption()
-    getter.SetCommandPrompt("Preview the child placement")
+    getter.SetCommandPrompt("Preview Child Placement")
     getter.AcceptNothing(True)
+    if flipped is not None:
+        getter.AddOptionToggle("Flip", flipped)
     conduit.Enabled = True
     doc.Views.Redraw()
     try:
-        return conduit.transform if getter.Get() == Rhino.Input.GetResult.Nothing else None
+        while True:
+            result = getter.Get()
+            if result == Rhino.Input.GetResult.Nothing:
+                if flipped is not None:
+                    plugin_data.set_setting(
+                        plugin_data.ADD_TACK_FLIP_CHILD_PLANE,
+                        bool(flipped.CurrentValue),
+                    )
+                return definition, plane, conduit.transform
+            if result != Rhino.Input.GetResult.Option:
+                return None
+            placement = _plane_with_child_flip(
+                doc,
+                child_definition,
+                child_plane,
+                bool(flipped.CurrentValue),
+            )
+            if placement is None:
+                return None
+            definition, plane = placement
+            conduit.child_plane = plane
+            doc.Views.Redraw()
     finally:
         conduit.Enabled = False
         doc.Views.Redraw()
